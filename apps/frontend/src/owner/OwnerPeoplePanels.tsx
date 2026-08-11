@@ -170,6 +170,10 @@ export function OwnerUsersPanel() {
       )}
 
       <BanDialog user={banTarget} onClose={() => setBanTarget(null)} />
+
+      {detailUserId && (
+        <OwnerUserDetailPanel userId={detailUserId} onClose={() => setDetailUserId(null)} />
+      )}
     </div>
   );
 }
