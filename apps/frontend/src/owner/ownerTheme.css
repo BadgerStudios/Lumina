@@ -1,0 +1,117 @@
+/**
+ * Owner console design layer.
+ *
+ * The console is a different kind of surface from the chat app: it is read at a glance, usually
+ * under some time pressure, and every element on it is either a number or a decision. So it gets its
+ * own visual language rather than inheriting the app's — denser, flatter, higher contrast, with
+ * colour reserved almost entirely for status rather than decoration.
+ *
+ * Layered on top of the app's existing tokens (index.css) rather than replacing them, so the two
+ * stay in the same family and a token change still propagates here.
+ */
+
+:root {
+  /* Console-specific surfaces, a touch cooler and darker than the chat app's so panels read as
+     instrument housing rather than content. */
+  --oc-bg: #08070f;
+  --oc-panel: #100e1a;
+  --oc-panel-raised: #16142212;
+  --oc-line: #262138;
+  --oc-line-bright: #352f4d;
+
+  /* Status colours. Deliberately only four, and each means exactly one thing:
+     good / attention / bad / idle. Anything else on this dashboard stays neutral. */
+  --oc-good: #33d6a6;
+  --oc-warn: #f5b942;
+  --oc-bad: #ff5c72;
+  --oc-idle: #6c6690;
+
+  --oc-master: #f5b942;
+  --oc-owner: #a45cf5;
+  --oc-staff: #5b7cfa;
+}
+
+/* Numbers are the point of this screen, so they get tabular figures — without this, a value ticking
+   from 199 to 200 visibly reflows the tile, which reads as the layout twitching. */
+.oc-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.oc-panel {
+  background: var(--oc-panel);
+  border: 1px solid var(--oc-line);
+  border-radius: 14px;
+}
+
+/* Hairline top highlight — the cheapest way to make a flat dark panel read as a raised surface
+   without resorting to drop shadows, which muddy at this darkness. */
+.oc-panel-lift {
+  position: relative;
+  overflow: hidden;
+}
+.oc-panel-lift::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--oc-line-bright), transparent);
+  pointer-events: none;
+}
+
+/* Left accent bar on the active nav item. Animated on width rather than opacity so it reads as the
+   selection physically moving down the rail. */
+.oc-nav-item {
+  position: relative;
+}
+.oc-nav-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 0;
+  height: 60%;
+  transform: translateY(-50%);
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  transition: width 140ms ease;
+}
+.oc-nav-item[data-active="true"]::before {
+  width: 3px;
+}
+
+/* Status dot with a soft halo, so a red dot is noticeable in peripheral vision on a phone. */
+.oc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+}
+.oc-dot[data-state="good"] { background: var(--oc-good); box-shadow: 0 0 0 3px rgb(51 214 166 / 0.15); }
+.oc-dot[data-state="warn"] { background: var(--oc-warn); box-shadow: 0 0 0 3px rgb(245 185 66 / 0.15); }
+.oc-dot[data-state="bad"]  { background: var(--oc-bad);  box-shadow: 0 0 0 3px rgb(255 92 114 / 0.18); }
+.oc-dot[data-state="idle"] { background: var(--oc-idle); }
+
+/* Live pulse for the "updating" indicator. Kept slow and low-contrast: a fast blink on a dashboard
+   someone leaves open all day is genuinely irritating. */
+@keyframes oc-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.oc-live {
+  animation: oc-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oc-live { animation: none; }
+  .oc-nav-item::before { transition: none; }
+}
+
+/* Section label: small, wide-tracked, low-contrast — a caption for the group below, not a heading
+   competing with the numbers. */
+.oc-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--signal-faint);
+}

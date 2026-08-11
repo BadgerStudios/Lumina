@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover so env(safe-area-inset-*) reports real values. Without it those insets
+         are always zero, and an installed home-screen app draws its header under the notch and its
+         nav under the home indicator — the exact defect already fixed once in the owner console. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#00021A" />
+
+    <!-- Installability.
+         iOS will not offer "Add to Home Screen" as an app without a manifest, and — since iOS 16.4
+         — a home-screen web app is also the ONLY way an iPhone can receive Web Push. Both the
+         service worker and the VAPID keys were already in place; this file was the missing piece,
+         so the app was permanently one tap short of being installable on iPhone. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Legacy, still honoured by older iOS versions that predate manifest support. Harmless and
+         one line; without it those versions open the home-screen icon in a Safari tab with the
+         address bar visible instead of as a standalone app. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Lumina" />
+    <title>Lumina</title>
+    <meta
+      name="description"
+      content="Lumina is a self-hosted community platform — servers, channels, voice, video and a short-video feed, on hardware you control."
+    />
+    <!-- Link previews. Without these, pasting the site anywhere — a chat app, a social post, a
+         search result — renders as a bare URL with no logo and no description, which is exactly
+         where a marketing site most needs to look like itself. The image is the real logo asset,
+         the same one the app uses; it must be an ABSOLUTE url because scrapers do not resolve
+         relative paths. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Lumina" />
+    <meta property="og:title" content="Lumina — your community, on your own terms" />
+    <meta
+      property="og:description"
+      content="Servers, channels, voice, video and a short-video feed. Self-hosted, on hardware you control."
+    />
+    <meta property="og:image" content="https://lumina.badgerstudios.net/icons/pwa-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:url" content="https://lumina.badgerstudios.net/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Lumina — your community, on your own terms" />
+    <meta
+      name="twitter:description"
+      content="Servers, channels, voice, video and a short-video feed. Self-hosted, on hardware you control."
+    />
+    <meta name="twitter:image" content="https://lumina.badgerstudios.net/icons/pwa-512.png" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/pwa-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/pwa-512.png" />
+    <script>
+      // Applied before first paint (inline, ahead of the bundle) so there's no flash of the
+      // wrong theme: same precedence as store/uiStore.ts (stored preference wins, otherwise
+      // fall back to the OS preference) — that module re-applies the same value once it loads.
+      (function () {
+        try {
+          var stored = localStorage.getItem("lumina-theme");
+          // Kept in sync with THEMES in store/uiStore.ts. Listing them here matters: anything not
+          // recognised falls back to the OS preference, so a stored "midnight" that this script
+          // didn't know about would flash the default dark palette before the bundle corrected it.
+          var known = ["dark", "light", "midnight", "carbon", "moss", "parchment", "slate"];
+          var theme =
+            stored && known.indexOf(stored) !== -1
+              ? stored
+              : window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+        try {
+          var accent = localStorage.getItem("lumina-accent-theme");
+          if (accent) document.documentElement.setAttribute("data-accent", accent);
+        } catch (e) {
+          /* default accent (no attribute) */
+        }
+      })();
+    </script>
+  </head>
+  <body class="bg-base-800 text-signal">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

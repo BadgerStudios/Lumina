@@ -1,0 +1,147 @@
+import { useEffect, useState } from "react";
+import { Modal } from "./Modal";
+import { useUIStore } from "../../store/uiStore";
+import { useChannels, useUpdateChannel, useDeleteChannel } from "../../queries/channels";
+
+// Discord's own slowmode preset ladder — 0 means off.
+const SLOWMODE_PRESETS: Array<{ label: string; seconds: number }> = [
+  { label: "Off", seconds: 0 },
+  { label: "5s", seconds: 5 },
+  { label: "10s", seconds: 10 },
+  { label: "15s", seconds: 15 },
+  { label: "30s", seconds: 30 },
+  { label: "1m", seconds: 60 },
+  { label: "2m", seconds: 120 },
+  { label: "5m", seconds: 300 },
+  { label: "10m", seconds: 600 },
+  { label: "15m", seconds: 900 },
+  { label: "30m", seconds: 1800 },
+  { label: "1h", seconds: 3600 },
+  { label: "2h", seconds: 7200 },
+  { label: "6h", seconds: 21600 },
+];
+
+/** Was a genuine gap, not just a hidden feature: useUpdateChannel/useDeleteChannel
+ * (queries/channels.ts) had existed since channels were first built, fully working
+ * server-side, with zero UI ever calling them — a channel could be created but never renamed,
+ * re-topic'd, or deleted again without going straight to the API. Mirrors RoleEditorModal.tsx's
+ * shape (same persistent-singleton pattern, same open+id-keyed useEffect resync). */
+export function ChannelSettingsModal() {
+  const openModal = useUIStore((s) => s.openModal);
+  const modalPayload = useUIStore((s) => s.modalPayload) as { serverId: string; channelId: string } | undefined;
+  const closeModal = useUIStore((s) => s.closeModal);
+  const open = openModal === "channelSettings" && !!modalPayload;
+  const serverId = modalPayload?.serverId ?? "";
+  const channelId = modalPayload?.channelId ?? "";
+
+  const { data: channels } = useChannels(open ? serverId : undefined);
+  const channel = channels?.find((c) => c.id === channelId);
+  const updateChannel = useUpdateChannel(serverId);
+  const deleteChannel = useDeleteChannel(serverId);
+
+  const [name, setName] = useState("");
+  const [topic, setTopic] = useState("");
+  const [slowmodeSeconds, setSlowmodeSeconds] = useState(0);
+  const [nsfw, setNsfw] = useState(false);
+
+  useEffect(() => {
+    if (open && channel) {
+      setName(channel.name);
+      setTopic(channel.topic ?? "");
+      setSlowmodeSeconds(channel.slowmodeSeconds);
+      setNsfw(channel.nsfw);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, channelId, channel?.name, channel?.topic, channel?.slowmodeSeconds, channel?.nsfw]);
+
+  async function handleSave() {
+    if (!name.trim()) return;
+    await updateChannel.mutateAsync({
+      channelId,
+      name: name.trim(),
+      topic: topic.trim() || null,
+      slowmodeSeconds,
+      ...(channel?.type === "TEXT" ? { nsfw } : {}),
+    });
+    closeModal();
+  }
+
+  async function handleDelete() {
+    if (!channel) return;
+    if (!confirm(`Delete #${channel.name}? This cannot be undone.`)) return;
+    await deleteChannel.mutateAsync(channelId);
+    closeModal();
+  }
+
+  return (
+    <Modal open={open} onOpenChange={(o) => !o && closeModal()} title={channel ? `#${channel.name} Settings` : "Channel Settings"} width="max-w-lg">
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold uppercase text-signal-dim">Channel name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="rounded bg-base-900 px-3 py-2 text-signal outline-none ring-1 ring-base-500 focus:ring-2 focus:ring-accent"
+          />
+        </label>
+
+        {channel?.type === "TEXT" && (
+          <>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-bold uppercase text-signal-dim">Topic</span>
+              <textarea
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                rows={2}
+                maxLength={1024}
+                className="resize-none rounded bg-base-900 px-3 py-2 text-signal outline-none ring-1 ring-base-500 focus:ring-2 focus:ring-accent"
+              />
+            </label>
+
+            <div>
+              <span className="text-xs font-bold uppercase text-signal-dim">Slow mode</span>
+              <p className="mb-2 text-sm text-signal-faint">
+                Members must wait between messages. Moderators (Manage Messages) are exempt.
+              </p>
+              <select
+                aria-label="Slow mode delay"
+                value={slowmodeSeconds}
+                onChange={(e) => setSlowmodeSeconds(Number(e.target.value))}
+                className="rounded bg-base-900 px-3 py-2 text-signal outline-none ring-1 ring-base-500 focus:ring-2 focus:ring-accent"
+              >
+                {SLOWMODE_PRESETS.map((p) => (
+                  <option key={p.seconds} value={p.seconds}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-signal-dim">
+              <input type="checkbox" checked={nsfw} onChange={(e) => setNsfw(e.target.checked)} />
+              Age-restricted / NSFW channel
+            </label>
+          </>
+        )}
+      </div>
+
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <button onClick={() => void handleDelete()} className="text-sm text-dnd hover:underline">
+          Delete channel
+        </button>
+        <div className="flex gap-3">
+          <button onClick={closeModal} className="rounded px-4 py-2 text-sm font-medium text-signal-dim hover:underline">
+            Cancel
+          </button>
+          <button
+            onClick={() => void handleSave()}
+            disabled={updateChannel.isPending || !name.trim()}
+            className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

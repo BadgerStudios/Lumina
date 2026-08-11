@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage();
+page.on("console", (m) => console.log(`[console.${m.type()}] ${m.text()}`));
+page.on("pageerror", (e) => console.log(`[pageerror] ${e}`));
+page.on("requestfailed", (r) => console.log(`[requestfailed] ${r.url()} -- ${r.failure()?.errorText}`));
+page.on("response", (r) => { if (!r.ok()) console.log(`[response ${r.status()}] ${r.url()}`); });
+await page.goto("http://127.0.0.1:5175/register", { waitUntil: "networkidle", timeout: 20000 });
+await page.waitForTimeout(1000);
+console.log("=== body text ===");
+console.log(await page.locator("body").innerText());
+await page.screenshot({ path: "/tmp/claude-1000/-home-lucid/52e78ae3-2893-4b62-a3dd-19e6c57b498a/scratchpad/mobile-debug.png" });
+await browser.close();

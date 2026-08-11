@@ -1,0 +1,150 @@
+/**
+ * Shared motion layer.
+ *
+ * The app was static — every state change happened instantly, which reads as cheap even when the
+ * underlying work is solid. Motion here is doing one of three jobs and nothing else:
+ *
+ *   1. Explaining WHERE something came from (a row sliding in from the list it belongs to)
+ *   2. Confirming an action landed (a tap that visibly responds)
+ *   3. Filling a wait with something shaped like the content, not a spinner
+ *
+ * Nothing here decorates for its own sake, and nothing loops forever except genuine
+ * still-happening indicators — perpetual motion on a screen someone leaves open all day is
+ * actively unpleasant.
+ *
+ * Durations are short on purpose. Anything past ~250ms on a frequent interaction stops reading as
+ * responsive and starts reading as lag.
+ */
+
+/* ---------- entrances ---------- */
+
+@keyframes lm-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lm-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes lm-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.lm-enter {
+  animation: lm-fade-up 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.lm-enter-scale {
+  animation: lm-scale-in 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Staggers a list so it assembles rather than appearing as a slab. Capped at 8 — past that the
+   last rows wait long enough to feel slow, and the effect has already done its job. */
+.lm-stagger > * {
+  animation: lm-fade-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.lm-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.lm-stagger > *:nth-child(2) { animation-delay: 30ms; }
+.lm-stagger > *:nth-child(3) { animation-delay: 60ms; }
+.lm-stagger > *:nth-child(4) { animation-delay: 90ms; }
+.lm-stagger > *:nth-child(5) { animation-delay: 120ms; }
+.lm-stagger > *:nth-child(6) { animation-delay: 150ms; }
+.lm-stagger > *:nth-child(7) { animation-delay: 180ms; }
+.lm-stagger > *:nth-child(n + 8) { animation-delay: 210ms; }
+
+/* ---------- feedback ---------- */
+
+/* Presses inward slightly. The point is that a tap is acknowledged before the network answers —
+   without it, a slow request feels like the button didn't register. */
+.lm-press {
+  transition:
+    transform 90ms ease,
+    filter 90ms ease;
+}
+.lm-press:active {
+  transform: scale(0.97);
+}
+
+/* Lifts a card on hover. Border rather than shadow: shadows muddy badly on the dark surfaces this
+   app mostly uses. */
+.lm-lift {
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms ease;
+}
+.lm-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* One-shot pulse for a value that just changed — a counter ticking up should be noticed without
+   the user having to be watching that exact spot. */
+@keyframes lm-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.lm-pop {
+  animation: lm-pop 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---------- waiting ---------- */
+
+/* Skeleton shimmer. Shaped like the content it replaces, so the layout doesn't jump when real data
+   lands — a spinner tells you to wait, a skeleton tells you what's coming. */
+@keyframes lm-shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.lm-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--base-700) 0%,
+    var(--base-600) 40%,
+    var(--base-700) 80%
+  );
+  background-size: 400px 100%;
+  animation: lm-shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+
+/* ---------- accessibility ---------- */
+
+/* Honoured properly rather than merely shortened: someone who has asked for reduced motion has
+   usually asked because motion makes them unwell, and a faster version of the same movement is
+   still movement. Entrances collapse to plain opacity; loops stop entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .lm-enter,
+  .lm-enter-scale,
+  .lm-stagger > * {
+    animation: lm-fade-in 1ms both;
+  }
+  .lm-press,
+  .lm-lift {
+    transition: none;
+  }
+  .lm-press:active,
+  .lm-lift:hover {
+    transform: none;
+  }
+  .lm-pop {
+    animation: none;
+  }
+  .lm-skeleton {
+    animation: none;
+  }
+}

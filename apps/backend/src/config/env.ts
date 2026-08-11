@@ -1,0 +1,78 @@
+import { z } from "zod";
+
+const envSchema = z.object({
+  DATABASE_URL: z.string().min(1),
+  REDIS_URL: z.string().min(1),
+  JWT_ACCESS_SECRET: z.string().min(16),
+  JWT_REFRESH_SECRET: z.string().min(16),
+  ACCESS_TOKEN_TTL: z.string().default("15m"),
+  REFRESH_TOKEN_TTL: z.string().default("30d"),
+  UPLOADS_DIR: z.string().default("./uploads"),
+  MAX_UPLOAD_MB: z.coerce.number().default(25),
+  PORT: z.coerce.number().default(4000),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  CORS_ORIGIN: z.string().default("http://localhost:5173"),
+  // TURN relay for voice/video (see modules/voice/routes.ts + realtime/handlers/voice.ts's
+  // scale note) — optional. If unset, GET /api/voice/turn-credentials still responds but with
+  // an empty `iceServers` beyond STUN, same STUN-only behavior as before this existed.
+  TURN_SECRET: z.string().optional(),
+  TURN_HOST: z.string().default("localhost"),
+  TURN_PORT: z.coerce.number().default(3478),
+  // Web Push (VAPID) — optional. If unset, subscribe/send just no-op (same graceful-degradation
+  // pattern as TURN_SECRET above) rather than hard-failing routes that touch push.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().default("mailto:admin@luxffa.com"),
+  // Bumped by deploy.sh only when a new Android APK is actually built/published — lets the
+  // installed app (see queries/meta.ts's useAppVersionCheck) know a newer build exists.
+  ANDROID_VERSION_CODE: z.coerce.number().default(1),
+  // Shared secret for the Lumina Control host agent (services/lumina-agent). Unset means the
+  // feature is off — the ingest route then refuses everyone rather than admitting everyone.
+  OPS_AGENT_SECRET: z.string().optional(),
+  // Comma-separated emails granted OWNER / STAFF on their next login. This is the bootstrap path
+  // for the very first privileged accounts — without it the video review queue and owner dashboard
+  // would be unreachable by anyone, with raw SQL as the only way in.
+  //
+  // Reconciled on every login in BOTH directions, so removing an email here and having that person
+  // log in demotes them: env is the source of truth, not a one-time seed. A consequence worth
+  // knowing: promoting someone by editing the database alone is undone the next time they log in.
+  //
+  // OWNER wins if an address appears in both. SITE_ADMIN_EMAILS is the previous name for
+  // STAFF_EMAILS, still read so an existing .env keeps working after the rename.
+  // The single master account. Not a list — the master suite is deliberately one person, and a
+  // comma-separated field would quietly invite it becoming several.
+  MASTER_EMAIL: z.string().default(""),
+  OWNER_EMAILS: z.string().default(""),
+  STAFF_EMAILS: z.string().default(""),
+  SITE_ADMIN_EMAILS: z.string().default(""),
+  // Video feed caps. Deliberately separate from MAX_UPLOAD_MB (25) — the global multipart limit
+  // stays small for chat attachments; only the video upload route raises it, per-request.
+  MAX_VIDEO_UPLOAD_MB: z.coerce.number().default(100),
+  MAX_VIDEO_DURATION_SEC: z.coerce.number().default(180),
+  MAX_VIDEO_UPLOADS_PER_DAY: z.coerce.number().default(10),
+  // Stripe. All optional — with none of them set, billing degrades to a working no-op (the same
+  // graceful-if-unconfigured pattern TURN_SECRET and the VAPID keys already use): checkout returns
+  // a clear "billing not configured" error, the webhook rejects everything, and the revenue panel
+  // honestly reports zero rather than inventing a number.
+  //
+  // STRIPE_WEBHOOK_SECRET is NOT optional in practice once the others are set: without it, webhook
+  // signatures cannot be verified and anyone who finds the endpoint could POST fake payment events
+  // to grant themselves a subscription. The webhook route refuses to process anything unless it is
+  // configured, rather than falling back to trusting the payload.
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Where Stripe Checkout returns the user afterwards.
+  PUBLIC_APP_URL: z.string().default("https://lumina.luxffa.com"),
+});
+
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  // eslint-disable-next-line no-console
+  console.error("Invalid environment configuration:", parsed.error.flatten().fieldErrors);
+  process.exit(1);
+}
+
+export const env = parsed.data;
+export type Env = typeof env;

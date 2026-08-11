@@ -1,0 +1,37 @@
+# Lumina Control agent — systemd USER unit (no root, no sudo).
+#
+# Install:
+#   cp services/lumina-agent/lumina-agent.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now lumina-agent
+#   systemctl --user status lumina-agent
+#
+# Runs as the same user that already has docker-group access, which is why it needs no privilege
+# escalation of its own. It reaches the API over loopback only — the backend publishes
+# 127.0.0.1:4000 in compose.yml, so this never leaves the machine.
+[Unit]
+Description=Lumina Control agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lucid/lumina
+# The secret lives in the same .env the stack already reads, so there is one place to rotate it.
+EnvironmentFile=/home/lucid/lumina/.env
+Environment=OPS_API_BASE=http://127.0.0.1:4000
+Environment=LUMINA_REPO_DIR=/home/lucid/lumina
+# Absolute path, not `env node`: a systemd user unit gets a minimal PATH that does not include
+# ~/.local/bin, so `env node` fails with status 127 and the unit restart-loops forever.
+ExecStart=/home/lucid/.local/bin/node /home/lucid/lumina/services/lumina-agent/agent.mjs
+# Always come back. A monitoring agent that stays dead after one bad night is worse than none,
+# because the dashboard goes quiet rather than red.
+Restart=always
+RestartSec=10
+# Bounded on purpose: this process should never be a reason the box is under memory pressure.
+MemoryMax=192M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

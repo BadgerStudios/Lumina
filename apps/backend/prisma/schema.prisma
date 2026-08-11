@@ -1,0 +1,1260 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PresenceStatus {
+  ONLINE
+  IDLE
+  DND
+  OFFLINE
+}
+
+enum ChannelType {
+  TEXT
+  CATEGORY
+  // Voice channels carry no Message rows at all — presence/signaling is entirely ephemeral,
+  // handled over Socket.IO (realtime/handlers/voice.ts), never persisted. A VOICE channel row
+  // is just an addressable place to join, same as TEXT is just an addressable place to post.
+  VOICE
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum NotificationLevel {
+  ALL
+  MENTIONS
+  NONE
+}
+
+// Lifecycle of an uploaded "For You" feed video. Deliberately review-gated: a video is only ever
+// publicly readable in APPROVED, so nothing a user uploads reaches the global cross-server feed
+// without a site admin acting on it first. PROCESSING -> (worker transcodes) -> PENDING_REVIEW ->
+// APPROVED | REJECTED; REMOVED is a takedown of something previously APPROVED (kept distinct from
+// REJECTED so the staff audit trail can tell "never published" from "published then pulled");
+// FAILED is a transcode error, not a moderation outcome.
+// Platform-wide authority ladder. Strictly ordered: each rank implies everything below it.
+//
+//   USER   — no platform authority.
+//   STAFF  — the video review queue and the staff suite.
+//   OWNER  — the owner suite: platform stats, user management, platform bans.
+//   MASTER — a single account. The master suite: granting roles, platform configuration, and the
+//            destructive actions nothing else may reach.
+//
+// MASTER can only ever be assigned from the MASTER_EMAIL env var, never through the API — not even
+// by another master. That is deliberate: it means compromising an owner account (or the dashboard
+// itself) cannot mint a new master, and the top of the ladder is only reachable by someone with
+// shell access to the server. Deliberately NOT a permission bitfield like Role.permissions
+// — that system is per-server and this one governs surfaces (the video queue, the owner dashboard,
+// platform bans) that belong to no server at all.
+enum PlatformRole {
+  USER
+  STAFF
+  OWNER
+  MASTER
+}
+
+// What a ban row matches on. One ban action typically writes several rows — the account plus its
+// email, recent IPs and device fingerprints — so that signing up again from the same machine is
+// caught. Kept as separate rows rather than nullable columns on one row so each identifier can be
+// lifted independently (an IP is often shared and gets un-banned long before the account does).
+enum BanScope {
+  ACCOUNT
+  EMAIL
+  IP
+  DEVICE
+}
+
+// Coarse age bands collected at signup. Five buckets rather than a free-form age because a bucket
+// is far less identifying to store, and the only decision the platform actually makes from it is
+// "is this account a minor".
+enum AgeBracket {
+  UNDER_18
+  AGE_18_24
+  AGE_25_34
+  AGE_35_49
+  AGE_50_PLUS
+}
+
+enum AppealStatus {
+  NONE
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum VideoStatus {
+  PROCESSING
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  REMOVED
+  FAILED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  displayName   String?
+  email         String   @unique
+  passwordHash  String
+  avatarUrl     String?
+  statusText    String?
+  // Short unicode emoji attached to statusText (Discord's custom-status-with-emoji pattern) —
+  // plain unicode only, no custom-emoji FK (no CustomEmoji model exists yet).
+  statusEmoji   String? @db.VarChar(16)
+  // Public profile fields (visible on any UserDTO, unlike the two privacy booleans below which
+  // are only ever serialized onto the owning user's own DTO via serializeMe).
+  bio           String? @db.VarChar(190)
+  bannerUrl     String?
+  pronouns      String? @db.VarChar(40)
+  presence      PresenceStatus @default(OFFLINE)
+  // Bot accounts are just User rows with isBot: true, applicationId pointing at the Application
+  // that owns them — deliberately NOT a parallel identity system. Every existing permission
+  // check, membership row, message authorship, etc. treats a bot exactly like a human member;
+  // it joins servers via the same invite flow and gets roles the same way. email/passwordHash
+  // are still populated (synthesized, unusable for login) to satisfy the existing NOT NULL /
+  // unique constraints without loosening them for real users — see modules/applications/service.ts.
+  isBot         Boolean  @default(false)
+  applicationId String?  @unique
+  // Privacy & Safety settings (User Settings > Privacy & Safety). Enforced in
+  // modules/friends/service.ts (sendFriendRequest) and modules/dm/routes.ts (new 1:1 DM
+  // creation) — both default to true (Discord's own default), so this is purely opt-out.
+  allowDmsFromNonFriends Boolean  @default(true)
+  allowFriendRequests    Boolean  @default(true)
+  // Platform-wide authority. The only global authorization concept in the schema — everything else
+  // is per-server (Role.permissions bitfields via Membership), which cannot express "may moderate
+  // the cross-server video feed" or "may ban from the platform" since those surfaces belong to no
+  // server. Checked by requireStaff/requireOwner (plugins/authenticate.ts), NOT by checkPermission.
+  // Bootstrapped from the OWNER_EMAILS / STAFF_EMAILS env vars at login, reconciled in both
+  // directions, so the first owner never needs raw SQL and revoking is an env edit.
+  platformRole  PlatformRole @default(USER)
+  /// A first-party Lumina account, shown with a badge users cannot fake.
+  ///
+  /// The badge exists BECAUSE the bio doesn't work as one: anyone can set their bio to "Official
+  /// Lumina Staff" and upload the logo as their avatar, and on a platform where staff message
+  /// people about moderation decisions that is a ready-made phishing kit. This flag is settable
+  /// only by MASTER, so the badge is the one part of an official identity that can't be copied.
+  isOfficial    Boolean      @default(false)
+  // Age signals, collected at registration.
+  //
+  // `isMinor` is derived from birthDate and stored rather than computed per request because it
+  // gates every friend request and DM creation — recomputing it from a date on each of those is
+  // both slower and easier to get subtly wrong in one call site. It is refreshed on login, so an
+  // account that turns 18 stops being restricted without any manual step.
+  ageBracket    AgeBracket?
+  birthDate     DateTime?
+  isMinor       Boolean      @default(false)
+  ageRecordedAt DateTime?
+  // ISO country code from Cloudflare's CF-IPCountry header at signup. Country granularity only:
+  // enough to plot a dot on a world map, not enough to locate anyone.
+  signupCountry String?      @db.VarChar(2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  refreshTokens   RefreshToken[]
+  ownedServers    Server[]        @relation("ServerOwner")
+  memberships     Membership[]
+  messages        Message[]
+  reactions       Reaction[]
+  dmParticipation DMParticipant[]
+  auditLogEntries AuditLogEntry[] @relation("Actor")
+  ownedApplications Application[] @relation("ApplicationOwner")
+  botApplication    Application?  @relation("BotUser", fields: [applicationId], references: [id], onDelete: Cascade)
+  createdWebhooks   Webhook[]
+  sentFriendRequests     FriendRequest[] @relation("FriendRequester")
+  receivedFriendRequests FriendRequest[] @relation("FriendAddressee")
+  oauthCodes             OAuthAuthorizationCode[] @relation("OAuthCodeUser")
+  oauthTokens            OAuthAccessToken[]       @relation("OAuthTokenUser")
+  pushSubscriptions      PushSubscription[]
+  notificationOverrides  NotificationOverride[]
+  videos                 Video[]         @relation("VideoAuthor")
+  reviewedVideos         Video[]         @relation("VideoReviewer")
+  staffAuditEntries      StaffAuditLog[] @relation("StaffActor")
+  videoLikes             VideoLike[]
+  videoComments          VideoComment[] @relation("VideoCommentAuthor")
+  platformBans           PlatformBan[]  @relation("BannedUser")
+  opsCommands            OpsCommand[]   @relation("OpsCommandRequester")
+  adCampaigns            AdCampaign[]   @relation("AdAdvertiser")
+  reviewedAdCampaigns    AdCampaign[]   @relation("AdReviewer")
+  authoredAddons         Addon[]        @relation("AddonAuthor")
+  addonInstalls          ServerAddon[]  @relation("AddonInstaller")
+  subscriptions          Subscription[]
+  accountFlags           AccountFlag[]  @relation("FlaggedUser")
+  transactions           Transaction[]
+  issuedBans             PlatformBan[]  @relation("BanIssuer")
+  videoReports           VideoReport[]  @relation("VideoReporter")
+  resolvedVideoReports   VideoReport[]  @relation("VideoReportResolver")
+  assignedVideoReports   VideoReport[]  @relation("VideoReportAssignee")
+  createdTags            Tag[]          @relation("TagCreator")
+  suggestionState        FriendSuggestionState[] @relation("SuggestionOwner")
+  suggestedTo            FriendSuggestionState[] @relation("SuggestionSubject")
+}
+
+// A "dev portal" app a human user owns. Each Application has exactly one bot User (see
+// User.applicationId above) — matches Discord's model, not a general OAuth client registry.
+// "API generation & scopes" (roadmap Phase 4) deliberately reuses this: botTokenHash IS the API
+// key, and scopes ARE whatever server roles/permissions the bot is assigned — no parallel scope
+// system.
+model Application {
+  id           String   @id @default(cuid())
+  ownerId      String
+  name         String
+  description  String?
+  iconUrl      String?
+  botTokenHash String?
+  // OAuth2 (authorization-code grant, see modules/oauth2/) — the Application's own `id` doubles
+  // as its OAuth client_id, matching Discord's model rather than minting a separate identifier.
+  // redirectUris is an allowlist checked exactly (no wildcard/prefix matching) on both
+  // /oauth2/authorize and /oauth2/token — a mismatch is a hard reject, standard OAuth2 practice
+  // to prevent code/token redirection to an attacker-controlled URI.
+  redirectUris     String[] @default([])
+  clientSecretHash String?
+  createdAt    DateTime @default(now())
+  owner        User     @relation("ApplicationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  botUser      User?    @relation("BotUser")
+  oauthCodes   OAuthAuthorizationCode[]
+  oauthTokens  OAuthAccessToken[]
+  addons       Addon[]  @relation("AddonApplication")
+  @@index([ownerId])
+}
+
+// Short-lived (5 min), single-use authorization code — the intermediate step between a user
+// approving an app's consent screen and the app exchanging it server-to-server for an access
+// token. Never returned to the browser except as a URL param on the redirect itself; nothing
+// about it is ever exposed to Lumina's own frontend beyond that one redirect.
+model OAuthAuthorizationCode {
+  id            String    @id @default(cuid())
+  codeHash      String    @unique
+  applicationId String
+  userId        String
+  redirectUri   String
+  scope         String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime  @default(now())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user          User        @relation("OAuthCodeUser", fields: [userId], references: [id], onDelete: Cascade)
+  @@index([applicationId])
+  @@index([userId])
+}
+
+// Deliberately NOT folded into the existing RefreshToken/access-token (JWT) machinery those
+// serve human sessions — an OAuth token represents "this third-party App, acting with a user's
+// consent, at exactly this scope" and is checked via a dedicated preHandler
+// (modules/oauth2/authenticateOAuth.ts) used ONLY by GET /api/oauth2/identify, not the general
+// requireAuth every other route uses. Scope is deliberately fixed to "identify" for v1 (read the
+// consenting user's public profile) rather than a general-purpose scope system layered on top of
+// the existing role/permission bitfield — a real expansion (e.g. an app posting messages on a
+// user's behalf) is a bigger trust-boundary decision than this pass takes on.
+model OAuthAccessToken {
+  id            String    @id @default(cuid())
+  tokenHash     String    @unique
+  applicationId String
+  userId        String
+  scope         String
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user          User        @relation("OAuthTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+  @@index([applicationId])
+  @@index([userId])
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String
+  userAgent  String?
+  ipAddress  String?
+  // Client-computed browser fingerprint (see frontend lib/deviceFingerprint.ts). Stored here
+  // because a RefreshToken row already IS "one device/browser this account is signed in on", so
+  // banning an account can collect its known devices without a parallel table. Nullable: older
+  // sessions predate it and non-browser clients may not send one.
+  deviceFingerprint String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Server {
+  id                String   @id @default(cuid())
+  name              String
+  iconUrl           String?
+  bannerUrl         String?
+  // Packed 24-bit RGB int, same representation Role.color already uses — an owner/MANAGE_SERVER
+  // pick that recolors the accent (--ion/--aurora/--accent-hover in index.css) for every member
+  // viewing THIS server, scoped to the channel view only (see components/layout/AppShell.tsx).
+  // null = no override, falls back to each member's own personal accent theme.
+  accentColor       Int?
+  ownerId           String
+  systemChannelId   String?
+  createdAt         DateTime @default(now())
+  owner             User        @relation("ServerOwner", fields: [ownerId], references: [id])
+  memberships       Membership[]
+  channels          Channel[]
+  roles             Role[]
+  invites           Invite[]
+  bans              Ban[]
+  auditLogEntries   AuditLogEntry[]
+  notificationOverrides NotificationOverride[]
+  addons          ServerAddon[]
+}
+
+model Membership {
+  id           String    @id @default(cuid())
+  userId       String
+  serverId     String
+  nickname     String?
+  mutedUntil   DateTime?
+  joinedAt     DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  server       Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  roles        RoleAssignment[]
+  @@unique([userId, serverId])
+  @@index([serverId])
+}
+
+model Role {
+  id           String   @id @default(cuid())
+  serverId     String
+  name         String
+  color        Int?
+  permissions  BigInt
+  position     Int
+  isDefault    Boolean  @default(false)
+  mentionable  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  server       Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  assignments  RoleAssignment[]
+  @@index([serverId])
+}
+
+model RoleAssignment {
+  id            String     @id @default(cuid())
+  membershipId  String
+  roleId        String
+  assignedAt    DateTime   @default(now())
+  membership    Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role          Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  @@unique([membershipId, roleId])
+}
+
+model Channel {
+  id                String      @id @default(cuid())
+  serverId          String
+  name              String
+  type              ChannelType @default(TEXT)
+  topic             String?
+  parentId          String?
+  position          Int
+  // Seconds a member must wait between messages in this channel (0 = off). Enforced in
+  // modules/messages/service.ts's createChannelMessage; MANAGE_MESSAGES bypasses it, same as
+  // Discord's own moderator exemption.
+  slowmodeSeconds   Int         @default(0)
+  nsfw              Boolean     @default(false)
+  createdAt         DateTime    @default(now())
+  server     Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  parent     Channel?    @relation("ChannelToCategory", fields: [parentId], references: [id])
+  children   Channel[]   @relation("ChannelToCategory")
+  messages   Message[]
+  webhooks   Webhook[]
+  @@index([serverId])
+}
+
+model Message {
+  id               BigInt    @id @default(autoincrement())
+  channelId        String?
+  dmConversationId String?
+  authorId         String?
+  content          String
+  editedAt         DateTime?
+  deletedAt        DateTime?
+  pinned           Boolean   @default(false)
+  replyToId        BigInt?
+  createdAt        DateTime  @default(now())
+  channel          Channel?         @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  conversation     DMConversation?  @relation(fields: [dmConversationId], references: [id], onDelete: Cascade)
+  author           User?            @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  attachments      Attachment[]
+  reactions        Reaction[]
+  mentions         MessageMention[]
+  // Discord-style incoming webhook post: authorId stays null (same "no real user" shape a
+  // deleted user's message already has — serializeMessage renders these using
+  // overrideUsername/overrideAvatarUrl instead of a User lookup). webhookId surviving the
+  // Webhook's own deletion (SetNull) matches every other "referenced thing got deleted, keep
+  // the message" precedent already in this schema (Message.author, AuditLogEntry.actor).
+  webhookId         String?
+  overrideUsername  String?
+  overrideAvatarUrl String?
+  webhook          Webhook?  @relation(fields: [webhookId], references: [id], onDelete: SetNull)
+  // Managed by the hand-written message_search_and_checks migration (raw SQL
+  // trigger keeps this in sync with `content`); Unsupported so Prisma is
+  // aware of it (no drift-detection prompts) without trying to manage it.
+  searchVector     Unsupported("tsvector")?
+  @@index([channelId, id])
+  @@index([dmConversationId, id])
+}
+
+// Discord-style incoming webhook: a channel-scoped, token-authenticated URL (no user session
+// needed) that posts a message with a caller-chosen display identity (Message.overrideUsername/
+// overrideAvatarUrl), for external services to push messages in without needing a bot account.
+model Webhook {
+  id         String   @id @default(cuid())
+  channelId  String
+  name       String
+  avatarUrl  String?
+  tokenHash  String
+  creatorId  String
+  createdAt  DateTime @default(now())
+  channel    Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  creator    User     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  messages   Message[]
+  @@index([channelId])
+}
+
+model MessageMention {
+  id         String   @id @default(cuid())
+  messageId  BigInt
+  userId     String?
+  roleId     String?
+  everyone   Boolean  @default(false)
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  messageId  BigInt
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  url        String
+  width      Int?
+  height     Int?
+  createdAt  DateTime @default(now())
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+}
+
+model Reaction {
+  id         String   @id @default(cuid())
+  messageId  BigInt
+  userId     String
+  emoji      String
+  createdAt  DateTime @default(now())
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([messageId, userId, emoji])
+}
+
+model DMConversation {
+  id           String   @id @default(cuid())
+  isGroup      Boolean  @default(false)
+  name         String?
+  createdAt    DateTime @default(now())
+  participants DMParticipant[]
+  messages     Message[]
+}
+
+model DMParticipant {
+  id                 String    @id @default(cuid())
+  conversationId     String
+  userId             String
+  joinedAt           DateTime  @default(now())
+  lastReadMessageId  BigInt?
+  conversation       DMConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([conversationId, userId])
+  // The composite unique above leads with conversationId, so "which conversations is this user
+  // in" — the entry point for the whole DM-overlap half of friend suggestions — cannot use it.
+  @@index([userId])
+}
+
+model ChannelReadState {
+  id                 String    @id @default(cuid())
+  userId             String
+  channelId          String
+  lastReadMessageId  BigInt?
+  lastReadAt         DateTime?
+  @@unique([userId, channelId])
+}
+
+model FriendRequest {
+  id            String       @id @default(cuid())
+  requesterId   String
+  addresseeId   String
+  status        FriendStatus @default(PENDING)
+  createdAt     DateTime     @default(now())
+  respondedAt   DateTime?
+  // Was plain String columns with no @relation at all before this — no FK enforcement, no
+  // back-relation on User. Never had a route or a row in it, so nothing to migrate.
+  requester     User         @relation("FriendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee     User         @relation("FriendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+}
+
+model Invite {
+  code        String    @id
+  serverId    String
+  creatorId   String
+  maxUses     Int?
+  uses        Int       @default(0)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  server      Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+}
+
+model Ban {
+  id          String   @id @default(cuid())
+  serverId    String
+  userId      String
+  reason      String?
+  bannedById  String
+  createdAt   DateTime @default(now())
+  server      Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  @@unique([serverId, userId])
+}
+
+model AuditLogEntry {
+  id          String   @id @default(cuid())
+  serverId    String
+  // Nullable + SetNull (not the implicit Restrict a bare relation defaults to) — same reasoning
+  // as Message.author: a human never actually gets their User row deleted (leaving/being
+  // removed only deletes their Membership), so this FK never mattered until bots existed. A
+  // deleted bot's Application cascades to delete its User row (see User.applicationId), and
+  // that bot may well be the actor on real audit log entries (e.g. joining via invite) — losing
+  // the whole audit trail entry, or hard-blocking the bot's deletion entirely, would both be
+  // worse than just recording "actor no longer exists" like a deleted human message already does.
+  actorId     String?
+  actionType  String
+  targetId    String?
+  targetType  String?
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  server      Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  actor       User?     @relation("Actor", fields: [actorId], references: [id], onDelete: SetNull)
+  @@index([serverId, createdAt])
+}
+
+// Real W3C Web Push subscriptions (VAPID) — one row per browser/device the user has opted in
+// on, since a subscription is tied to a specific ServiceWorkerRegistration, not the account.
+// `platform` is currently always "web" (mobile Android push needs Firebase Cloud Messaging,
+// deliberately not built yet — see lumina_roadmap.md's push notification entry for why) but the
+// column exists now so adding an "android"/FCM row shape later is additive, not a rearchitect.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  platform  String   @default("web")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+// Per-server or per-channel push-notification level, layered as channel override -> server
+// override -> global default (ALL). channelId uses "" as the "server-wide" sentinel rather than
+// SQL NULL — Postgres treats NULL as distinct-from-itself in a unique index, so a nullable
+// channelId column would let multiple "server-level" rows exist per (userId, serverId) with no
+// constraint violation. The empty-string sentinel keeps @@unique meaningful; app code (see
+// modules/notifications/service.ts) never treats "" as a real channel id, and there's no FK to
+// Channel for exactly this reason (a real FK can't target a sentinel).
+model NotificationOverride {
+  id        String            @id @default(cuid())
+  userId    String
+  serverId  String
+  channelId String            @default("")
+  level     NotificationLevel
+  createdAt DateTime          @default(now())
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  server    Server            @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  @@unique([userId, serverId, channelId])
+  @@index([userId])
+}
+
+// A short-form video in the global cross-server "For You" feed. Belongs to no server and no
+// channel — the first content model in the schema that isn't scoped to one or the other, which is
+// why access control for it is User.isSiteAdmin rather than a per-server permission bit.
+//
+// BigInt autoincrement PK (matching Message, and unlike the cuid() used everywhere else)
+// specifically so lib/pagination.ts's `id < cursor` cursor pagination works unchanged — the feed
+// and the comment list both need strictly-increasing ids.
+//
+// The three *Key columns are on-disk filenames under UPLOADS_DIR/videos/{source,playback,thumbs},
+// not URLs: what's stored is an opaque id, and the routes that serve them re-check authorization
+// per request. `sourceKey` is the raw upload (deleted once transcoding succeeds, to reclaim disk —
+// video is by far the largest thing this instance stores); `playbackKey`/`thumbnailKey` stay null
+// until the worker finishes, which is what makes PROCESSING distinguishable from PENDING_REVIEW.
+//
+// likeCount/viewCount/commentCount are denormalized for feed ranking — the join tables are the
+// source of truth for likes/comments, but ranking a feed can't afford a COUNT per candidate row.
+// viewCount has no join table at all by design: one row per view is unbounded growth, so views are
+// deduped per user in Redis and only the counter is persisted.
+model Video {
+  id              BigInt      @id @default(autoincrement())
+  authorId        String?
+  caption         String?     @db.VarChar(300)
+  status          VideoStatus @default(PROCESSING)
+
+  sourceKey       String
+  playbackKey     String?
+  thumbnailKey    String?
+
+  mimeType        String
+  sizeBytes       Int
+  // Hash of the raw upload — lets a re-upload of identical bytes be detected mechanically
+  // (the only "automatic" moderation in v1; everything else is human review).
+  sha256          String
+  durationMs      Int?
+  width           Int?
+  height          Int?
+
+  // Set when status is FAILED, so the uploader sees why instead of a video stuck forever.
+  failureReason   String?
+
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?     @db.VarChar(300)
+
+  likeCount       Int         @default(0)
+  viewCount       Int         @default(0)
+  commentCount    Int         @default(0)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // SetNull, matching the existing Message.author precedent — a deleted account's videos survive
+  // as "[deleted user]" rather than cascading away content other people may have engaged with.
+  author     User? @relation("VideoAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  reviewedBy User? @relation("VideoReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  // (status, id) drives both the public feed (status=APPROVED, id < cursor) and every staff queue
+  // tab (status=PENDING_REVIEW, ...) — the two hottest queries against this table.
+  // Upload provenance, recorded so an unlawful upload can actually be attributed.
+  //
+  // Stored in the clear rather than hashed, unlike the ban and flag tables: a hash proves a match
+  // you already suspect, but cannot answer "who uploaded this" for a lawful request, which is the
+  // entire reason for keeping it. Exposed ONLY to the master account — staff moderate content and
+  // have no need for an uploader's address — and purged after PROVENANCE_RETENTION_DAYS so it does
+  // not accumulate indefinitely.
+  uploadIp          String?
+  uploadDevice      String?
+  uploadUserAgent   String?
+  provenancePurgedAt DateTime?
+
+  // --- Remix (stitch / duet) -----------------------------------------------------------------
+  //
+  // Consent is per-video and defaults to ON, matching every platform that has this feature — but
+  // it is checked server-side on every derivative creation, not just hidden in the UI. Two flags
+  // rather than one because they are genuinely different asks: a duet puts your face beside
+  // someone else's, a stitch lets them quote a few seconds of you in front of their own point.
+  allowStitch     Boolean  @default(true)
+  allowDuet       Boolean  @default(true)
+
+  // What this video was made FROM, if anything. SetNull rather than Cascade: a derivative is
+  // substantially the deriving creator's own work and deleting the original must not silently
+  // destroy it. When staff *remove* an original, its derivatives are pushed back into the review
+  // queue instead (see modules/staff), because they embed footage a human has just judged.
+  sourceVideoId   BigInt?
+  derivativeType  VideoDerivativeType?
+  // The slice of the source used by a stitch, in ms. Null for a duet, which uses the whole thing.
+  sourceStartMs   Int?
+  sourceEndMs     Int?
+  // Denormalised, like likeCount: "how many people remixed this" is shown on a card and cannot
+  // afford a COUNT per feed candidate.
+  derivativeCount Int      @default(0)
+
+  sourceVideo  Video?  @relation("VideoDerivatives", fields: [sourceVideoId], references: [id], onDelete: SetNull)
+  derivatives  Video[] @relation("VideoDerivatives")
+
+  adCampaigns AdCampaign[] @relation("AdVideo")
+
+  likes      VideoLike[]
+  comments   VideoComment[]
+  reports    VideoReport[]
+  tags       VideoTag[]
+
+  @@index([status, id])
+  @@index([authorId, id])
+  @@index([sha256])
+  // Drives both "show me everything made from this video" and the moderation sweep that re-queues
+  // derivatives when an original is taken down.
+  @@index([sourceVideoId, id])
+}
+
+/// How a video was derived from another. STITCH prepends a short slice of the original to the
+/// creator's own clip; DUET plays both side by side.
+enum VideoDerivativeType {
+  STITCH
+  DUET
+}
+
+// Platform-level moderation trail, separate from AuditLogEntry.
+//
+// AuditLogEntry is server-scoped (serverId is required and every existing query filters on it), and
+// the actions recorded here belong to no server — approving a video in the global feed isn't an
+// event in anyone's server log. Making AuditLogEntry.serverId nullable to share one table would
+// have meant auditing every existing server-scoped query for rows that now don't match, which is a
+// far larger and riskier change than a second, purpose-built table. The parity roadmap's
+// cross-server admin dashboard reuses this rather than adding a third audit concept.
+//
+// Deliberately append-only: nothing in the app updates or deletes rows here. A takedown record that
+// a moderator can quietly edit isn't a record.
+model StaffAuditLog {
+  id         String   @id @default(cuid())
+  // SetNull rather than Cascade — a staff member's account being deleted must not erase the
+  // history of actions they took.
+  actorId    String?
+  actionType String
+  targetType String
+  targetId   String
+  reason     String?  @db.VarChar(300)
+  createdAt  DateTime @default(now())
+  actor      User?    @relation("StaffActor", fields: [actorId], references: [id], onDelete: SetNull)
+  @@index([createdAt])
+  @@index([targetType, targetId])
+}
+
+// A like on a feed video. Composite PK on (videoId, userId) rather than a surrogate id: it makes
+// liking naturally idempotent (a double-tap or a retried request collides instead of double-
+// counting) and is the exact lookup the feed needs to answer "has this viewer liked this".
+// Video.likeCount is the denormalized counter kept in step with these rows inside a transaction —
+// ranking a feed can't afford a COUNT per candidate.
+//
+// There is deliberately no equivalent model for views: one row per view is unbounded growth, so
+// views are deduped per user in Redis and only Video.viewCount is persisted.
+model VideoLike {
+  videoId   BigInt
+  userId    String
+  createdAt DateTime @default(now())
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([videoId, userId])
+  @@index([userId])
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  VIOLENCE
+  SEXUAL_CONTENT
+  HATE_SPEECH
+  SELF_HARM
+  ILLEGAL
+  OTHER
+}
+
+// Ticket lifecycle for a report. OPEN -> IN_PROGRESS (a named person has picked it up) ->
+// INVESTIGATING (actively being looked into) -> COMPLETED. DISMISSED closes it without action.
+// RESOLVED is retained because existing rows carry it; new tickets use COMPLETED.
+enum ReportStatus {
+  OPEN
+  IN_PROGRESS
+  INVESTIGATING
+  COMPLETED
+  RESOLVED
+  DISMISSED
+}
+
+// A comment on a feed video. BigInt autoincrement PK for the same reason Message and Video use one:
+// lib/pagination.ts's `id < cursor` pagination needs strictly increasing ids.
+model VideoComment {
+  id        BigInt   @id @default(autoincrement())
+  videoId   BigInt
+  authorId  String?
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+  // Cascade from the video (a deleted video's comments are meaningless) but SetNull from the
+  // author, matching the Message.author precedent — a deleted account leaves "[deleted user]"
+  // rather than tearing holes in other people's conversations.
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  author    User?    @relation("VideoCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  @@index([videoId, id])
+}
+
+// A user report against a video.
+//
+// @@unique([videoId, reporterId]) is load-bearing, not hygiene: the auto-unpublish threshold counts
+// DISTINCT reporters, so without it one person could bury any video by reporting it repeatedly.
+// That is the whole difference between a report system and a heckler's veto.
+model VideoReport {
+  id           String       @id @default(cuid())
+  videoId      BigInt
+  reporterId   String?
+  reason       ReportReason
+  details      String?      @db.VarChar(500)
+  status       ReportStatus @default(OPEN)
+  // Who picked the ticket up. Recorded at claim time rather than only at resolution so an
+  // in-progress ticket has an owner — otherwise two people work the same report unaware.
+  assignedToId String?
+  assignedAt   DateTime?
+  // Written when the ticket is completed and sent back to whoever filed it. A report that
+  // disappears into a queue with no reply teaches people not to bother reporting.
+  resolutionNote String?    @db.VarChar(1000)
+  resolvedById String?
+  resolvedAt   DateTime?
+  // Rating left by the REPORTER after the ticket closes, 1-5. One star = one point to the staff
+  // member who resolved it.
+  //
+  // Deliberately optional and one-shot: most people won't rate, and a system that nagged for a
+  // score would make reporting feel like work. Absent ratings are excluded from averages rather
+  // than counted as zero — treating silence as a bad score would punish staff for the common case.
+  rating       Int?
+  ratedAt      DateTime?
+  createdAt    DateTime     @default(now())
+  video        Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  reporter     User?        @relation("VideoReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  resolvedBy   User?        @relation("VideoReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  assignedTo   User?        @relation("VideoReportAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  @@unique([videoId, reporterId])
+  @@index([status, createdAt])
+  @@index([videoId])
+}
+
+// One banned identifier. A single "ban this user" action fans out into several of these (ACCOUNT +
+// EMAIL + each recent IP + each known device fingerprint), grouped by `groupId` so the dashboard can
+// present them as one action and lift them together.
+//
+// Honest limits, worth stating where the model lives: a browser cannot read real hardware IDs — no
+// MAC address, no disk serial, no TPM. `DEVICE` here is a fingerprint derived from canvas/WebGL/font/
+// UA entropy, which reliably catches "same person, same browser, new account" and does NOT catch a
+// fresh browser profile, a different machine, or a VPN paired with a new signup. It can also collide
+// across genuinely different people on locked-down or corporate-imaged machines that expose identical
+// entropy. That collision risk is exactly why the appeal fields below are part of the model rather
+// than an optional extra.
+model PlatformBan {
+  id                 String       @id @default(cuid())
+  // Groups the rows written by one ban action so they can be listed and lifted as a unit.
+  groupId            String
+  scope              BanScope
+  // Exactly one of these is set, according to `scope`.
+  userId             String?
+  email              String?
+  ipAddress          String?
+  deviceFingerprint  String?
+
+  reason             String       @db.VarChar(500)
+  bannedById         String?
+  // null means permanent. A finite expiry is preferred for IP and DEVICE scopes, where the chance
+  // of hitting an innocent third party grows the longer the row lives.
+  expiresAt          DateTime?
+  liftedAt           DateTime?
+  liftedById         String?
+
+  appealStatus       AppealStatus @default(NONE)
+  appealText         String?      @db.VarChar(1000)
+  appealedAt         DateTime?
+  appealResponse     String?      @db.VarChar(500)
+  appealResolvedAt   DateTime?
+
+  createdAt          DateTime     @default(now())
+
+  // SetNull on the issuer, Cascade on the banned account: deleting a moderator must not erase the
+  // ban they issued, but a deleted account's own ban rows are meaningless.
+  user               User?        @relation("BannedUser", fields: [userId], references: [id], onDelete: Cascade)
+  bannedBy           User?        @relation("BanIssuer", fields: [bannedById], references: [id], onDelete: SetNull)
+
+  // Each lookup path the login/register/request checks use gets its own index — these are read on
+  // every authentication attempt, so they must not table-scan.
+  @@index([groupId])
+  @@index([userId])
+  @@index([email])
+  @@index([ipAddress])
+  @@index([deviceFingerprint])
+  @@index([appealStatus])
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  UNPAID
+}
+
+enum TransactionKind {
+  CHARGE
+  REFUND
+}
+
+// A Stripe subscription mirrored locally.
+//
+// Stripe is the source of truth for billing state; this table exists so the app can answer "is this
+// user subscribed" without a network call on every request, and so the owner dashboard can report
+// without paging the Stripe API. It is only ever written from verified webhook events, never from
+// client input — a client claiming it paid is not evidence that it did.
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String
+  stripeCustomerId     String
+  stripeSubscriptionId String             @unique
+  status               SubscriptionStatus
+  planKey              String
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([status])
+}
+
+// Money that actually moved. Append-only: a refund is a new REFUND row, never an edit or delete of
+// the original charge, so the ledger always reconciles against Stripe's own records.
+//
+// `stripeEventId` is unique and load-bearing: Stripe retries webhook delivery until it gets a 2xx,
+// so the same event WILL arrive more than once. Without this constraint every retry would double-
+// count revenue.
+model Transaction {
+  id                    String          @id @default(cuid())
+  userId                String?
+  stripeEventId         String          @unique
+  stripePaymentIntentId String?
+  kind                  TransactionKind
+  // Minor units (cents), matching Stripe's own representation. Never a float — binary floating
+  // point cannot represent money exactly and rounding drift in a ledger is unacceptable.
+  amountCents           Int
+  currency              String          @default("usd")
+  description           String?
+  createdAt             DateTime        @default(now())
+  user                  User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// One recorded download of an app release (APK / desktop build).
+//
+// A row per download rather than a counter so the dashboard can show trends over time and break it
+// down by platform and version. IPs are stored hashed — this is analytics, and analytics does not
+// need to be able to identify anyone.
+model AppDownload {
+  id        String   @id @default(cuid())
+  platform  String
+  version   String?
+  fileName  String
+  country   String?  @db.VarChar(2)
+  ipHash    String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+  @@index([platform, createdAt])
+}
+
+// Why an account or device was blocked, errored, or restricted.
+//
+// A stable, searchable catalogue rather than free text: support answers "why can't I get in" many
+// times a day, and a code that both the user and the owner console can quote turns that from a
+// guessing game into a lookup. Codes are defined in packages/shared/src/blockReasons.ts and stored
+// here as strings so adding one never needs a migration.
+model AccountFlag {
+  id         String   @id @default(cuid())
+  userId     String?
+  // Recorded even when there is no account yet (a blocked signup), which is exactly the case an
+  // account-scoped row could not represent.
+  email      String?
+  ipHash     String?
+  deviceHash String?
+  reasonCode String
+  detail     String?  @db.VarChar(500)
+  severity   String   @default("INFO")
+  // Whether this flag is currently blocking access, as opposed to being a historical record.
+  active     Boolean  @default(true)
+  resolvedAt DateTime?
+  resolvedById String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation("FlaggedUser", fields: [userId], references: [id], onDelete: Cascade)
+  @@index([reasonCode, createdAt])
+  @@index([userId])
+  @@index([active, createdAt])
+  @@index([deviceHash])
+}
+
+// A user-created tag on the video feed.
+//
+// `name` is the normalised form (lowercase, trimmed) and is the unique key, so "Gaming", "gaming"
+// and " gaming " are one tag rather than three — without that, a tag index fragments immediately and
+// searching it stops working. `displayName` keeps the casing the creator actually typed.
+//
+// `useCount` is denormalised because tag suggestions rank by popularity on every keystroke, and a
+// COUNT over the join table per candidate is exactly the query that makes a typeahead feel slow.
+model Tag {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  displayName String
+  createdById String?
+  useCount    Int        @default(0)
+  createdAt   DateTime   @default(now())
+  createdBy   User?      @relation("TagCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  videos      VideoTag[]
+  @@index([useCount])
+  @@index([name])
+}
+
+model VideoTag {
+  videoId BigInt
+  tagId   String
+  video   Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  tag     Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  @@id([videoId, tagId])
+  @@index([tagId])
+}
+
+/// One person's private state about ONE friend suggestion.
+///
+/// Deliberately NOT a fourth value on FriendStatus, which was the tempting zero-new-table option.
+/// FriendRequest is simultaneously the friend graph, the request queue AND the block list — every
+/// `status ===` check in friends/service.ts would need re-auditing, and blockUser's deleteMany
+/// would silently wipe dismissals. A dismissal also isn't a relationship: it is one person's UI
+/// state about their own panel, inherently one-directional in a table whose semantics are pairwise.
+///
+/// It cannot live in Redis either: compose.yml runs redis with `--save ""`, no volume and
+/// noeviction, so every dismissal would be lost on the next deploy — "I already told you three
+/// times I don't know this person" is a bad thing to forget.
+///
+/// Carries the impression counter too, so "stop showing me the same five people" needs no second
+/// store. No `id` and no `updatedAt`: nothing reads them.
+model FriendSuggestionState {
+  userId      String
+  subjectId   String
+  dismissedAt DateTime?
+  shownCount  Int       @default(0)
+  lastShownAt DateTime?
+  user        User      @relation("SuggestionOwner", fields: [userId], references: [id], onDelete: Cascade)
+  subject     User      @relation("SuggestionSubject", fields: [subjectId], references: [id], onDelete: Cascade)
+  @@id([userId, subjectId])
+  @@index([userId, dismissedAt])
+}
+
+// ---------------------------------------------------------------------------------------------
+// Lumina Control — infrastructure monitoring and a narrow set of service actions.
+//
+// The trust direction here is the whole design, so it is written down where the models are.
+//
+// The obvious implementation is to give the API access to the Docker socket and let the owner
+// console call it. That is also how you turn "someone found an auth bug in the chat app" into
+// "someone owns the host": the Docker socket is root-equivalent, and the API is the one process on
+// this box that the public internet can reach.
+//
+// So the API never talks to Docker at all. A separate agent runs on the host, OUTSIDE the
+// containers, and *polls in*: every cycle it POSTs a snapshot and receives whatever commands are
+// queued. Nothing inbound ever reaches Docker; the agent decides what it is willing to run from an
+// allowlist compiled into it, and an attacker who fully controls the API can still only ask for
+// things on that list.
+//
+// It also fails honestly: if the agent stops, the dashboard says "last seen 6 minutes ago" instead
+// of quietly showing a stale green.
+// ---------------------------------------------------------------------------------------------
+
+model OpsSnapshot {
+  id        BigInt   @id @default(autoincrement())
+  /// Which host reported. One agent today; the column exists so a second box doesn't need a
+  /// migration to be visible.
+  agentId   String
+  createdAt DateTime @default(now())
+  /// The whole report as the agent sent it. Deliberately JSON rather than columns: this is
+  /// observability data whose shape follows whatever the agent can see, and pinning it to a schema
+  /// means a migration every time a new metric is worth reporting.
+  payload   Json
+
+  @@index([agentId, id])
+  @@index([createdAt])
+}
+
+enum OpsCommandStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  /// Never claimed inside its window. A restart that was requested twenty minutes ago and only
+  /// now reached a returning agent is almost never still what anyone wants.
+  EXPIRED
+}
+
+model OpsCommand {
+  id            String           @id @default(cuid())
+  agentId       String
+  /// Validated against an allowlist twice: once here, and again in the agent, which does not trust
+  /// this record.
+  action        String
+  target        String
+  status        OpsCommandStatus @default(QUEUED)
+  requestedById String?
+  claimedAt     DateTime?
+  finishedAt    DateTime?
+  result        String?          @db.VarChar(2000)
+  createdAt     DateTime         @default(now())
+
+  requestedBy User? @relation("OpsCommandRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([agentId, status])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------------------------
+// Addons.
+//
+// An addon is a MANIFEST, not code. That is the whole design decision and it is not a limitation
+// I'm apologising for: the alternative the feature request implies — "any CLI can publish an
+// addon and the server runs it" — is remote code execution offered as a product feature. Every
+// self-hosted platform that has shipped that has shipped a botnet.
+//
+// So an addon declares *what* should happen from a fixed vocabulary of triggers, conditions and
+// actions, and the interpreter that carries it out lives here, in the server, under the same
+// permission checks as a human doing the same thing. There is no eval, no sandbox to escape, and
+// no network access an addon can reach for — because there is nowhere in the manifest to express
+// any of those things.
+//
+// Behaviour that genuinely needs code already has a home: bots (a real User with a token) and
+// webhooks. Addons cover the large middle ground those make you write a whole service for.
+// ---------------------------------------------------------------------------------------------
+
+model Addon {
+  id          String   @id @default(cuid())
+  /// Stable public identifier, the thing a CLI publishes against. Immutable once created.
+  slug        String   @unique
+  name        String   @db.VarChar(80)
+  description String?  @db.VarChar(300)
+  version     String   @db.VarChar(32)
+  /// Validated against modules/addons/manifest.ts on every write. Stored as JSON because it IS a
+  /// document — modelling triggers and actions relationally would mean a migration for every new
+  /// action type and would still be reassembled into this shape to run.
+  manifest    Json
+  /// Who may publish a new version. An addon published through the CLI belongs to an Application,
+  /// which is what the CLI authenticates as; one created in the UI belongs to a user.
+  authorId      String?
+  applicationId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author      User?        @relation("AddonAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  application Application? @relation("AddonApplication", fields: [applicationId], references: [id], onDelete: SetNull)
+  installs    ServerAddon[]
+
+  @@index([applicationId])
+}
+
+model ServerAddon {
+  id            String   @id @default(cuid())
+  serverId      String
+  addonId       String
+  enabled       Boolean  @default(true)
+  installedById String?
+  createdAt     DateTime @default(now())
+
+  server      Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  addon       Addon  @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  installedBy User?  @relation("AddonInstaller", fields: [installedById], references: [id], onDelete: SetNull)
+
+  /// One install per server. Installing twice is a no-op, not two sets of automations firing.
+  @@unique([serverId, addonId])
+  @@index([serverId, enabled])
+}
+
+// ---------------------------------------------------------------------------------------------
+// Self-serve advertising: promoted videos in the For You feed.
+//
+// Product decisions made deliberately, since each one has a worse alternative:
+//
+// **The unit is a video already in the feed**, not a new creative format. An advertiser promotes
+// something they have already uploaded and a moderator has already approved, which means ad
+// creative inherits the entire existing review pipeline instead of needing a second one — and a
+// "sponsored" card is the same component as an organic card, so it can never look like a
+// different, ignorable widget.
+//
+// **CPM, not CPC.** Click attribution needs redirect infrastructure, click fraud handling, and an
+// argument about what counts as a click on a video. Impressions are already counted honestly for
+// the organic feed, so pricing on them reuses machinery that exists and is understood.
+//
+// **Budget is recorded, never charged here.** Spend accrues against the campaign as it delivers;
+// actually collecting it is Stripe's job (task #86). Keeping the ledger separate from the payment
+// processor means delivery is correct and auditable whether or not billing is switched on, and
+// a campaign that has spent money it hasn't paid for is visible rather than silently free.
+// ---------------------------------------------------------------------------------------------
+
+enum AdCampaignStatus {
+  DRAFT
+  PENDING_REVIEW
+  /// Reviewed and allowed to deliver. Whether it IS delivering depends on dates and budget, which
+  /// are evaluated per request rather than stored — a status that has to be swept by a cron to
+  /// stay truthful is a status that is regularly wrong.
+  APPROVED
+  REJECTED
+  PAUSED
+  /// Budget exhausted or the end date passed. Terminal, set when delivery notices.
+  COMPLETED
+}
+
+model AdCampaign {
+  id            String           @id @default(cuid())
+  advertiserId  String?
+  /// The video being promoted. Must be APPROVED and belong to the advertiser — checked on create
+  /// and re-checked at delivery, because a video can be taken down after a campaign is approved.
+  videoId       BigInt?
+  name          String           @db.VarChar(100)
+  status        AdCampaignStatus @default(DRAFT)
+
+  /// Price per thousand impressions, in the smallest currency unit. Integer cents throughout —
+  /// money in floats is how ledgers stop reconciling.
+  cpmCents      Int
+  totalBudgetCents Int
+  /// Accrued delivery cost. Never exceeds totalBudgetCents: delivery stops at the cap.
+  spentCents    Int              @default(0)
+
+  startsAt      DateTime
+  endsAt        DateTime
+  /// Optional tag targeting. Empty means everyone — narrow targeting on an instance this size
+  /// would mostly mean not delivering at all.
+  targetTags    String[]         @default([])
+
+  impressionCount Int            @default(0)
+  clickCount      Int            @default(0)
+
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?        @db.VarChar(300)
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  advertiser User?  @relation("AdAdvertiser", fields: [advertiserId], references: [id], onDelete: SetNull)
+  video      Video? @relation("AdVideo", fields: [videoId], references: [id], onDelete: SetNull)
+  reviewedBy User?  @relation("AdReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  daily      AdCampaignDaily[]
+
+  /// The delivery query: eligible campaigns by status and window.
+  @@index([status, startsAt, endsAt])
+  @@index([advertiserId, createdAt])
+}
+
+/// Per-day rollup, written by delivery. Deliberately NOT a row per impression: that is unbounded
+/// growth for data nobody reads at that resolution — the same reasoning that keeps video views as
+/// a counter rather than a table.
+model AdCampaignDaily {
+  id          String   @id @default(cuid())
+  campaignId  String
+  /// Midnight UTC of the day being counted.
+  day         DateTime
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  spentCents  Int      @default(0)
+
+  campaign AdCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, day])
+  @@index([day])
+}

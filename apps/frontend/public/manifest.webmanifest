@@ -1,0 +1,21 @@
+{
+  "name": "Lumina",
+  "short_name": "Lumina",
+  "description": "Servers, channels, voice, video and a short-video feed — on hardware you control.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#00021A",
+  "theme_color": "#00021A",
+  "categories": ["social", "communication"],
+  "icons": [
+    { "src": "/icons/pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "For You", "url": "/foryou" },
+    { "name": "Friends", "url": "/friends" }
+  ]
+}

@@ -1,0 +1,407 @@
+@import "./styles/motion.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============ FONTS ============
+   Display face (Unbounded) is geometric/technical — used sparingly for the wordmark and
+   section headers. Hanken Grotesk is the body/UI workhorse. IBM Plex Mono carries
+   timestamps, status text, and other "meta" chrome. All three are pre-subset local woff2
+   files (see public/fonts/), no external font requests. */
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/unbounded500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/unbounded700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/unbounded800.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/hanken400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/hanken500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/hanken600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/hanken700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/plexmono400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/plexmono500.woff2") format("woff2");
+}
+
+/* ============ DESIGN TOKENS ============
+   Ground truth is /tmp/.../scratchpad/lumina-ui-pitch.html (approved design pitch). Dark is
+   the default surface family; :root[data-theme="light"] overrides it (theme is applied by
+   setting data-theme on <html>, see index.html's inline bootstrap script + store/uiStore.ts).
+   The `base-*` / `accent` / `online` / `idle` / `dnd` / `offline` names below are exactly the
+   Tailwind color tokens every component already uses (tailwind.config.ts maps them to these
+   custom properties) — this is what re-themes the whole app without touching component JSX. */
+:root {
+  /* raw palette */
+  --void: #0c0a17;
+  --nebula: #16121f;
+  --nebula-2: #1f1a30;
+  --nebula-3: #2a2340;
+  --hairline: #322a49;
+  --ion: #5b7cfa;
+  --ion-dim: #3d4f9e;
+  --aurora: #a45cf5;
+  --aurora-dim: #6e3fa3;
+  --signal: #eeecf7;
+  --signal-dim: #a39dc2;
+  --signal-faint: #6c6690;
+  --pulse: #33d6a6;
+  --flare: #ff5c72;
+  --amber: #f5b942;
+  --grad: linear-gradient(135deg, var(--ion) 0%, var(--aurora) 100%);
+  --grad-soft: linear-gradient(135deg, rgba(91, 124, 250, 0.16) 0%, rgba(164, 92, 245, 0.16) 100%);
+  --shadow-lg: 0 30px 80px -20px rgba(6, 4, 16, 0.7);
+
+  --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Tailwind-consumed aliases — keep component class names (bg-base-900, text-accent, ...)
+     completely unchanged; only what they resolve to changes. */
+  --base-900: var(--void);
+  --base-800: var(--nebula);
+  --base-700: var(--nebula-2);
+  --base-600: var(--nebula-3);
+  --base-500: var(--hairline);
+  --base-400: var(--hairline);
+  --accent: var(--ion);
+  --accent-hover: #4a68e0;
+  --online: var(--pulse);
+  --idle: var(--amber);
+  --dnd: var(--flare);
+  --offline: var(--signal-faint);
+}
+
+:root[data-theme="light"] {
+  --void: #f3f1fb;
+  --nebula: #ffffff;
+  --nebula-2: #ece8f8;
+  --nebula-3: #e0daf3;
+  --hairline: #d9d2ee;
+  --ion: #4a63e0;
+  --ion-dim: #c3cdfb;
+  --aurora: #8b3fdb;
+  --aurora-dim: #e2c8f9;
+  --signal: #1c1830;
+  --signal-dim: #635d7d;
+  --signal-faint: #948db0;
+  --pulse: #159168;
+  --flare: #e0334c;
+  --amber: #b57a12;
+  --grad-soft: linear-gradient(135deg, rgba(74, 99, 224, 0.1) 0%, rgba(139, 63, 219, 0.1) 100%);
+  --shadow-lg: 0 30px 80px -25px rgba(28, 24, 48, 0.25);
+  --accent-hover: #3b52c9;
+}
+
+/* ============ ACCENT THEMES ============
+   Orthogonal to light/dark (data-theme): re-tints only the brand hue (--ion/--aurora feed
+   --accent + --grad) and the reactive status colors, leaving every neutral surface (void,
+   nebula tones, hairline, signal tones) alone -- those are what make either mode legible, the
+   accent is the "personality" on top. Applied via data-accent on <html> (store/uiStore.ts
+   setAccentTheme, bootstrapped pre-paint in index.html same as data-theme). No attribute at all
+   = "aurora", the original default palette above, so this is purely additive. Each non-default
+   theme needs both a dark block (bare :root[data-accent=X]) and a light one
+   (:root[data-theme=light][data-accent=X], which wins on specificity when both apply). */
+:root[data-accent="crimson"] {
+  --ion: #e14a6b;
+  --ion-dim: #8f3348;
+  --aurora: #f5735c;
+  --aurora-dim: #a34936;
+  --accent-hover: #c93a5a;
+  --grad: linear-gradient(135deg, var(--ion) 0%, var(--aurora) 100%);
+}
+:root[data-theme="light"][data-accent="crimson"] {
+  --ion: #d1355a;
+  --ion-dim: #f6c9d4;
+  --aurora: #e2593c;
+  --aurora-dim: #f8d6c8;
+  --accent-hover: #b52a4b;
+}
+
+:root[data-accent="forest"] {
+  --ion: #3fae7a;
+  --ion-dim: #2c7052;
+  --aurora: #7fd858;
+  --aurora-dim: #4d8a37;
+  --accent-hover: #339166;
+  --grad: linear-gradient(135deg, var(--ion) 0%, var(--aurora) 100%);
+}
+:root[data-theme="light"][data-accent="forest"] {
+  --ion: #218a5c;
+  --ion-dim: #c3ecd7;
+  --aurora: #5aa939;
+  --aurora-dim: #d7edc6;
+  --accent-hover: #1a734b;
+}
+
+:root[data-accent="solar"] {
+  --ion: #e2963f;
+  --ion-dim: #93611f;
+  --aurora: #f5cf5c;
+  --aurora-dim: #a38735;
+  --accent-hover: #c97d2c;
+  --grad: linear-gradient(135deg, var(--ion) 0%, var(--aurora) 100%);
+}
+:root[data-theme="light"][data-accent="solar"] {
+  --ion: #c17414;
+  --ion-dim: #f6dfb8;
+  --aurora: #d1a621;
+  --aurora-dim: #f6ecc0;
+  --accent-hover: #a3610f;
+}
+
+:root[data-accent="ocean"] {
+  --ion: #2f9bd6;
+  --ion-dim: #216d97;
+  --aurora: #4fd8e8;
+  --aurora-dim: #35909c;
+  --accent-hover: #2483b3;
+  --grad: linear-gradient(135deg, var(--ion) 0%, var(--aurora) 100%);
+}
+:root[data-theme="light"][data-accent="ocean"] {
+  --ion: #1b7fb3;
+  --ion-dim: #bfe6f6;
+  --aurora: #1fa3b8;
+  --aurora-dim: #c3ecf2;
+  --accent-hover: #14688f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark light;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--nebula-3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+/* A horizontal scroller used purely to stop a row of tabs from wrapping (Friends, the feed). The
+   8px bar declared above would otherwise sit under the tabs as a permanent grey line and eat a
+   visible slice of a 48px-tall row. Scrolling still works by drag, wheel and touch. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============ GRADIENT UTILITIES ============
+   CSS custom properties can't feed Tailwind's `background-color` utilities with a gradient
+   (bg-accent stays a flat color for the ~50 solid-fill call sites), so the handful of spots
+   that specifically want the ion->aurora gradient from the pitch (wordmark, active rail icon,
+   avatar fallback, send button) use these instead. */
+.bg-grad {
+  background: var(--grad);
+}
+.bg-grad-soft {
+  background: var(--grad-soft);
+}
+.text-grad {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.border-grad-soft {
+  border-color: var(--aurora-dim);
+}
+
+/* ============ DENSITY ============
+   Toggled by adding "density-compact" to the message list scroll container (see
+   store/uiStore.ts `density` + components/chat/MessageList.tsx). Targets small stable class
+   hooks placed alongside the normal Tailwind utility classes in MessageItem.tsx — a two-class
+   selector like this reliably outranks a single Tailwind utility class regardless of source
+   order, so no !important is needed. */
+.density-compact .message-row {
+  padding-top: 0.05rem;
+  padding-bottom: 0.05rem;
+}
+.density-compact .message-row.message-row--header {
+  margin-top: 0.35rem;
+  padding-top: 0.15rem;
+}
+.density-compact .message-line {
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.density-compact .message-avatar-slot {
+  width: 1.75rem;
+}
+
+/* ============ MOBILE DRAWER ============ */
+.mobile-drawer-backdrop {
+  background: rgba(6, 4, 16, 0.6);
+}
+
+/* ============ FULL SURFACE THEMES ============
+   Where accent themes re-tint only the brand hue, these replace the whole neutral surface family —
+   backgrounds, panels, borders and text tiers — which is what actually changes the character of the
+   app rather than just its highlight colour.
+
+   Applied on <html> as data-theme, exactly like light/dark, so the pre-paint bootstrap in
+   index.html and store/uiStore.ts need no special handling. Every one still resolves the same
+   base and signal aliases the components already use, so nothing in the JSX changes.
+
+   Accent themes remain orthogonal and stack on top of any of these. */
+
+/* Midnight — true black. Notably better on OLED phones, where #000 pixels are actually off, and
+   the highest-contrast option for reading in the dark. */
+:root[data-theme="midnight"] {
+  --void: #000000;
+  --nebula: #0a0a0d;
+  --nebula-2: #131318;
+  --nebula-3: #1c1c23;
+  --hairline: #26262f;
+  --signal: #f4f4f7;
+  --signal-dim: #a1a1ad;
+  --signal-faint: #6a6a78;
+  --shadow-lg: 0 30px 80px -20px rgba(0, 0, 0, 0.9);
+}
+
+/* Carbon — neutral greys with no colour cast. The most "tool-like" of the dark themes; useful if
+   the violet cast of the default reads as too playful for long working sessions. */
+:root[data-theme="carbon"] {
+  --void: #0d0f12;
+  --nebula: #14171b;
+  --nebula-2: #1c2026;
+  --nebula-3: #262b33;
+  --hairline: #333941;
+  --signal: #e8ecf1;
+  --signal-dim: #9aa3ae;
+  --signal-faint: #666f7a;
+  --shadow-lg: 0 30px 80px -20px rgba(0, 0, 0, 0.75);
+}
+
+/* Moss — a green-cast dark. Warmer and lower-contrast than the default; easiest on the eyes of the
+   dark set, at the cost of some crispness. */
+:root[data-theme="moss"] {
+  --void: #0a1010;
+  --nebula: #101917;
+  --nebula-2: #17231f;
+  --nebula-3: #1f2f2a;
+  --hairline: #2a3d36;
+  --signal: #e9f2ee;
+  --signal-dim: #9db3aa;
+  --signal-faint: #66807a;
+  --shadow-lg: 0 30px 80px -20px rgba(3, 12, 10, 0.8);
+}
+
+/* Parchment — a warm light theme. The default light mode is cool and blue-leaning; this is the
+   option for people who find that clinical. */
+:root[data-theme="parchment"] {
+  --void: #f5f1e8;
+  --nebula: #fffdf8;
+  --nebula-2: #efe9dc;
+  --nebula-3: #e5ddcc;
+  --hairline: #dcd3bf;
+  --signal: #2a2418;
+  --signal-dim: #6b6152;
+  --signal-faint: #9a9081;
+  --pulse: #2f7d5c;
+  --flare: #c4453c;
+  --amber: #a8760f;
+  --shadow-lg: 0 30px 80px -25px rgba(42, 36, 24, 0.22);
+  --accent-hover: #3b52c9;
+}
+:root[data-theme="parchment"] {
+  --ion: #4a63e0;
+  --ion-dim: #c3cdfb;
+  --aurora: #8b3fdb;
+  --aurora-dim: #e2c8f9;
+  --grad-soft: linear-gradient(135deg, rgba(74, 99, 224, 0.09) 0%, rgba(139, 63, 219, 0.09) 100%);
+}
+
+/* Slate — a cool, low-saturation light theme. Closest to a conventional productivity tool. */
+:root[data-theme="slate"] {
+  --void: #eef1f5;
+  --nebula: #ffffff;
+  --nebula-2: #e4e9f0;
+  --nebula-3: #d6dde7;
+  --hairline: #c8d1dd;
+  --signal: #16202e;
+  --signal-dim: #55637a;
+  --signal-faint: #8b96a8;
+  --pulse: #10795b;
+  --flare: #d03a4b;
+  --amber: #a37411;
+  --ion: #2f6fed;
+  --ion-dim: #bed3fb;
+  --aurora: #6d4bdb;
+  --aurora-dim: #d6c9f8;
+  --shadow-lg: 0 30px 80px -25px rgba(22, 32, 46, 0.2);
+  --accent-hover: #245cd0;
+  --grad-soft: linear-gradient(135deg, rgba(47, 111, 237, 0.1) 0%, rgba(109, 75, 219, 0.1) 100%);
+}

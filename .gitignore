@@ -1,0 +1,62 @@
+# ---- secrets -------------------------------------------------------------------------------
+# .env holds the database password, JWT signing secrets, the TURN secret, VAPID keys, the R2
+# credentials and the ops agent secret. It must never be committed. .env.example carries the same
+# keys with empty values and IS tracked, so a fresh checkout knows what to fill in.
+.env
+.env.*
+!.env.example
+# Per-variant Vite env files are build configuration, not secrets, and deploy.sh edits them on
+# every release (VITE_APP_BUILD) — they need to be tracked so that bump is visible in history.
+!apps/frontend/.env.mobile
+!apps/frontend/.env.owner
+!apps/frontend/.env.desktop
+
+# ---- dependencies and build output ---------------------------------------------------------
+node_modules/
+dist/
+dist-owner/
+dist-desktop/
+build/
+*.tsbuildinfo
+
+# ---- native Android ------------------------------------------------------------------------
+# The previous version of this file ignored `apps/mobile/android/` entirely, which would have left
+# AppUpdaterPlugin.java, AndroidManifest.xml and build.gradle untracked — hand-written source with
+# no copy anywhere else. Only the generated parts are excluded here.
+apps/*/android/.gradle/
+apps/*/android/build/
+apps/*/android/app/build/
+apps/*/android/local.properties
+apps/*/android/.idea/
+apps/*/android/app/release/
+# Written by `npx cap sync` — a verbatim copy of the frontend build.
+apps/*/android/app/src/main/assets/public/
+apps/*/android/app/src/main/assets/capacitor.config.json
+apps/*/android/app/src/main/assets/capacitor.plugins.json
+
+# ---- desktop -------------------------------------------------------------------------------
+apps/desktop/release/
+apps/desktop/renderer/
+
+# ---- Swift ---------------------------------------------------------------------------------
+.build/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+
+# ---- published artifacts -------------------------------------------------------------------
+# ~500MB of APKs and AppImages, rebuilt by deploy.sh on every release and mirrored to R2. Binaries
+# in git history are unremovable without a rewrite, and these change every single deploy.
+downloads/
+
+# ---- generated data ------------------------------------------------------------------------
+# Rebuilt by scripts/update-ip-intel.mjs on a daily timer; ~300KB of binary that changes constantly.
+data/ipintel/
+backups/
+*.sql.gz
+
+# ---- local noise ---------------------------------------------------------------------------
+*.log
+apps/backend/prisma/dev.db
+.DS_Store
+_tmp_*

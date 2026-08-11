@@ -1,0 +1,27 @@
+{
+  "name": "@lumina/desktop",
+  "version": "1.0.13",
+  "description": "Lumina desktop client",
+  "author": "Lumina",
+  "desktopName": "lumina.desktop",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "npm run build && electron .",
+    "dev": "cross-env LUMINA_DESKTOP_DEV=1 npm run build && cross-env LUMINA_DESKTOP_DEV=1 electron .",
+    "package": "npm run build && npm run build:renderer && electron-builder",
+    "build:renderer": "npm run build:desktop --prefix ../frontend && rimraf renderer && cp -r ../frontend/dist-desktop renderer"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "cross-env": "^7.0.3",
+    "electron": "43.3.0",
+    "electron-builder": "^26.15.3",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

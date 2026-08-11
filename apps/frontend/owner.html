@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" class="dark" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0a17" />
+    <title>Lumina Owner</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  </head>
+  <body>
+    <!-- The owner console is dark-only by design: it is an operations dashboard, usually read in
+         one context, and supporting both themes here would double the surface to verify for no
+         real benefit. The data-theme attribute above pins it regardless of the OS preference. -->
+    <div id="root"></div>
+    <script type="module" src="/src/owner-main.tsx"></script>
+  </body>
+</html>

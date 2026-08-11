@@ -1,0 +1,39 @@
+# This box is Linux, so only the linux target (AppImage) is actually built/tested here — the
+# win/mac blocks are config-only and untested until run on a Windows/Mac machine or CI runner.
+appId: com.luxffa.lumina
+productName: Lumina
+executableName: lumina
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - renderer/**/*
+  - package.json
+icon: build/icon.png
+# Where the installed app looks for updates (see src/updater.ts). "generic" means a plain static
+# directory — deploy.sh copies the AppImage and the latest-linux.yml manifest electron-builder
+# writes here into ./downloads/desktop/, which nginx already serves. No GitHub Releases, no update
+# server, no account.
+publish:
+  provider: generic
+  url: https://lumina.badgerstudios.net/downloads/desktop
+  channel: latest
+linux:
+  target:
+    - AppImage
+  category: Network
+  icon: build/icon.png
+  syncDesktopName: true
+mac:
+  target:
+    - dmg
+  icon: build/icon.png
+  category: public.app-category.social-networking
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
