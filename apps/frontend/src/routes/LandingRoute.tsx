@@ -49,12 +49,15 @@ function SiteNav() {
           <span className="font-display text-lg font-bold tracking-tight">Lumina</span>
         </Link>
         <div className="ml-auto flex items-center gap-1 sm:gap-3">
-          <a
-            href="#features"
+          {/* A real page now rather than an in-page anchor: the feature page carries the
+              screenshots, the age-safety detail and the comparison, none of which belong crammed
+              into the landing scroll. */}
+          <Link
+            to="/features"
             className="hidden rounded-full px-3 py-1.5 text-sm text-signal-dim transition hover:text-signal sm:block"
           >
             Features
-          </a>
+          </Link>
           <a
             href="#apps"
             className="hidden rounded-full px-3 py-1.5 text-sm text-signal-dim transition hover:text-signal sm:block"
