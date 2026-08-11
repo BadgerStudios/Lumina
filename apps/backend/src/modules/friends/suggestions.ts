@@ -28,13 +28,15 @@ import {
  *
  * ## Why the age filter is NOT canContact()
  *
- * This is the subtle one, and it is worth reading before changing it. `canContact` (modules/age)
- * treats a null `ageRecordedAt` as MINOR and returns true when both sides are minors. Filtering
- * with it would therefore recommend every unverified account to every other unverified account as
- * a minor-to-minor cohort — hundreds of them — while showing verified adults nothing. That is the
- * exact inverse of what the age separation is for. Lumina is 18+ (MINIMUM_AGE = 18), so a recorded
- * minor can only be an AGE_MISMATCH hold awaiting human review, not a cohort to build a social
- * graph for. Both caller and candidate must be verified adults, full stop.
+ * `canContact` answers "may these two interact", which is a weaker question than "should this
+ * person be recommended". It used to be actively wrong here: a null `ageRecordedAt` counted as
+ * MINOR and two minors matched, so filtering with it recommended every unverified account to every
+ * other unverified account as a minor-to-minor cohort — hundreds of them — while showing verified
+ * adults nothing. `canContact` no longer does that (unknown is now false on either side), so the
+ * two predicates finally agree, but this filter stays explicit rather than delegating: Lumina is
+ * 18+ (MINIMUM_AGE = 18), so a recorded minor can only be an AGE_MISMATCH hold awaiting human
+ * review, not a cohort to build a social graph for. Both caller and candidate must be verified
+ * adults, full stop.
  *
  * That predicate doubles as the best liveness filter the schema offers: an account with no age on
  * record is already blocked behind a non-dismissible modal (AgeGateModal.tsx), so recommending one

@@ -2,12 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
-import { canContact } from "../age/service.js";
+import { checkContact } from "../age/service.js";
 import { assertTrustedOrigin } from "../risk/service.js";
 import { recordFlag } from "../flags/service.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { serializeDMConversation } from "../../lib/serialize.js";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
+import { BadRequestError, BlockedError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
 import { isBlockedEitherWay, areFriends } from "../friends/service.js";
 
@@ -141,16 +141,39 @@ export default async function dmRoutes(fastify: FastifyInstance) {
     const creator = byId.get(request.userId!);
     const others = users.filter((u) => u.id !== request.userId);
     if (creator) {
-      const blocked = others.find((o) => !canContact(creator, o));
-      if (blocked) {
+      // Own missing age first, and as its own error: it is the one case the person can actually
+      // fix, and the client turns AGE_MISSING into the age prompt rather than a dead refusal.
+      // Previously an account with no age on record was silently treated as a minor, which meant
+      // this refusal read as "you can't talk to this person" when the real answer was "answer one
+      // question and you can".
+      if (creator.ageRecordedAt === null) {
         void recordFlag({
           userId: request.userId!,
-          reasonCode: "AGE_CONTACT_RESTRICTED",
-          detail: `dm creation with ${blocked.id}`,
+          reasonCode: "AGE_MISSING",
+          detail: "dm creation blocked; age not on record",
         });
-        // Same wording as the ordinary privacy refusal — naming the reason would disclose a
+        throw new BlockedError("AGE_MISSING");
+      }
+
+      const blocked = others.find((o) => checkContact(creator, o) !== "ok");
+      if (blocked) {
+        const reason = checkContact(creator, blocked);
+        void recordFlag({
+          userId: request.userId!,
+          reasonCode: reason === "unknown-other" ? "AGE_MISSING" : "AGE_CONTACT_RESTRICTED",
+          detail: `dm creation with ${blocked.id} (${reason})`,
+        });
+        // The other person's missing age gets its own wording — it is not a restriction on the
+        // person asking, and telling them "you can't message this person" for something entirely
+        // outside their control is the kind of refusal that generates support tickets.
+        //
+        // Both branches stay vague about WHY in the age-mismatch case: naming it would disclose a
         // stranger's age bracket to anyone willing to probe for it.
-        throw new ForbiddenError("You can't start a conversation with one of these people");
+        throw new ForbiddenError(
+          reason === "unknown-other"
+            ? "That account hasn't finished setting up yet"
+            : "You can't start a conversation with one of these people",
+        );
       }
     }
 

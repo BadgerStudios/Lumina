@@ -78,14 +78,16 @@ export function FeaturesRoute() {
               crosses the 18 boundary in one field but not the other is refused and flagged.
             </p>
             <p className="mt-4 text-signal-dim">
-              Where age is <em>unknown</em>, the system treats the account as a minor until it says
-              otherwise. Failing safe is the default, not the exception.
+              An account with no age on record cannot contact anyone at all until it answers — not
+              adults, not other unanswered accounts. There is no state where the question is simply
+              skipped.
             </p>
 
             <ul className="mt-6 space-y-3 text-sm">
               <Point>Under-18 signups refused before the account exists</Point>
               <Point>Both age fields required — no API path omits the check</Point>
               <Point>Minors and adults cannot contact each other, enforced server-side on DMs, group DMs and friend requests</Point>
+            <Point>An account with no age recorded can contact nobody until it answers</Point>
               <Point>The video feed is restricted to accounts confirmed adult</Point>
               <Point>A repeat under-age attempt puts that device on a 30-day new-account cooldown</Point>
               <Point>Every refusal carries a documented reason code, a plain-English explanation and an appeal route</Point>
@@ -101,8 +103,8 @@ export function FeaturesRoute() {
                 Age is self-declared. Lumina does not check ID and does not use a third-party age
                 assurance service, so it cannot prove a stated age is true — no platform relying on
                 self-declaration can. What it guarantees is that the check always runs, cannot be
-                bypassed by any request, defaults to the safer answer when age is unknown, and makes
-                a second attempt from the same device expensive. If you need verified age assurance,
+                bypassed by any request, refuses to let an account act at all while its age is
+                unrecorded, and makes a second attempt from the same device expensive. If you need verified age assurance,
                 that is a different product and we'd rather say so than imply otherwise.
               </p>
             </div>

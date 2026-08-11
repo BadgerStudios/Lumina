@@ -1,10 +1,10 @@
 import { ServerEvents } from "@lumina/shared";
 import type { FriendDTO, FriendRequestDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
-import { canContact } from "../age/service.js";
+import { canContact, checkContact } from "../age/service.js";
 import { recordFlag } from "../flags/service.js";
 import { serializeFriendRequest, serializeUser } from "../../lib/serialize.js";
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
+import { BadRequestError, BlockedError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
 import { sendPushToUser } from "../../lib/push.js";
 import { invalidateSuggestions } from "./suggestions.js";
@@ -46,6 +46,22 @@ export async function sendFriendRequest(params: { requesterId: string; addressee
     where: { id: params.requesterId },
     select: { isMinor: true, ageRecordedAt: true },
   });
+  // Own missing age is its own outcome, not a contact restriction: it is the one thing the person
+  // can fix, and BlockedError("AGE_MISSING") is what makes the client show the age prompt instead
+  // of a refusal with no route out.
+  if (requester && requester.ageRecordedAt === null) {
+    void recordFlag({
+      userId: params.requesterId,
+      reasonCode: "AGE_MISSING",
+      detail: "friend request blocked; age not on record",
+    });
+    throw new BlockedError("AGE_MISSING");
+  }
+
+  if (requester && checkContact(requester, addressee) === "unknown-other") {
+    throw new ForbiddenError("That account hasn't finished setting up yet");
+  }
+
   if (requester && !canContact(requester, addressee)) {
     void recordFlag({
       userId: params.requesterId,

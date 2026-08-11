@@ -100,14 +100,49 @@ export function checkAge(selected: AgeBracket, birthDate: Date, now = new Date()
 /**
  * Whether two accounts may contact each other.
  *
- * Minors and adults are kept apart in both directions. An account with no age on record is treated
- * as a minor: when the answer is unknown, the safe default is the restrictive one.
+ * Three outcomes, not two, and the third is the point of this function.
+ *
+ * ## Why "unknown" is no longer folded into "minor"
+ *
+ * It used to be: a null `ageRecordedAt` was read as a minor, on the reasoning that the restrictive
+ * default is the safe one. Safe, but wrong in practice — **385 of 435 accounts on this instance
+ * predate age collection**, so nearly the whole user base was silently classified as children and
+ * quietly prevented from talking to anyone who had answered. Nothing told them why. From the
+ * inside it looked like the app was broken.
+ *
+ * Worse, it made the restriction meaningless in the direction that matters: all those unknown
+ * accounts *could* freely contact each other, because two "minors" match. So the rule neither
+ * protected anyone nor explained itself.
+ *
+ * Unknown is now its own answer, and the caller turns it into a prompt to finish setting up the
+ * account. That is strictly safer than the old behaviour — an unknown account is now blocked from
+ * contacting ANYONE, including other unknowns, until it answers — and it is actionable, which the
+ * old behaviour was not.
+ *
+ * `unknown-self` and `unknown-other` are distinguished because they need different messages: one
+ * person can fix their own missing age, and can do nothing about someone else's.
+ */
+export type ContactCheck = "ok" | "age-mismatch" | "unknown-self" | "unknown-other";
+
+export function checkContact(
+  a: { isMinor: boolean; ageRecordedAt: Date | null },
+  b: { isMinor: boolean; ageRecordedAt: Date | null },
+): ContactCheck {
+  if (a.ageRecordedAt === null) return "unknown-self";
+  if (b.ageRecordedAt === null) return "unknown-other";
+  return a.isMinor === b.isMinor ? "ok" : "age-mismatch";
+}
+
+/**
+ * Boolean form, for the places that only need "may these two interact".
+ *
+ * Unknown on either side is false — an unanswered age is not permission. This deliberately does NOT
+ * reproduce the old "unknown counts as minor" behaviour, so two unknown accounts no longer match
+ * each other.
  */
 export function canContact(
   a: { isMinor: boolean; ageRecordedAt: Date | null },
   b: { isMinor: boolean; ageRecordedAt: Date | null },
 ): boolean {
-  const aMinor = a.ageRecordedAt === null ? true : a.isMinor;
-  const bMinor = b.ageRecordedAt === null ? true : b.isMinor;
-  return aMinor === bMinor;
+  return checkContact(a, b) === "ok";
 }
