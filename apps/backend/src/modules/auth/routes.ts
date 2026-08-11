@@ -23,6 +23,15 @@ import { hasPlatformRole } from "../../lib/platformRole.js";
 import { requestCountry } from "../site/routes.js";
 import { recordFlag, isSignupBlocked } from "../flags/service.js";
 import { recordOriginFlag } from "../risk/service.js";
+import {
+  beginEnrolment,
+  confirmEnrolment,
+  disable as disableMfa,
+  issueMfaTicket,
+  redeemMfaTicket,
+  status as mfaStatus,
+  verifySecondFactor,
+} from "./mfa.js";
 import type { AgeBracket } from "@prisma/client";
 
 // NOTE: No email verification / SMTP in this build — registration logs the
@@ -333,9 +342,105 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       void recordOriginFlag(request, { userId: user.id, email: user.email });
 
+      // Second factor, if this account has one. No session is issued here — the response carries a
+      // short-lived ticket instead, and /login/verify-mfa exchanges the ticket plus a code for the
+      // real tokens. Returning tokens now and "requiring" the code afterwards would be theatre:
+      // the client already holds everything it needs to make authenticated calls.
+      const mfa = await mfaStatus(user.id);
+      if (mfa.enabled) {
+        reply.code(200);
+        return {
+          mfaRequired: true,
+          mfaTicket: await issueMfaTicket(user.id),
+          backupCodesRemaining: mfa.backupCodesRemaining,
+        };
+      }
+
       const reconciled = await reconcilePlatformRole(user);
       const tokens = await issueTokenPair(user.id, request);
       sendTokenResponse(reply, request, serializeMe(reconciled), tokens);
+    },
+  );
+
+  /**
+   * Step two of a 2FA login: ticket + code in exchange for a session.
+   *
+   * Rate limited on its own budget. The password gate is already behind a per-IP+username limit,
+   * but this endpoint takes a six-digit number — the one place in the app where brute force is
+   * arithmetically plausible — so it gets a tighter one, on top of the per-user attempt counter in
+   * the service that survives an attacker rotating IPs.
+   */
+  fastify.post(
+    "/login/verify-mfa",
+    {
+      schema: {
+        body: z.object({ mfaTicket: z.string().min(1), code: z.string().min(1).max(32) }),
+      },
+      config: { rateLimit: { max: 20, timeWindow: "15 minutes" } },
+    },
+    async (request, reply) => {
+      const body = request.body as { mfaTicket: string; code: string };
+
+      const userId = await redeemMfaTicket(body.mfaTicket);
+      if (!userId) {
+        throw new UnauthorizedError("That sign-in attempt expired. Start again.");
+      }
+
+      if (!(await verifySecondFactor(userId, body.code))) {
+        request.log.warn({ event: "mfa_rejected", userId, ip: request.ip }, "second factor rejected");
+        throw new UnauthorizedError("That code isn't right.");
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) throw new UnauthorizedError("Invalid credentials");
+
+      // Re-checked here rather than trusted from step one: a ban can land in the minutes between
+      // the two steps, and the ticket must not be a way to walk past it.
+      await assertNotBanned({
+        userId: user.id,
+        email: user.email,
+        ipAddress: request.ip,
+        deviceFingerprint: readDeviceFingerprint(request),
+      });
+
+      const reconciled = await reconcilePlatformRole(user);
+      const tokens = await issueTokenPair(user.id, request);
+      sendTokenResponse(reply, request, serializeMe(reconciled), tokens);
+    },
+  );
+
+  // ---- managing your own second factor -------------------------------------------------------
+
+  fastify.get("/mfa", { preHandler: [requireAuth] }, async (request) => mfaStatus(request.userId!));
+
+  fastify.post("/mfa/begin", { preHandler: [requireAuth] }, async (request) =>
+    beginEnrolment(request.userId!),
+  );
+
+  fastify.post(
+    "/mfa/confirm",
+    {
+      schema: { body: z.object({ code: z.string().min(6).max(10) }) },
+      preHandler: [requireAuth],
+    },
+    async (request) => {
+      const { code } = request.body as { code: string };
+      // Shown exactly once. Never stored in readable form, never retrievable again — same handling
+      // as bot tokens and generated staff passwords elsewhere in this codebase.
+      return { backupCodes: await confirmEnrolment(request.userId!, code) };
+    },
+  );
+
+  fastify.post(
+    "/mfa/disable",
+    {
+      schema: { body: z.object({ password: z.string().min(1) }) },
+      preHandler: [requireAuth],
+    },
+    async (request, reply) => {
+      const { password } = request.body as { password: string };
+      await disableMfa(request.userId!, password);
+      reply.code(204);
     },
   );
 

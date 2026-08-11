@@ -155,6 +155,18 @@ model User {
   birthDate     DateTime?
   isMinor       Boolean      @default(false)
   ageRecordedAt DateTime?
+
+  // ---- two-factor authentication ----
+  //
+  // The secret is stored ENCRYPTED, not hashed: TOTP verification needs the original value to
+  // recompute the current code, so a one-way hash is impossible here. That makes it different from
+  // passwordHash and worth stating — a database dump alone does not yield working second factors,
+  // but a dump plus the application key does. See lib/totp.ts.
+  totpSecret        String?
+  totpEnabledAt     DateTime?
+  // Single-use recovery codes, hashed with the same Argon2 as passwords. Stored hashed because they
+  // ARE credentials — anyone holding one can complete a login.
+  totpBackupCodes   TotpBackupCode[]
   // ISO country code from Cloudflare's CF-IPCountry header at signup. Country granularity only:
   // enough to plot a dot on a world map, not enough to locate anyone.
   signupCountry String?      @db.VarChar(2)
@@ -1257,4 +1269,22 @@ model AdCampaignDaily {
 
   @@unique([campaignId, day])
   @@index([day])
+}
+
+/// One single-use recovery code for an account with 2FA enabled.
+///
+/// A row per code rather than an array column, so "mark this one used" is a single write that
+/// cannot race with another login consuming a different code — and so the count remaining is a
+/// query rather than something the application has to keep in step.
+model TotpBackupCode {
+  id        String    @id @default(cuid())
+  userId    String
+  /// Argon2 hash. The plaintext is shown to the user exactly once, at enrolment.
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

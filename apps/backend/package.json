@@ -9,7 +9,9 @@
     "start": "node dist/index.js",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -32,6 +34,7 @@
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
     "nanoid": "^5.0.9",
+    "otplib": "^13.4.1",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.1",
     "stripe": "^22.4.0",
@@ -46,6 +49,7 @@
     "socket.io-client": "^4.8.3",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
   }
 }

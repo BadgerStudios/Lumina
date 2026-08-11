@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
 import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone } from "lucide-react";
+import { MfaSetup } from "./MfaSetup";
 import { useUIStore, ACCENT_THEMES, THEMES, LIGHT_THEMES, type AccentTheme, type Theme } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import {
@@ -932,6 +933,15 @@ function PrivacySection() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* First in the section, not last: it is the only control here that protects the account
+          itself rather than tuning who may contact it. */}
+      <div>
+        <span className="text-xs font-bold uppercase text-signal-dim">Two-factor authentication</span>
+        <div className="mt-2">
+          <MfaSetup />
+        </div>
+      </div>
+
       <div>
         <span className="text-xs font-bold uppercase text-signal-dim">Who can contact you</span>
         <div className="mt-2 flex flex-col gap-2">
