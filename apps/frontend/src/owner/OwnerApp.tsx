@@ -220,7 +220,10 @@ export function OwnerApp() {
     : [{ label: "Connecting", state: "idle" }];
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--oc-bg)] text-signal">
+    // `oc-root` scopes the console's focus-visible ring (ownerTheme.css). Applied at the root
+    // because the previous styles defined no focus indicator anywhere, and this screen has Ban and
+    // role controls reachable by Tab — losing the caret next to those is dangerous, not just untidy.
+    <div className="oc-root flex h-screen w-screen overflow-hidden bg-[var(--oc-bg)] text-signal">
       {navOpen && (
         <button
           type="button"

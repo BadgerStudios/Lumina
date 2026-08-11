@@ -11,6 +11,7 @@ import {
   type OwnerUserRow,
 } from "../queries/owner";
 import { UserAvatar } from "../components/common/UserAvatar";
+import { Badge, DataList, DataRow, EmptyState, Toolbar } from "./OwnerChrome";
 import { OwnerUserDetailPanel } from "./OwnerUserDetailPanel";
 import { cn } from "../lib/cn";
 
@@ -39,108 +40,134 @@ export function OwnerUsersPanel() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-signal-faint" />
-        <input
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(0);
-          }}
-          placeholder="Search by username, display name or email"
-          className="w-full rounded-lg border border-hairline bg-base-800 py-2 pl-9 pr-3 text-sm text-signal placeholder:text-signal-faint focus:border-accent focus:outline-none"
-        />
-      </div>
+      {/* Sticky: filtering a 436-row list otherwise means scrolling back to the top to change the
+          search every time. */}
+      <Toolbar>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-signal-faint" />
+          <input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            placeholder="Search name or email"
+            className="w-full rounded-lg border border-[var(--oc-line)] bg-[var(--oc-panel)] py-2 pl-9 pr-3 text-sm text-signal placeholder:text-signal-faint focus:border-accent focus:outline-none"
+          />
+        </div>
+      </Toolbar>
 
       {isLoading ? (
         <div className="flex justify-center py-10">
           <Loader2 className="h-6 w-6 animate-spin text-signal-faint" />
         </div>
       ) : !data || data.users.length === 0 ? (
-        <p className="py-10 text-center text-signal-dim">No users found.</p>
+        <EmptyState
+          title={search ? `No account matches "${search}"` : "No users yet"}
+          hint={search ? "Search covers username, display name and email." : undefined}
+        />
       ) : (
         <>
           <p className="text-xs text-signal-faint">{data.total.toLocaleString()} users</p>
           {setRole.isError && (
             <p className="text-sm text-flare">{(setRole.error as Error).message}</p>
           )}
-          <div className="divide-y divide-hairline rounded-lg border border-hairline bg-base-800">
+          <DataList>
             {data.users.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 p-3">
-                <UserAvatar avatarUrl={u.avatarUrl} name={u.displayName ?? u.username} size={36} />
-                <div className="min-w-0 flex-1">
-                  {/* A button rather than a click handler on the row: the row also contains a role
-                      <select> and a Ban button, and making the whole row clickable means every
-                      attempt to change a role also opens the panel. */}
-                  <button
-                    type="button"
-                    onClick={() => setDetailUserId(u.id)}
-                    className="block max-w-full truncate text-left text-signal hover:underline"
-                  >
-                    {u.displayName ?? u.username}{" "}
-                    <span className="text-xs text-signal-faint">@{u.username}</span>
-                  </button>
-                  <p className="truncate text-xs text-signal-faint">{u.email}</p>
-                  <p className="mt-0.5 text-xs text-signal-faint">
-                    {u.counts.messages} msgs · {u.counts.videos} videos · joined{" "}
-                    {new Date(u.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
+              <DataRow
+                key={u.id}
+                leading={<UserAvatar avatarUrl={u.avatarUrl} name={u.displayName ?? u.username} size={28} />}
+                // Three lines became two, and three near-identical strings became one.
+                //
+                // Every row previously showed the display name, then "@username", then the email —
+                // which for the great majority of accounts are the same word three times, taking
+                // three lines to say it. At ~90px per row that is seven people per phone screen on
+                // a list of 436. The name and the handle share a line now (and the handle is
+                // dropped entirely when it adds nothing), with the email as the subtitle since it
+                // is the one genuinely different identifier.
+                title={
+                  <>
+                    {u.displayName ?? u.username}
+                    {u.displayName && u.displayName !== u.username && (
+                      <span className="ml-1.5 text-xs text-signal-faint">@{u.username}</span>
+                    )}
+                  </>
+                }
+                subtitle={u.email}
+                meta={`${u.counts.messages} msg · ${u.counts.videos} vid · ${new Date(u.createdAt).toLocaleDateString()}`}
+                // A button on the name rather than a handler on the row: the row also holds a role
+                // <select> and a Ban button, and a fully clickable row means every attempt to
+                // change a role also opens the detail panel.
+                onClick={() => setDetailUserId(u.id)}
+                actions={
+                  <>
 
-                {u.activeBan ? (
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-flare/20 px-2 py-0.5 text-xs text-flare">Banned</span>
-                    <button
-                      type="button"
-                      onClick={() => liftBan.mutate({ groupId: u.activeBan!.groupId })}
-                      className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal"
-                    >
-                      Lift
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    {/* Editable only when the server would actually accept the change: the caller
-                        must be allowed to assign roles at all, and to touch someone already at
-                        this rank. A master, or a peer owner, renders as a static badge instead of
-                        a control that always fails. */}
-                    {assignable.length > 0 && assignable.includes(u.platformRole) ? (
-                      <select
-                        aria-label={`Platform role for ${u.username}`}
-                        value={u.platformRole}
-                        disabled={setRole.isPending}
-                        onChange={(e) =>
-                          setRole.mutate({ userId: u.id, platformRole: e.target.value as PlatformRole })
-                        }
-                        className="rounded-lg border border-hairline bg-base-700 px-2 py-1 text-xs text-signal disabled:opacity-50"
-                      >
-                        {assignable.map((role) => (
-                          <option key={role} value={role}>
-                            {ROLE_LABELS[role]}
-                          </option>
-                        ))}
-                      </select>
+                    {u.activeBan ? (
+                      <>
+                        <Badge tone="bad">Banned</Badge>
+                        <button
+                          type="button"
+                          onClick={() => liftBan.mutate({ groupId: u.activeBan!.groupId })}
+                          className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal hover:bg-base-500"
+                        >
+                          Lift
+                        </button>
+                      </>
                     ) : (
-                      <span className="rounded-lg bg-base-700 px-2 py-1 text-xs text-signal-faint">
-                        {ROLE_LABELS[u.platformRole]}
-                      </span>
+                      <>
+                        {/* Editable only when the server would actually accept the change: the
+                            caller must be allowed to assign roles at all, and to touch someone
+                            already at this rank. A master, or a peer owner, renders as a static
+                            badge instead of a control that always fails. */}
+                        {assignable.length > 0 && assignable.includes(u.platformRole) ? (
+                          <select
+                            aria-label={`Platform role for ${u.username}`}
+                            value={u.platformRole}
+                            disabled={setRole.isPending}
+                            onChange={(e) =>
+                              setRole.mutate({ userId: u.id, platformRole: e.target.value as PlatformRole })
+                            }
+                            className="rounded-lg border border-[var(--oc-line)] bg-[var(--oc-panel-raised)] px-1.5 py-1 text-xs text-signal disabled:opacity-50"
+                          >
+                            {assignable.map((role) => (
+                              <option key={role} value={role}>
+                                {ROLE_LABELS[role]}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Badge
+                            tone={
+                              u.platformRole === "MASTER"
+                                ? "master"
+                                : u.platformRole === "OWNER"
+                                  ? "owner"
+                                  : u.platformRole === "STAFF"
+                                    ? "staff"
+                                    : undefined
+                            }
+                          >
+                            {ROLE_LABELS[u.platformRole]}
+                          </Badge>
+                        )}
+                        {/* Owners and the master cannot be banned server-side, so no button is
+                            offered for them — removing their access is a role change, not a ban. */}
+                        {u.platformRole !== "OWNER" && u.platformRole !== "MASTER" && (
+                          <button
+                            type="button"
+                            onClick={() => setBanTarget(u)}
+                            className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal hover:bg-flare hover:text-white"
+                          >
+                            Ban
+                          </button>
+                        )}
+                      </>
                     )}
-                    {/* Owners and the master cannot be banned server-side, so no button is offered
-                        for them — removing their access is a role change, not a ban. */}
-                    {u.platformRole !== "OWNER" && u.platformRole !== "MASTER" && (
-                      <button
-                        type="button"
-                        onClick={() => setBanTarget(u)}
-                        className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal hover:bg-flare hover:text-white"
-                      >
-                        Ban
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+                  </>
+                }
+              />
             ))}
-          </div>
+          </DataList>
 
           <p className="text-xs text-signal-faint">
             Role changes take effect immediately and persist across the user's next login. The

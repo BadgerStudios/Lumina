@@ -167,6 +167,7 @@ model User {
   // Single-use recovery codes, hashed with the same Argon2 as passwords. Stored hashed because they
   // ARE credentials — anyone holding one can complete a login.
   totpBackupCodes   TotpBackupCode[]
+  passkeys          Passkey[]
   // ISO country code from Cloudflare's CF-IPCountry header at signup. Country granularity only:
   // enough to plot a dot on a world map, not enough to locate anyone.
   signupCountry String?      @db.VarChar(2)
@@ -1285,6 +1286,36 @@ model TotpBackupCode {
   createdAt DateTime  @default(now())
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// A WebAuthn credential — a passkey held by the device's secure hardware.
+///
+/// Nothing secret lives here: the public key is, by design, public. The private half never leaves
+/// the authenticator (Secure Enclave, TPM, Android StrongBox), which is what makes this stronger
+/// than any password the server could store — there is no shared secret to steal from a dump.
+model Passkey {
+  /// The credential ID the authenticator returns, base64url. Also the lookup key at sign-in.
+  id            String   @id
+  userId        String
+  publicKey     Bytes
+  /// Replay guard. Authenticators increment this per assertion; a counter that goes BACKWARDS means
+  /// the credential has been cloned, and the sign-in is refused. Some authenticators (notably Apple)
+  /// always report 0, so a zero counter is exempt rather than treated as an attack.
+  counter       BigInt   @default(0)
+  /// "platform" (Face ID, Windows Hello, fingerprint) or "cross-platform" (a security key).
+  deviceType    String?
+  /// Whether the credential is synced to a cloud keychain, which decides whether losing the device
+  /// loses the passkey — worth showing the user before it is their only way in.
+  backedUp      Boolean  @default(false)
+  transports    String?
+  /// Free text the user can edit, so a list of four passkeys is distinguishable.
+  label         String?
+  createdAt     DateTime @default(now())
+  lastUsedAt    DateTime?
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }

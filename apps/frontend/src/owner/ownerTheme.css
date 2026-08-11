@@ -1,26 +1,29 @@
 /**
- * Owner console design layer.
+ * Owner console design layer — "Console".
  *
- * The console is a different kind of surface from the chat app: it is read at a glance, usually
- * under some time pressure, and every element on it is either a number or a decision. So it gets its
- * own visual language rather than inheriting the app's — denser, flatter, higher contrast, with
- * colour reserved almost entirely for status rather than decoration.
+ * Of the three concepts in the Design Lab (Aurora / Console / Atlas) this surface takes Console,
+ * while the consumer app takes Aurora. That is a deliberate split rather than an inconsistency: the
+ * chat app is somewhere people spend an evening, and this is an instrument panel someone opens
+ * because something might be wrong. Dense, flat, high contrast, colour reserved almost entirely for
+ * status — every element here is either a number or a decision.
  *
- * Layered on top of the app's existing tokens (index.css) rather than replacing them, so the two
- * stay in the same family and a token change still propagates here.
+ * Layered on the app's tokens (index.css) rather than replacing them, so a change there still
+ * propagates and the two never drift into different families.
  */
 
 :root {
-  /* Console-specific surfaces, a touch cooler and darker than the chat app's so panels read as
-     instrument housing rather than content. */
+  /* Surfaces. Cooler and darker than the chat app so panels read as instrument housing rather than
+     content, with a deliberate three-step ramp — background, panel, raised — because a two-step
+     ramp forces every nested element to invent its own shade. */
   --oc-bg: #08070f;
   --oc-panel: #100e1a;
-  --oc-panel-raised: #16142212;
+  --oc-panel-raised: #191627;
+  --oc-panel-sunken: #0b0a13;
   --oc-line: #262138;
-  --oc-line-bright: #352f4d;
+  --oc-line-bright: #383150;
 
-  /* Status colours. Deliberately only four, and each means exactly one thing:
-     good / attention / bad / idle. Anything else on this dashboard stays neutral. */
+  /* Status. Exactly four, each meaning one thing: good / attention / bad / idle. Anything else on
+     this screen stays neutral, which is what makes a single amber dot findable at a glance. */
   --oc-good: #33d6a6;
   --oc-warn: #f5b942;
   --oc-bad: #ff5c72;
@@ -29,10 +32,17 @@
   --oc-master: #f5b942;
   --oc-owner: #a45cf5;
   --oc-staff: #5b7cfa;
+
+  /* One spacing rhythm for the whole console. Panels previously each picked their own padding,
+     which is why nothing lined up across sections. */
+  --oc-gap: 0.5rem;
+  --oc-pad: 0.75rem;
+  --oc-radius: 12px;
+  --oc-radius-sm: 8px;
 }
 
-/* Numbers are the point of this screen, so they get tabular figures — without this, a value ticking
-   from 199 to 200 visibly reflows the tile, which reads as the layout twitching. */
+/* Numbers are the point of this screen, so they get tabular figures — without this a value ticking
+   from 199 to 200 visibly reflows its tile, which reads as the layout twitching. */
 .oc-num {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
@@ -41,11 +51,11 @@
 .oc-panel {
   background: var(--oc-panel);
   border: 1px solid var(--oc-line);
-  border-radius: 14px;
+  border-radius: var(--oc-radius);
 }
 
-/* Hairline top highlight — the cheapest way to make a flat dark panel read as a raised surface
-   without resorting to drop shadows, which muddy at this darkness. */
+/* Hairline top highlight — the cheapest way to make a flat dark panel read as raised without drop
+   shadows, which muddy at this darkness. */
 .oc-panel-lift {
   position: relative;
   overflow: hidden;
@@ -80,6 +90,20 @@
   width: 3px;
 }
 
+/**
+ * Focus ring.
+ *
+ * `:focus-visible`, not `:focus` — a mouse click should not leave a ring behind, but a keyboard
+ * user must always be able to see where they are. The console has destructive controls (Ban, role
+ * changes) reachable by Tab, and losing the caret next to those is genuinely dangerous rather than
+ * merely inconvenient. Applied globally here because the previous styles defined none at all.
+ */
+.oc-root :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--oc-radius-sm);
+}
+
 /* Status dot with a soft halo, so a red dot is noticeable in peripheral vision on a phone. */
 .oc-dot {
   width: 8px;
@@ -92,8 +116,8 @@
 .oc-dot[data-state="bad"]  { background: var(--oc-bad);  box-shadow: 0 0 0 3px rgb(255 92 114 / 0.18); }
 .oc-dot[data-state="idle"] { background: var(--oc-idle); }
 
-/* Live pulse for the "updating" indicator. Kept slow and low-contrast: a fast blink on a dashboard
-   someone leaves open all day is genuinely irritating. */
+/* Live pulse for the "updating" indicator. Slow and low-contrast on purpose: a fast blink on a
+   dashboard someone leaves open all day is genuinely irritating. */
 @keyframes oc-pulse {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
@@ -105,6 +129,7 @@
 @media (prefers-reduced-motion: reduce) {
   .oc-live { animation: none; }
   .oc-nav-item::before { transition: none; }
+  .oc-row { transition: none; }
 }
 
 /* Section label: small, wide-tracked, low-contrast — a caption for the group below, not a heading
@@ -114,4 +139,66 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--signal-faint);
+}
+
+/**
+ * Data rows.
+ *
+ * Every list in the console previously hand-rolled its own `divide-y` div stack, which is why the
+ * Users list, the bans list and the reports list all had different row heights and different
+ * alignment for the same kinds of control. One row primitive means a list looks like a table
+ * without being one — real `<table>` markup does not reflow to a 390px phone, and this console is
+ * used on a phone more than anywhere else.
+ */
+.oc-rows {
+  border: 1px solid var(--oc-line);
+  border-radius: var(--oc-radius);
+  overflow: hidden;
+  background: var(--oc-panel);
+}
+.oc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem var(--oc-pad);
+  border-top: 1px solid var(--oc-line);
+  transition: background 120ms ease;
+}
+.oc-row:first-child {
+  border-top: none;
+}
+.oc-row:hover {
+  background: var(--oc-panel-raised);
+}
+
+/* Badges: role, scope, state. Sized to sit inline with a name without changing its line height. */
+.oc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid var(--oc-line-bright);
+  color: var(--signal-dim);
+}
+.oc-badge[data-tone="master"] { color: var(--oc-master); border-color: color-mix(in srgb, var(--oc-master) 40%, transparent); }
+.oc-badge[data-tone="owner"]  { color: var(--oc-owner);  border-color: color-mix(in srgb, var(--oc-owner) 40%, transparent); }
+.oc-badge[data-tone="staff"]  { color: var(--oc-staff);  border-color: color-mix(in srgb, var(--oc-staff) 40%, transparent); }
+.oc-badge[data-tone="bad"]    { color: var(--oc-bad);    border-color: color-mix(in srgb, var(--oc-bad) 45%, transparent); }
+.oc-badge[data-tone="good"]   { color: var(--oc-good);   border-color: color-mix(in srgb, var(--oc-good) 45%, transparent); }
+
+/* Toolbar: the search/filter strip above a list. Sticky so filtering a 436-row list does not mean
+   scrolling back to the top to change the search. */
+.oc-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--oc-gap);
+  padding-bottom: var(--oc-gap);
+  background: var(--oc-bg);
 }

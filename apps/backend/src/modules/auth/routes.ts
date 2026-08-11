@@ -32,6 +32,14 @@ import {
   status as mfaStatus,
   verifySecondFactor,
 } from "./mfa.js";
+import {
+  beginAuthentication as beginPasskeyAuthentication,
+  beginRegistration as beginPasskeyRegistration,
+  deletePasskey,
+  finishAuthentication as finishPasskeyAuthentication,
+  finishRegistration as finishPasskeyRegistration,
+  listPasskeys,
+} from "./passkeys.js";
 import type { AgeBracket } from "@prisma/client";
 
 // NOTE: No email verification / SMTP in this build — registration logs the
@@ -410,6 +418,65 @@ export default async function authRoutes(fastify: FastifyInstance) {
   );
 
   // ---- managing your own second factor -------------------------------------------------------
+
+  // ---- passkeys (biometric sign-in) ----------------------------------------------------------
+
+  fastify.get("/passkeys", { preHandler: [requireAuth] }, async (request) =>
+    listPasskeys(request.userId!),
+  );
+
+  fastify.post("/passkeys/begin", { preHandler: [requireAuth] }, async (request) =>
+    beginPasskeyRegistration(request.userId!),
+  );
+
+  fastify.post("/passkeys/finish", { preHandler: [requireAuth] }, async (request) => {
+    const body = request.body as { response: never; label?: string };
+    return finishPasskeyRegistration(request.userId!, body.response, body.label);
+  });
+
+  fastify.delete("/passkeys/:id", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await deletePasskey(request.userId!, decodeURIComponent(id));
+    reply.code(204);
+  });
+
+  /** Step one of a passkey sign-in. Unauthenticated by definition — this is the sign-in. */
+  fastify.post(
+    "/passkeys/login/begin",
+    { config: { rateLimit: { max: 30, timeWindow: "5 minutes" } } },
+    async () => beginPasskeyAuthentication(),
+  );
+
+  fastify.post(
+    "/passkeys/login/finish",
+    { config: { rateLimit: { max: 30, timeWindow: "5 minutes" } } },
+    async (request, reply) => {
+      const body = request.body as { handle: string; response: never };
+      if (!body?.handle || !body?.response) throw new BadRequestError("Malformed passkey response");
+
+      const userId = await finishPasskeyAuthentication(body.handle, body.response);
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) throw new UnauthorizedError("Invalid credentials");
+
+      // Every gate the password path applies, applied here too. A passkey proves possession of a
+      // device, not that the account is allowed in — skipping these would make enrolling a passkey
+      // a way to walk straight past a ban.
+      await assertNotBanned({
+        userId: user.id,
+        email: user.email,
+        ipAddress: request.ip,
+        deviceFingerprint: readDeviceFingerprint(request),
+      });
+      void recordOriginFlag(request, { userId: user.id, email: user.email });
+
+      // No second factor prompt: a platform passkey already required the device's biometric or PIN,
+      // so demanding a TOTP code on top is asking for two factors the user has just provided one
+      // stronger form of. This mirrors how every major platform treats passkeys.
+      const reconciled = await reconcilePlatformRole(user);
+      const tokens = await issueTokenPair(user.id, request);
+      sendTokenResponse(reply, request, serializeMe(reconciled), tokens);
+    },
+  );
 
   fastify.get("/mfa", { preHandler: [requireAuth] }, async (request) => mfaStatus(request.userId!));
 

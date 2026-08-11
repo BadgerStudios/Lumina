@@ -1,7 +1,15 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Fingerprint } from "lucide-react";
 import { isMfaChallenge, useLogin, useVerifyMfa } from "../queries/auth";
 import { ApiError } from "../lib/apiClient";
+import {
+  isPasskeySupported,
+  passkeyErrorMessage,
+  passkeysUsableHere,
+  signInWithPasskey,
+} from "../lib/passkeys";
+import { useAuthStore } from "../store/authStore";
 
 export function Login() {
   const [emailOrUsername, setEmailOrUsername] = useState("");
@@ -13,6 +21,24 @@ export function Login() {
   // and it is a credential for the five minutes it lives.
   const [mfaTicket, setMfaTicket] = useState<string | null>(null);
   const [code, setCode] = useState("");
+
+  const setSession = useAuthStore((s) => s.setSession);
+  const [passkeyReady, setPasskeyReady] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+
+  // Async because the real question — "is a biometric or PIN actually configured on this device" —
+  // is only answerable by a promise. Checked once on mount; the answer cannot change mid-session.
+  useEffect(() => {
+    if (!passkeysUsableHere()) return;
+    let cancelled = false;
+    void isPasskeySupported().then((ok) => {
+      if (!cancelled) setPasskeyReady(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -146,6 +172,43 @@ export function Login() {
           >
             {login.isPending ? "Logging in…" : "Log In"}
           </button>
+
+          {/* Only rendered where it can actually succeed. `isPasskeySupported` asks whether a
+              fingerprint/face/PIN is genuinely configured, not merely whether the API exists — a
+              button that opens a dialog the device cannot complete is worse than no button. */}
+          {passkeyReady && (
+            <>
+              <div className="flex items-center gap-3 py-1">
+                <span className="h-px flex-1 bg-base-600" />
+                <span className="text-xs text-signal-faint">or</span>
+                <span className="h-px flex-1 bg-base-600" />
+              </div>
+              <button
+                type="button"
+                disabled={passkeyBusy}
+                onClick={async () => {
+                  setPasskeyError(null);
+                  setPasskeyBusy(true);
+                  try {
+                    const result = await signInWithPasskey();
+                    setSession(result.accessToken, result.user);
+                    navigate("/", { replace: true });
+                  } catch (err) {
+                    // Returns null for a deliberate cancel, which must not be reported as an
+                    // error — the user chose that.
+                    setPasskeyError(passkeyErrorMessage(err));
+                  } finally {
+                    setPasskeyBusy(false);
+                  }
+                }}
+                className="flex items-center justify-center gap-2 rounded border border-base-500 py-2.5 font-medium text-signal hover:bg-base-700 disabled:opacity-60"
+              >
+                <Fingerprint size={17} />
+                {passkeyBusy ? "Waiting for your device…" : "Sign in with a passkey"}
+              </button>
+              {passkeyError && <p className="text-sm text-dnd">{passkeyError}</p>}
+            </>
+          )}
         </form>
 
         <p className="mt-4 text-sm text-signal-dim">

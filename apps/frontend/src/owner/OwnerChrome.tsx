@@ -54,7 +54,11 @@ export function Metric({
       {trend && (
         // Behind the text at low opacity: the shape is context for the number, not a competing
         // element, and overlaying it keeps the tile one row tall.
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 opacity-40">{trend}</div>
+        //
+        // `bottom-0` alone clipped the curve against the tile's rounded corner — a rising line ran
+        // off the bottom edge mid-stroke and looked like a rendering fault rather than a trend.
+        // Insetting it and leaving headroom means the whole shape is inside the panel.
+        <div className="pointer-events-none absolute inset-x-2 bottom-1.5 h-7 opacity-45">{trend}</div>
       )}
     </Tag>
   );
@@ -120,11 +124,18 @@ export function StatusStrip({
         </span>
       ))}
 
-      {updating && (
-        <span className="oc-live ml-auto text-xs text-signal-faint" aria-live="polite">
-          updating…
-        </span>
-      )}
+      {/* Freshness, pinned right. A dashboard with no timestamp is one you cannot trust after
+          leaving it open: every number could be from thirty seconds ago or from this morning, and
+          nothing on screen says which. The pulse only shows during an actual fetch. */}
+      <span className="ml-auto flex items-center gap-2 text-xs text-signal-faint">
+        {updating ? (
+          <span className="oc-live" aria-live="polite">updating…</span>
+        ) : (
+          <span aria-live="polite">
+            as of {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+      </span>
     </div>
   );
 }
@@ -150,4 +161,116 @@ export function ActionRow({
       <span className="text-xs text-signal-faint">Open →</span>
     </button>
   );
+}
+
+/**
+ * A badge — role, ban scope, status.
+ *
+ * Bordered rather than filled. A filled pill at this size reads as a button and gets clicked; the
+ * console has real buttons sitting right beside these, and the two must not look alike.
+ */
+export function Badge({
+  children,
+  tone,
+}: {
+  children: ReactNode;
+  tone?: "master" | "owner" | "staff" | "good" | "bad";
+}) {
+  return (
+    <span className="oc-badge" data-tone={tone}>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * One row in a list.
+ *
+ * Every list in the console previously built its own `divide-y` stack, so the Users list, the bans
+ * list and the reports list each had different row heights and put the same kinds of control in
+ * different places. This fixes the geometry in one place:
+ *
+ *  - `leading` is a fixed-width slot (avatar, icon), so text starts at the same x on every row and
+ *    the column reads as a column.
+ *  - `actions` is pinned right and never wraps, so the Ban button is in the same place on row 1 and
+ *    row 400 — muscle memory is the entire point of a list you use daily.
+ *  - The body is `min-w-0`, which is what actually lets long usernames truncate instead of pushing
+ *    the actions off-screen. Without it flex children refuse to shrink below their content.
+ */
+export function DataRow({
+  leading,
+  title,
+  subtitle,
+  meta,
+  actions,
+  onClick,
+}: {
+  leading?: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  meta?: ReactNode;
+  actions?: ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <div className="oc-row">
+      {leading && <div className="shrink-0">{leading}</div>}
+
+      <div className="min-w-0 flex-1">
+        {onClick ? (
+          <button
+            type="button"
+            onClick={onClick}
+            className="block max-w-full truncate text-left text-sm text-signal hover:underline"
+          >
+            {title}
+          </button>
+        ) : (
+          <div className="truncate text-sm text-signal">{title}</div>
+        )}
+        {subtitle && <div className="truncate text-xs text-signal-faint">{subtitle}</div>}
+      </div>
+
+      {/* Hidden below `sm`, on purpose: secondary metadata is the first thing worth dropping when
+          space runs out, and keeping it forces either a third line or a truncated name. */}
+      {meta && <div className="hidden shrink-0 text-xs text-signal-faint sm:block">{meta}</div>}
+
+      {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+    </div>
+  );
+}
+
+/** Wraps a set of DataRows. */
+export function DataList({ children }: { children: ReactNode }) {
+  return <div className="oc-rows">{children}</div>;
+}
+
+/**
+ * The empty state.
+ *
+ * Says what would be here and, where there is one, what to do about it. "No users found" alone
+ * leaves someone wondering whether the filter is wrong or the data failed to load — which are very
+ * different problems with the same blank screen.
+ */
+export function EmptyState({
+  title,
+  hint,
+  action,
+}: {
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="oc-panel flex flex-col items-center gap-1.5 px-4 py-10 text-center">
+      <p className="text-sm text-signal-dim">{title}</p>
+      {hint && <p className="max-w-sm text-xs text-signal-faint">{hint}</p>}
+      {action && <div className="mt-1.5">{action}</div>}
+    </div>
+  );
+}
+
+/** The sticky search/filter strip above a list. */
+export function Toolbar({ children }: { children: ReactNode }) {
+  return <div className="oc-toolbar">{children}</div>;
 }

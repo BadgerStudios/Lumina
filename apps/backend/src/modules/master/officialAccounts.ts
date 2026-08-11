@@ -51,13 +51,37 @@ export async function generateOfficialAccount(params: {
     throw new BadRequestError("Username must be 3-32 letters, numbers or underscores");
   }
 
-  const existing = await prisma.user.findUnique({ where: { username } });
-  if (existing) throw new ConflictError("That username is taken");
+  // Case-INSENSITIVE, matching registration (modules/auth/routes.ts). `findUnique` on username is
+  // case-sensitive, and that gap let this generator mint "Lumina" alongside an existing "lumina".
+  //
+  // The consequence was not cosmetic: login resolves an identifier case-insensitively, so the two
+  // accounts became indistinguishable at the sign-in form and the owner's own password started
+  // being checked against the generated account's hash. It presents as "invalid credentials" on a
+  // correct password, with nothing in the UI to suggest why.
+  //
+  // Also checks the derived email, since two usernames differing only by case produce exactly the
+  // same @official.lumina.local address and would collide on User.email anyway — as a raw Postgres
+  // constraint violation rather than a readable message.
+  const email = `${username.toLowerCase()}@official.lumina.local`;
+  const existing = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { username: { equals: username, mode: "insensitive" } },
+        { email: { equals: email, mode: "insensitive" } },
+      ],
+    },
+    select: { username: true },
+  });
+  if (existing) {
+    throw new ConflictError(
+      `That username is taken (existing account: ${existing.username}). Usernames differing only by capitalisation are not allowed.`,
+    );
+  }
 
+  // (`email` is derived above, before the uniqueness check, so both can be validated together.
   // A routable address on the instance's own domain rather than a real inbox: these accounts are
   // never meant to receive mail, and pointing them at a personal address would mean a password
-  // reset on a staff account lands in someone's private inbox.
-  const email = `${username.toLowerCase()}@official.lumina.local`;
+  // reset on a staff account lands in someone's private inbox.)
 
   // 24 bytes of base64url. Long enough that it is never guessed, and generated here rather than
   // chosen so nobody reuses a password they already use somewhere else on a privileged account.
