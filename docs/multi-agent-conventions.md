@@ -43,7 +43,28 @@ not own, causing the failure this document exists to prevent.
 The prefix is the identifier that matters. If you cannot tell which row is yours, you do not own
 either; take a new one.
 
-## 2. Announce before `./deploy.sh`, and do not edit during someone else's
+## 2. Announce before ANY rebuild, and before leaving the area you claimed
+
+Two halves, and the second was learned the hard way after the first was already written down.
+
+### Announce rebuilds, not just full deploys
+
+`docker compose up -d backend` rebuilds and restarts the backend image. It is not a full
+`./deploy.sh`, so it is easy to treat as a small local action — but it snapshots and republishes the
+same source tree, and it takes the API down for a few seconds. Announce it.
+
+### Say when you leave your own scope
+
+One session claimed "index.css and chat surfaces only", then edited `apps/backend/src/lib/mail.ts`
+and `.env` and rebuilt, because the user had redirected it at mail work mid-task. That is a
+perfectly good reason to change scope — the mistake was not saying so. The other session was editing
+verify scripts and docs at the time; neither is in the backend image, so the collision was missed by
+luck rather than by protocol.
+
+A claimed scope is a promise other sessions plan around. When the user moves you, announce the move
+before the first edit, not after the rebuild.
+
+## 2b. Announce before `./deploy.sh`, and do not edit during someone else's
 
 A full deploy **snapshots the source tree at step 1** (`docker compose build`). An edit made while a
 deploy is running lands in the build *after* next.
