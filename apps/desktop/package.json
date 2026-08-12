@@ -1,6 +1,6 @@
 {
   "name": "@lumina/desktop",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Lumina desktop client",
   "author": "Lumina",
   "desktopName": "lumina.desktop",
