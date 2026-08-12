@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         // this registration is what makes AppUpdater reachable from the web layer at all. It must
         // run before super.onCreate(), which is where the bridge is built.
         registerPlugin(AppUpdaterPlugin.class);
+        registerPlugin(BiometricLockPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

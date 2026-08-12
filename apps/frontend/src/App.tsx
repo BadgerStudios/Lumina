@@ -23,6 +23,7 @@ import { CrashTest } from "./components/common/CrashTest";
 import { UploadRoute } from "./routes/UploadRoute";
 import { PrivacyRoute } from "./routes/PrivacyRoute";
 import { FeaturesRoute } from "./routes/FeaturesRoute";
+import { InstallRoute } from "./routes/InstallRoute";
 import { VerifyEmailRoute } from "./routes/VerifyEmailRoute";
 import { LandingRoute } from "./routes/LandingRoute";
 import { CLIENT_TYPE } from "./lib/platform";
@@ -82,6 +83,7 @@ export function App() {
         <Route path="/upload" element={<UploadRoute />} />
         <Route path="/privacy" element={<PrivacyRoute />} />
         <Route path="/features" element={<FeaturesRoute />} />
+        <Route path="/install" element={<InstallRoute />} />
         {/* Signed-out on purpose: the link is often opened on a different device from the one that
             signed up, and requiring a session would fail exactly where it matters. */}
         <Route path="/verify-email" element={<VerifyEmailRoute />} />

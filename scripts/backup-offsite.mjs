@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadEnv, r2Configured, r2Client, putFile, listKeys, deleteKeys } from "./r2.mjs";
+import { encryptFile, encryptionConfigured } from "./encrypt-backup.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 loadEnv(REPO);
@@ -108,8 +109,34 @@ async function main() {
       continue;
     }
 
-    const res = await putFile(client, BUCKET, key, local, "application/gzip");
-    console.log(`[offsite] uploaded ${key} (${(res.sizeBytes / 1024 / 1024).toFixed(1)}MB)`);
+    // Encrypted before it leaves the machine, when a key is configured.
+    //
+    // The bucket being private is one control, enforced by a service outside this codebase — and it
+    // has already been wrong once here. Encryption is what survives that happening again: a leaked
+    // dump of ciphertext is an embarrassment, a leaked database is every user's email address, date
+    // of birth and password hash.
+    //
+    // Unencrypted upload remains the fallback rather than a hard failure: an operator who has not
+    // set a key still needs offsite backups, and refusing to upload would leave them with none.
+    let uploadPath = local;
+    let uploadKey = key;
+    let contentType = "application/gzip";
+
+    if (encryptionConfigured()) {
+      uploadPath = path.join(BACKUP_DIR, `${file}.enc`);
+      uploadKey = `${key}.enc`;
+      contentType = "application/octet-stream";
+      encryptFile(local, uploadPath, process.env.BACKUP_ENCRYPTION_KEY);
+    }
+
+    const res = await putFile(client, BUCKET, uploadKey, uploadPath, contentType);
+    console.log(
+      `[offsite] uploaded ${uploadKey} (${(res.sizeBytes / 1024 / 1024).toFixed(1)}MB)` +
+        (uploadPath === local ? " — NOT ENCRYPTED, set BACKUP_ENCRYPTION_KEY" : " encrypted"),
+    );
+
+    // The local plaintext is the one kept on disk; the encrypted copy exists only to be uploaded.
+    if (uploadPath !== local) fs.rmSync(uploadPath, { force: true });
     uploaded.push(res);
   }
 

@@ -9,6 +9,7 @@ import { ModalRoot } from "../modals/ModalRoot";
 import { ToastHost } from "../common/ToastHost";
 import { IOSInstallHint } from "../common/IOSInstallHint";
 import { ErrorBoundary } from "../common/ErrorBoundary";
+import { BiometricGate } from "../common/BiometricGate";
 import { AgeGateModal } from "../AgeGateModal";
 import { useSocketEvents } from "../../socket/useSocketEvents";
 import { useRoleSync } from "../../hooks/useRoleSync";

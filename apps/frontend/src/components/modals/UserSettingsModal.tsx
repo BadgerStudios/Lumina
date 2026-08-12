@@ -5,6 +5,12 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
 import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone } from "lucide-react";
 import { MfaSetup } from "./MfaSetup";
+import {
+  biometricAvailability,
+  isBiometricLockEnabled,
+  requestBiometricUnlock,
+  setBiometricLockEnabled,
+} from "../../lib/biometricLock";
 import { useUIStore, ACCENT_THEMES, THEMES, LIGHT_THEMES, type AccentTheme, type Theme } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import {
@@ -935,6 +941,10 @@ function PrivacySection() {
     <div className="flex flex-col gap-5">
       {/* First in the section, not last: it is the only control here that protects the account
           itself rather than tuning who may contact it. */}
+      {/* Native builds only — the web app uses passkeys instead, which are a stronger mechanism
+          and available there. */}
+      <BiometricLockSetting />
+
       <div>
         <span className="text-xs font-bold uppercase text-signal-dim">Two-factor authentication</span>
         <div className="mt-2">
@@ -1262,5 +1272,61 @@ export function UserSettingsModal() {
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+/**
+ * The native app lock toggle.
+ *
+ * Renders nothing on web and desktop, where passkeys already provide a stronger equivalent, and
+ * nothing on a device with no biometric configured — with the reason shown when that reason is
+ * something the user can fix.
+ */
+function BiometricLockSetting() {
+  const [state, setState] = useState<{ available: boolean; reason: string } | null>(null);
+  const [enabled, setEnabled] = useState(isBiometricLockEnabled());
+
+  useEffect(() => {
+    let cancelled = false;
+    void biometricAvailability().then((r) => {
+      if (!cancelled) setState(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!state || state.reason === "not-native" || state.reason === "plugin-missing") return null;
+
+  return (
+    <div>
+      <span className="text-xs font-bold uppercase text-signal-dim">App lock</span>
+      {state.available ? (
+        <div className="mt-2">
+          <ToggleRow
+            label="Require fingerprint or face to open Lumina"
+            description="Locks the app on open, and again after it has been in the background for a while."
+            checked={enabled}
+            onChange={async (next) => {
+              // Prove it works BEFORE turning it on. Enabling a lock the device cannot satisfy
+              // means the next launch is unopenable, and the only way out is reinstalling.
+              if (next && !(await requestBiometricUnlock("Confirm to turn on the app lock"))) return;
+              setBiometricLockEnabled(next);
+              setEnabled(next);
+            }}
+          />
+          <p className="mt-1.5 text-xs text-signal-faint">
+            A convenience lock: it stops someone picking up your unlocked phone, but it does not
+            encrypt anything stored on the device.
+          </p>
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-signal-faint">
+          {state.reason === "none-enrolled"
+            ? "Set up a fingerprint, face unlock or screen lock in your phone's settings to use this."
+            : "This device doesn't support biometric unlock."}
+        </p>
+      )}
+    </div>
   );
 }
