@@ -33,15 +33,15 @@ let package = Package(
         .executable(name: "LuminaProbe", targets: ["LuminaProbe"]),
     ],
     targets: [
-        .target(
-            name: "LuminaKit",
-            swiftSettings: [
-                // Strict concurrency from day one rather than retrofitted. The client is shared
-                // mutable state reached from every screen at once; the compiler catching that is
-                // considerably cheaper than debugging it on a device.
-                .enableUpcomingFeature("StrictConcurrency"),
-            ]
-        ),
+        // Strict concurrency is still on — it is simply not requested here any more.
+        //
+        // `swift-tools-version: 6.0` above puts this package in the Swift 6 language mode, where
+        // complete strict concurrency checking is the default rather than an opt-in. Asking for it
+        // as an upcoming feature on top of that is now a hard error:
+        //     error: upcoming feature 'StrictConcurrency' is already enabled as of Swift version 6
+        // which meant this package did not compile at all — every source file failed, and the whole
+        // point of keeping LuminaKit Linux-buildable is that it is verified on every change.
+        .target(name: "LuminaKit"),
         .executableTarget(name: "LuminaProbe", dependencies: ["LuminaKit"]),
         .testTarget(name: "LuminaKitTests", dependencies: ["LuminaKit"]),
     ]

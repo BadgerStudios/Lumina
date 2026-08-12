@@ -194,10 +194,12 @@ if registered {
         // ordering, heartbeat direction and event decoding are all pinned against real data. Only
         // the standard `webSocketTask(with:)` plumbing awaits a Mac.
         #if os(Linux)
+        // `#else` rather than an early `return`. A bare return here left the entire rest of this
+        // closure as dead code on Linux, which the compiler correctly warned about on every single
+        // build — and a build that always prints a warning is a build whose warnings stop being
+        // read. On Apple platforms this branch is excluded and the code below is live as before.
         print("SKIP: realtime — URLSessionWebSocketTask has no working transport on Linux (libcurl); see CapturedFrameTests")
-        return
-        #endif
-
+        #else
         let socket = RealtimeClient(baseURL: baseURL) {
             guard let token = await client.currentAccessToken() else {
                 throw APIError.notAuthenticated
@@ -257,6 +259,7 @@ if registered {
         }
         timeout.cancel()
         await socket.disconnect()
+        #endif
     }
 
     await check("sign out") {

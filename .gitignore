@@ -1,3 +1,8 @@
+# ---- swift ---------------------------------------------------------------------------------
+# SwiftPM build output. Written by a container running as root (see docs/ios-build.md), so it is
+# not even removable without a container — committing it would be worse.
+apps/ios/LuminaKit/.build/
+
 # ---- secrets -------------------------------------------------------------------------------
 # .env holds the database password, JWT signing secrets, the TURN secret, VAPID keys, the R2
 # credentials and the ops agent secret. It must never be committed. .env.example carries the same
