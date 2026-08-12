@@ -43,6 +43,13 @@ function config() {
     user: process.env.SMTP_USER?.trim(),
     pass: process.env.SMTP_PASS,
     from: process.env.SMTP_FROM?.trim() || `Lumina <no-reply@${host.replace(/^smtp\./, "")}>`,
+    // Where a reply actually goes.
+    //
+    // Lumina sends from its own address so the mail is identifiably from the app rather than from
+    // a person, but people reply to automated mail constantly — and a From with no reachable inbox
+    // means those replies vanish. Reply-To points at an address a human reads, so "I never got my
+    // code" reaches someone instead of bouncing into nothing.
+    replyTo: process.env.SMTP_REPLY_TO?.trim() || undefined,
   };
 }
 
@@ -82,6 +89,7 @@ export async function sendMail(message: MailMessage): Promise<boolean> {
   try {
     await tx.sendMail({
       from: cfg.from,
+      ...(cfg.replyTo ? { replyTo: cfg.replyTo } : {}),
       to: message.to,
       subject: message.subject,
       text: message.text,
