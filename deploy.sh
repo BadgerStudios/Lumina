@@ -13,6 +13,20 @@ ANDROID_SDK="/home/lucid/android-sdk"
 WEB_ONLY=false
 [[ "${1:-}" == "--web-only" ]] && WEB_ONLY=true
 
+# Cap the Docker build cache before building.
+#
+# Every deploy leaves a new set of layers behind, and nothing ever collected them: sixteen deploys
+# in one day grew the cache to 106GB and took the disk from 78% to 85% on a box whose remaining
+# headroom is also where uploads and backups live. Reaching 100% would have stopped Postgres
+# accepting writes — a full disk takes the whole platform down, and the cause looks like nothing to
+# do with the app.
+#
+# `--keep-storage 8GB` rather than a full prune: keeping the recent layers is what makes the NEXT
+# build fast, and an unbounded cache and no cache are both wrong. Trimmed BEFORE the build so the
+# space is available to it, and non-fatal because a failed cleanup must never block a deploy.
+echo "== 0/4: trimming the docker build cache =="
+docker builder prune -f --keep-storage 8GB 2>&1 | tail -1 || true
+
 echo "== 1/4: building web images =="
 docker compose build
 
@@ -136,6 +150,14 @@ chmod +x downloads/lumina-desktop.AppImage downloads/desktop/*.AppImage
 # kept. Sorted by mtime and deleted by exact name — never a glob passed straight to rm.
 ls -1t downloads/desktop/Lumina-*.AppImage 2>/dev/null | tail -n +4 | while read -r stale; do
   echo "Removing superseded desktop build: $(basename "$stale")"
+  rm -f -- "$stale"
+done
+
+# The same trim for electron-builder's own output directory, which nothing was collecting: it had
+# grown to 15 AppImages and 2.2GB. Only the copies under downloads/ are ever served, so this is
+# purely build residue — two are kept so a bisect between the last two builds is still possible.
+# Sorted by mtime and deleted by exact name, never a glob passed straight to rm.
+ls -1t apps/desktop/release/Lumina-*.AppImage 2>/dev/null | tail -n +3 | while read -r stale; do
   rm -f -- "$stale"
 done
 
