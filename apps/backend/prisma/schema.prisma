@@ -166,6 +166,10 @@ model User {
   totpEnabledAt     DateTime?
   // Single-use recovery codes, hashed with the same Argon2 as passwords. Stored hashed because they
   // ARE credentials — anyone holding one can complete a login.
+  /// When the address on this account was confirmed by clicking a link sent to it. Null means
+  /// unconfirmed — which is the state every account predating this feature is in, so it must never
+  /// be treated as a reason to withhold access to something the account already had.
+  emailVerifiedAt   DateTime?
   totpBackupCodes   TotpBackupCode[]
   passkeys          Passkey[]
   // ISO country code from Cloudflare's CF-IPCountry header at signup. Country granularity only:

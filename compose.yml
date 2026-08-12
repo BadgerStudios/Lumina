@@ -84,6 +84,14 @@ services:
       PUBLIC_APP_URL: ${CORS_ORIGIN}
       DOWNLOADS_DIR: /downloads
       IP_INTEL_DIR: /data/ipintel
+      # Outbound mail. Absent = no email is sent and the app says so plainly rather than pretending
+      # (lib/mail.ts degrades to a no-op, same as push and TURN).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
     volumes:
       - lumina-uploads:/data/uploads
       # Read-only: the counted download route (modules/metrics/downloadRoutes.ts) streams releases

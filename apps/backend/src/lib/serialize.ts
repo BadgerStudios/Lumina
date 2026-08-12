@@ -54,6 +54,7 @@ type MeLike = UserLike & {
   platformRole: string;
   isMinor: boolean;
   ageRecordedAt: Date | null;
+  emailVerifiedAt: Date | null;
 };
 
 /** Only for "this is the logged-in user's own record" responses (auth/routes.ts,
@@ -75,6 +76,9 @@ export function serializeMe(user: MeLike): UserDTO {
     // (the server enforces the same on every route).
     ageVerified: user.ageRecordedAt !== null,
     isMinor: user.ageRecordedAt === null ? true : user.isMinor,
+    // Own-record only, and purely presentational: it drives the "confirm your email" banner.
+    // Nothing is gated on it — see modules/auth/emailVerification.ts.
+    emailVerified: user.emailVerifiedAt !== null,
   };
 }
 

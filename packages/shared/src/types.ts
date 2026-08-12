@@ -35,6 +35,8 @@ export interface UserDTO {
   // before it can use adult-only surfaces; until then it is treated as a minor.
   ageVerified?: boolean;
   isMinor?: boolean;
+  /** Own-record only. Presentational — drives the "confirm your email" banner and gates nothing. */
+  emailVerified?: boolean;
   /** A first-party Lumina account. Rendered as a badge — deliberately a server-set flag rather
    * than anything a user can put in their own profile, since the whole point is that it cannot be
    * copied by someone claiming to be staff. */

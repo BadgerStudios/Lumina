@@ -35,6 +35,7 @@
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
     "nanoid": "^5.0.9",
+    "nodemailer": "^9.0.5",
     "otplib": "^13.4.1",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.1",
@@ -45,6 +46,7 @@
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.10.7",
+    "@types/nodemailer": "^8.0.1",
     "@types/web-push": "^3.6.4",
     "prisma": "^6.3.1",
     "socket.io-client": "^4.8.3",

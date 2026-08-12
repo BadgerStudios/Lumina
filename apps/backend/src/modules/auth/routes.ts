@@ -33,6 +33,11 @@ import {
   verifySecondFactor,
 } from "./mfa.js";
 import {
+  requestResend as requestVerificationResend,
+  sendVerificationEmail,
+  verifyToken as verifyEmailToken,
+} from "./emailVerification.js";
+import {
   beginAuthentication as beginPasskeyAuthentication,
   beginRegistration as beginPasskeyRegistration,
   deletePasskey,
@@ -42,8 +47,10 @@ import {
 } from "./passkeys.js";
 import type { AgeBracket } from "@prisma/client";
 
-// NOTE: No email verification / SMTP in this build — registration logs the
-// user in immediately, no confirmation email step.
+// Registration logs the user in immediately and sends a confirmation email in the background.
+// Verification currently gates NOTHING — see modules/auth/emailVerification.ts for why: every
+// account predating it is unverified, so making it a requirement would lock out the whole user
+// base on the day it shipped.
 
 const registerSchema = z.object({
   username: z
@@ -239,6 +246,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // context for a later decision. Never awaited — a signup must not get slower, or fail,
       // because a reputation lookup was slow.
       void recordOriginFlag(request, { userId: user.id, email: user.email });
+      // Fire-and-forget: a slow or unreachable SMTP server must never make signup slow or fail.
+      // The account exists and works either way — the email only confirms the address.
+      void sendVerificationEmail({ userId: user.id, email: user.email, username: user.username });
 
       const tokens = await issueTokenPair(user.id, request);
       reply.code(201);
@@ -418,6 +428,43 @@ export default async function authRoutes(fastify: FastifyInstance) {
   );
 
   // ---- managing your own second factor -------------------------------------------------------
+
+  // ---- email verification ----------------------------------------------------------------------
+
+  /**
+   * Redeems a link from the verification email.
+   *
+   * Unauthenticated on purpose: the link is often opened on a different device from the one that
+   * signed up, and requiring a session would make it fail exactly where it is most needed. The
+   * token's signature is the authentication.
+   */
+  fastify.post(
+    "/verify-email",
+    {
+      schema: { body: z.object({ token: z.string().min(1) }) },
+      config: { rateLimit: { max: 20, timeWindow: "10 minutes" } },
+    },
+    async (request) => {
+      const { token } = request.body as { token: string };
+      await verifyEmailToken(token);
+      return { verified: true };
+    },
+  );
+
+  fastify.post("/verify-email/resend", { preHandler: [requireAuth] }, async (request) => {
+    const result = await requestVerificationResend(request.userId!);
+    if (result === "too-soon") {
+      throw new BadRequestError("A link was just sent — check your inbox, including spam.");
+    }
+    if (result === "not-configured") {
+      // Told plainly rather than pretending to have sent something. An operator running without a
+      // mail server needs to know that, and a user waiting for an email that will never arrive
+      // needs it more.
+      throw new BadRequestError("This server has no mail server configured, so it can't send email.");
+    }
+    if (result === "failed") throw new BadRequestError("Couldn't send the email. Try again shortly.");
+    return { sent: result === "sent", alreadyVerified: result === "already-verified" };
+  });
 
   // ---- passkeys (biometric sign-in) ----------------------------------------------------------
 
