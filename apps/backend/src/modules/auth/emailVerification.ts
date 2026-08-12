@@ -3,6 +3,7 @@ import { prisma } from "../../db/prisma.js";
 import { redis } from "../../db/redis.js";
 import { env } from "../../config/env.js";
 import { mailConfigured, sendMail } from "../../lib/mail.js";
+import { MUTED_TEXT_STYLE, button } from "../../lib/mailTemplate.js";
 import { BadRequestError } from "../../lib/errors.js";
 
 /**
@@ -113,12 +114,15 @@ export async function sendVerificationEmail(params: {
       "The link works for 24 hours. If you didn't create this account you can ignore this email —",
       "nothing will happen until the link is used.",
     ].join("\n"),
+    // Body only — lib/mail.ts wraps this in the Lumina letterhead.
     html: `
-      <p>Hi ${escapeHtml(params.username)},</p>
-      <p>Confirm this address to finish setting up your Lumina account:</p>
-      <p><a href="${escapeHtml(url)}">Confirm my email</a></p>
-      <p style="color:#666;font-size:13px">The link works for 24 hours. If you didn't create this
-      account you can ignore this email — nothing will happen until the link is used.</p>
+      <p style="margin:0 0 14px">Hi ${escapeHtml(params.username)},</p>
+      <p style="margin:0">Confirm this address to finish setting up your Lumina account.</p>
+      ${button(escapeHtml(url), "Confirm my email")}
+      <p style="${MUTED_TEXT_STYLE};margin:0 0 12px">The link works for 24 hours. If you didn't
+      create this account you can ignore this email — nothing will happen until the link is used.</p>
+      <p style="${MUTED_TEXT_STYLE};margin:0">If the button doesn't work, paste this into your
+      browser:<br><span style="word-break:break-all">${escapeHtml(url)}</span></p>
     `,
   });
   return ok ? "sent" : "failed";

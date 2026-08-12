@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
+import { logoAttachment, wrapHtml } from "./mailTemplate.js";
 
 /**
  * Outbound email.
@@ -28,6 +29,13 @@ export interface MailMessage {
   subject: string;
   text: string;
   html?: string;
+  /**
+   * Skips the Lumina letterhead and sends `html` exactly as given.
+   *
+   * Here so that an email which genuinely should not carry the branding has an explicit way to say
+   * so, rather than someone reaching for it by bypassing `sendMail`. Nothing uses it yet.
+   */
+  rawHtml?: boolean;
 }
 
 /**
@@ -192,7 +200,16 @@ export async function sendMail(message: MailMessage): Promise<boolean> {
       to: message.to,
       subject: message.subject,
       text: message.text,
-      html: message.html,
+      // The letterhead is applied here rather than by callers so a new transactional email is
+      // branded by existing. See lib/mailTemplate.ts.
+      ...(message.html
+        ? {
+            html: message.rawHtml ? message.html : wrapHtml(message.html),
+            // Only attached when the body actually references the cid — a plain-text-only send
+            // must not gain a mystery attachment.
+            ...(message.rawHtml ? {} : { attachments: logoAttachment() }),
+          }
+        : {}),
     });
     return true;
   } catch (error) {
