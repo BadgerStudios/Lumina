@@ -56,6 +56,22 @@ async function main() {
   makeFixtures();
   const user = `vup_${rand}`;
   await register(user);
+
+  // Age the account past the trust window, BEFORE the browser makes any request.
+  //
+  // Two reasons this line exists, and the ordering matters as much as the line:
+  //
+  // 1. modules/risk/service.ts refuses video uploads from accounts younger than TRUST_WINDOW_DAYS
+  //    (3) over an anonymised connection — VPN, Tor, or a datacenter. This script runs ON the
+  //    production server, so its egress IP is the box's own OVH address and every upload it
+  //    attempts is correctly classified `origin=DATACENTER` and refused. That is the product
+  //    working; without this the happy path could only ever report a failure that isn't one.
+  //
+  // 2. That age is cached in Redis for an hour (`risk:accountage:<id>`) because createdAt never
+  //    changes in production. Backdating AFTER the first request therefore does nothing — the
+  //    cache is already warm with the real value. Aging here, before anything can populate it, is
+  //    the only ordering that works.
+  sql(`update "User" set "createdAt" = now() - interval '30 days' where username = '${user}';`);
   // The feed is adults-only and enforced server-side; registration already records the age.
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -121,6 +137,7 @@ async function main() {
     }
 
     // --- The happy path ------------------------------------------------------------------
+    //
     await page.reload({ waitUntil: "networkidle" });
     await page.getByRole("button", { name: /upload a video/i }).click();
     await page.getByRole("heading", { name: /upload a video/i }).waitFor({ timeout: 8000 });

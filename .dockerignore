@@ -1,0 +1,44 @@
+# Everything here is excluded from the build context sent to the Docker daemon.
+#
+# This file did not exist, which meant every `docker compose build` uploaded the entire repository —
+# node_modules, the Android build tree, the desktop AppImage output, backups. It also meant a single
+# unreadable file anywhere in the tree failed the build outright: SwiftPM's .build directory is
+# written by a root container (see docs/ios-build.md), so after any iOS build the next deploy died
+# with "error from sender: open .../ModuleCache: permission denied" — a Swift artifact breaking the
+# backend image.
+
+# ---- dependencies (reinstalled inside the image from the lockfile) ----
+node_modules
+**/node_modules
+
+# ---- build output ----
+dist
+**/dist
+dist-owner
+**/dist-owner
+.next
+**/.next
+
+# ---- native toolchain output ----
+# SwiftPM writes this as root from a container; it is also hundreds of megabytes.
+apps/ios/**/.build
+apps/android
+apps/desktop/release
+apps/mobile/android
+apps/mobile/ios
+
+# ---- local state that must never reach an image ----
+.env
+.env.*
+!.env.example
+secrets
+backups
+data/ipintel
+downloads
+
+# ---- version control and editor noise ----
+.git
+.gitignore
+**/*.log
+_tmp_*
+.DS_Store

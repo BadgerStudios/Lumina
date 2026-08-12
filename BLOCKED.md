@@ -1,150 +1,130 @@
 # What I need from you
 
-Everything else is built. These are the items where no amount of engineering gets past the gap —
-each one needs a decision, a credential, or an account that only you can create.
+Rewritten 12 August 2026, after a full pre-launch sweep. Several items that used to be here are
+done and have been removed — Stripe is configured and verified, offsite backups work, email sends,
+and there is now a Terms of Service page. What is left is genuinely yours: a decision, a credential,
+or an account only you can create.
 
-Kept as a file in the repo rather than a shared page on purpose: it names which of your live keys
-is compromised and how your infrastructure is reached, which isn't something to put behind a URL.
-
----
-
-## 1. Stripe keys — blocks #69 (billing), #85 (ad platform), #86 (advertiser payments)
-
-**This is the only item that is also a live security issue, so it's first.**
-
-Your live secret key (`sk_live_…`) was pasted into a chat and must be treated as compromised. It
-was never written to disk or into this repo, but it has to be rolled regardless — a key that has
-left your control is spent, whatever happened to it afterwards.
-
-**What to do:**
-
-1. Go to Stripe Dashboard → Developers → API keys.
-2. **Roll the live secret key.** Use "Roll key" with an expiry of *now*, not "reveal and reuse".
-3. Copy the new values into `/home/lucid/lumina/.env`:
-   - `STRIPE_SECRET_KEY=sk_live_…`
-   - `STRIPE_PUBLISHABLE_KEY=pk_live_…`
-4. Stripe Dashboard → Developers → Webhooks → your endpoint → **Signing secret**. Copy that into
-   `STRIPE_WEBHOOK_SECRET=whsec_…`. The webhook endpoint should be
-   `https://lumina.badgerstudios.net/api/billing/webhook`.
-5. Create the products/prices you want to sell, and put the price id in
-   `STRIPE_PRICE_PREMIUM_MONTHLY=price_…`.
-6. Tell me, and I'll run `./deploy.sh --web-only` and verify a real checkout end to end.
-
-**Do not paste the keys into chat.** Edit `.env` directly — `nano /home/lucid/lumina/.env` — or run
-the edit yourself with a `!` command. I never need to see the value; the app reads it from the
-environment and I verify by making Stripe answer, not by reading the secret.
-
-**Decisions I also need before #85 (the ad platform) is more than plumbing:**
-
-- What is actually being sold? Feed placements (a promoted video every N cards), banner slots, or
-  server-level sponsorships?
-- Priced how — CPM, CPC, or flat per day?
-- Who approves an advertiser's creative before it runs? Right now the only review queue is the
-  staff video queue; ads either reuse it or need their own.
-- Minimum spend, and do you want self-serve signup or approval-gated advertiser accounts?
+Kept as a file in the repo rather than a shared page on purpose: it names which of your live keys is
+compromised and how your infrastructure is reached, which isn't something to put behind a URL.
 
 ---
 
-## 2. Cloudflare tunnel token — rotate
+## 1. Rotate three credentials that have been exposed
 
-Same reasoning as the Stripe key: it was exposed. Anyone holding it can stand up a tunnel that
-serves traffic as your hostname.
+None of these is theoretical — each one left your control at some point, and a key that has left
+your control is spent whatever happened to it afterwards.
 
-**What to do:** Cloudflare Zero Trust → Networks → Tunnels → your tunnel → Configure → **Refresh
-token**, then update wherever the connector reads it and restart the connector. Nothing in this
-repo needs to change.
+| What | Why | Where |
+|---|---|---|
+| Stripe **live secret key** (`sk_live_…`) | Pasted into a chat log. Never written to disk here, but roll it anyway. | Dashboard → Developers → API keys → Roll key, expiry *now* |
+| Stripe **restricted key** (`rk_live_…`) currently in `.env` | Same: it crossed chat. Working today, so roll it when you can rather than urgently. | Same page |
+| **R2 access key / secret** | Disclosed in an earlier transcript. These are what protect your offsite backups. | Cloudflare → R2 → Manage API tokens |
+| **SMTP relay password** | Crossed `~/for-vm-east.md` in plaintext. | Wherever the BadgerOS submission relay's credentials live |
+| **Cloudflare tunnel token** | Exposed. Anyone holding it can serve traffic as your hostname. | Zero Trust → Networks → Tunnels → Configure → Refresh token |
 
----
-
-## 3. UI redesign direction — blocks #65
-
-I have three complete directions ready to build. I need you to pick one; I won't guess, because
-this is taste and it touches every screen.
-
-| | **Aurora** | **Console** | **Atlas** |
-|---|---|---|---|
-| Feel | Soft, luminous, gradient-lit | Dense, technical, high-contrast | Calm, editorial, spacious |
-| Density | Comfortable | Tight — more on screen | Generous |
-| Colour | Deep base + accent glow | Near-black + one signal colour | Warm neutrals + restrained accent |
-| Best if | Lumina should feel like a *place* | You live in it all day | It should feel trustworthy and adult |
-| Risk | Can read as "gamer app" | Can read as cold | Wastes space on phones |
-
-Reply with a single word — Aurora, Console, or Atlas — and I'll build it across every surface. If
-you'd rather see them first, say so and I'll mock the same three screens in each.
+After rotating Stripe or R2, put the new values in `/home/lucid/lumina/.env` and tell me — I'll
+redeploy and re-verify a real payment and a real restore.
 
 ---
 
-## 4. Smartwatch target — blocks #87
+## 2. Samba is exposed to the internet — my recommendation is to turn it off
 
-"Smartwatch" is three different products. Pick the one you actually want:
+`smbd` and `nmbd` have been listening on **0.0.0.0:445 and :139 since 19 July**, running as root,
+with the stock Ubuntu config. It serves no shares of yours — only the default `printers` and
+`print$` entries — so nothing of yours is being handed out. But it is a root-privileged network
+service on the same box as your production database, exposed for no reason, and SMB is among the
+most heavily scanned ports on the internet.
 
-- **Wear OS (Android watches)** — a real companion app. Reuses the existing Android project and
-  push plumbing. Most work, most capability: notifications, quick replies, voice-to-text.
-- **Apple Watch** — needs an iOS app first, which needs a Mac and a paid Apple Developer account
-  ($99/yr). I can't build or test this on this box at all. Flagging honestly rather than starting.
-- **Notification-only, both platforms** — no watch app; the phone's notifications simply mirror to
-  the watch and quick-reply works through the existing notification actions. Small, and covers
-  most of what people actually use a watch for.
+I did not disable it myself: it is a host-level service outside Lumina, and switching off something
+you did not ask me to touch is your call, not mine.
 
-**My recommendation: notification-only first**, then Wear OS if you still want more. It's a
-fraction of the work and delivers most of the value.
+```bash
+sudo systemctl disable --now smbd nmbd
+```
 
-Also tell me what else "expanded device compatibility" means to you — TV? Tablet layouts? A CLI
-client? Those are all real and all different.
+Reversible with `sudo systemctl enable --now smbd nmbd` if you did want it. If you need SMB on the
+LAN only, set `bind interfaces only = yes` and an `interfaces = lo <your-lan-if>` line in
+`/etc/samba/smb.conf` instead.
 
----
-
-## 5. Offsite backups — small, but needs a bucket
-
-Nightly backups run and are verified, but they're on the **same disk** as the thing they're backing
-up. That protects against a mistake; it does not protect against the disk dying.
-
-**What I need:** any S3-compatible bucket — Cloudflare R2, Backblaze B2, Wasabi, or AWS S3. Create
-one, then create credentials **scoped to that bucket only** (not account-wide), and put them in
-`.env` as `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`, `BACKUP_S3_KEY_ID`, `BACKUP_S3_SECRET`. R2 is
-the cheapest for this shape of data (no egress fees).
-
-I'll wire the upload into `scripts/backup.sh` and verify a restore from the remote copy — an
-untested backup isn't a backup.
+Port 22 (SSH) and 3478 (coturn) are also public and both are supposed to be. Port 80 is the host's
+own nginx, which correctly 404s for Lumina's hostname — I checked specifically, because a second
+path to the origin would let someone bypass Cloudflare and forge their client IP, defeating every
+IP-based ban and rate limit. It doesn't.
 
 ---
 
-## 6. Email — blocks account verification and password reset
+## 3. Legal review of the Terms and Privacy pages
 
-Registration accepts any email and never checks it, and there is no password reset at all. Both are
-built up to the point where they need to actually send a message.
+Both pages now exist at `/terms` and `/privacy`, and registration links to both. They describe what
+the software actually enforces, clause by clause, so nothing in them is a promise the code doesn't
+keep.
 
-**What I need:** either SMTP details (host, port, username, password) or an API key from a
-transactional provider — Resend, Postmark, Mailgun and SES all work. You'll also need to verify
-your sending domain with them, which is a DNS record or two on `badgerstudios.net`.
+They are **not legal advice and have not been reviewed by a lawyer.** Before this instance takes
+real users at scale, someone qualified should read them — particularly:
 
----
-
-## 7. Android push — still open from earlier
-
-Native Android notifications need a Firebase project and a `google-services.json`. Web Push already
-works everywhere else, so this only affects the installed APK when it isn't running.
-
-**What I need:** create a Firebase project, add an Android app with package name
-`com.luxffa.lumina`, download `google-services.json`, and drop it at
-`apps/mobile/android/app/google-services.json`. The Gradle build already picks it up if present.
+- **Liability and governing law.** Deliberately not guessed at; there is no jurisdiction clause.
+- **Payments and refunds.** Sparks are described as non-transferable in-app currency with no cash
+  value, and forfeited on a rules ban. Whether that survives consumer-protection law where your
+  users live is exactly the question I can't answer.
+- **The content licence.** Written narrowly (host, transcode, thumbnail, show to chosen audience).
+  Confirm that covers everything you actually intend to do.
 
 ---
 
-## 8. Legal text — blocks a real ToS/Privacy policy
+## 4. Decisions I still need for the ad platform
 
-The pages exist and are linked from registration, but the content is honest placeholder. Real text
-needs you or a lawyer — I can draft, but I shouldn't be the source of the terms a real platform
-handling real users' age data operates under.
+The mechanics are built and verified: prepaid campaigns, staff review before delivery, spend
+accrued per impression, delivery stops at budget. What is not decided is commercial:
 
-Relevant because you now collect dates of birth, IP-based upload provenance, and (soon) payment
-information. Those specifically need to be named in a privacy policy.
+- **Minimum spend.** Currently $5 (`MIN_BUDGET_CENTS`), floor CPM $1.
+- **Self-serve or approval-gated advertisers?** Today anyone over 18 who passes the risk check can
+  create a campaign; a human only reviews the creative.
+- **Refund policy** for a campaign cancelled part-way. Right now the unspent budget just stops
+  delivering; nothing returns money.
 
 ---
 
-## Not blocked — I've decided these myself, as asked
+## 5. Android push still needs a Firebase project
 
-- **#88 Lumina Control** — building it as a host-side agent that *pushes* to the app, never an
-  inbound path from the internet to Docker. See the note in `lumina_roadmap.md`.
-- **#89 Addon system** — building it declarative: an addon is a manifest, not code. "Any CLI can
-  deploy an addon" would be remote code execution as a feature.
+Web Push works everywhere it can (including installed iPhone home-screen apps). Native Android
+notifications need an FCM sender id and a `google-services.json` from a Firebase project you own.
+Nothing else is blocking it.
+
+---
+
+## 6. The iOS app needs a Mac
+
+`apps/ios/LuminaKit` — models, HTTP client, session handling, the hand-written Socket.IO protocol —
+builds and passes 19 tests on Linux, and its probe passes 12/12 against the live API. The SwiftUI
+views and the Xcode project cannot be written honestly here: SwiftUI does not exist off Apple
+platforms, so anything I produced would be thousands of lines that have never been near a compiler.
+See `docs/ios-build.md`.
+
+---
+
+## 7. Two things to think about before a real launch
+
+Not blockers, and not mine to decide.
+
+**Registration is rate-limited to 10/minute per IP.** That is the right defence against signup
+floods, but mobile carriers put thousands of real users behind one address. On a launch day, a
+burst from one carrier could be refused. Say the word and I'll raise the burst allowance while
+keeping a tighter hourly cap.
+
+**Cloudflare injects an analytics beacon** that the new Content-Security-Policy partly blocks — the
+external script is allowed, its inline half is not. That leaves one console warning per page load.
+The fix is to turn Web Analytics off for this zone, not to weaken the policy: allowing it needs
+`'unsafe-inline'` on `script-src`, which would undo the main protection the policy provides.
+
+---
+
+## Already handled — recorded so it isn't asked for twice
+
+- **Stripe webhook** — Lumina has its own endpoint on the primary host with the six events the
+  handler processes, verified with signed requests (accepted, forged rejected, replay rejected).
+  The pre-existing endpoint on `badgerstudios.net` belongs to BadgerOS and was left untouched.
+- **Offsite backups** — encrypted, uploading nightly, and *proven restorable*: pulled from R2,
+  decrypted, loaded into a scratch database with row counts matching production.
+- **Email** — sending over the BadgerOS submission relay with DKIM and pinned TLS.
+- **Security headers** — HSTS, CSP, nosniff, frame-deny and referrer policy on every page.
