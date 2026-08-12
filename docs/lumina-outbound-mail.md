@@ -1,10 +1,45 @@
 # Lumina outbound mail
 
-Lumina delivers its own mail from this host (15.204.81.153) instead of relaying through the BadgerOS
-box. That handover (`docs/badgeros-mail-relay.md`) is still the better long-term shape and is still
-open — but it is **no longer blocking**, because this path does not depend on anyone else's server.
+Lumina sends through the **BadgerOS submission relay** on vm-east (15.204.252.37), authenticated
+over pinned TLS. A local direct-to-MX relay also exists on this box as a fallback; both are
+described below.
 
-## How it works
+## Primary path — authenticated submission via vm-east
+
+```
+lib/mail.ts ──TLS:465, AUTH──> mx.badgerstudios.net ──> recipient's MX
+                                signs DKIM, owns the SPF authorisation
+```
+
+This is the better path and the one in use, because vm-east already *is* what
+badgerstudios.net's DNS points at: `v=spf1 ip4:15.204.252.37 -all` authorises it, it DKIM-signs
+with its own selector, and its IP has real sending history. **No DNS change is required for this to
+work** — that is the whole appeal.
+
+Config lives in `.env` (`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_SECURE`). Lumina does
+*not* DKIM-sign on this path: vm-east signs, and adding a second signature under a selector with no
+published record would attach a signature that fails to verify — harmless for DMARC, but noise in
+every receiver's authentication results.
+
+### The certificate is pinned, not ignored
+
+The relay presents a self-signed certificate. The operator offered either pinning it or connecting
+with verification disabled. **We pin it** (`SMTP_TLS_CA_FILE` → `secrets/vm-east-submission.pem`,
+with `servername` set to the relay hostname): an AUTH password crosses this connection, and
+`rejectUnauthorized: false` accepts *any* certificate, which is exactly what a
+machine-in-the-middle needs in order to collect it. Pinning encrypts just as well and additionally
+proves we reached the right host.
+
+### Rotating the password
+
+The relay's operator regenerates it on request and republishes it. Update `SMTP_PASS` in `.env` and
+`docker compose up -d backend`. It is worth doing: the current value was transmitted in plaintext
+over a coordination channel.
+
+---
+
+## Fallback path — direct MX delivery from this box
+
 
 ```
 lib/mail.ts  ──SMTP──>  lumina-mail (services/mail-relay)  ──port 25──>  recipient's MX

@@ -101,6 +101,9 @@ services:
       DKIM_DOMAIN: ${DKIM_DOMAIN:-}
       DKIM_SELECTOR: ${DKIM_SELECTOR:-}
       DKIM_PRIVATE_KEY_FILE: ${DKIM_PRIVATE_KEY_FILE:-}
+      # Extra CA to trust for the SMTP connection. The submission relay is self-signed; pinning it
+      # keeps verification ON while an AUTH password crosses that link.
+      SMTP_TLS_CA_FILE: ${SMTP_TLS_CA_FILE:-}
     volumes:
       - lumina-uploads:/data/uploads
       # Read-only: the counted download route (modules/metrics/downloadRoutes.ts) streams releases
@@ -123,6 +126,9 @@ services:
       # because the directory denies traversal — and the bind mount never needs that traversal,
       # since the Docker daemon resolves the path as root at mount time.
       - ./secrets/dkim.key:/run/secrets/dkim.key:ro
+      # Pinned certificate for the BadgerOS submission relay (self-signed). Public data, but kept
+      # beside the key so there is one place secrets-adjacent files live.
+      - ./secrets/vm-east-submission.pem:/run/secrets/vm-east-submission.pem:ro
     ports:
       - "127.0.0.1:4000:4000"
     healthcheck:

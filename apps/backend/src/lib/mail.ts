@@ -59,6 +59,36 @@ function readDkimKey(): string | null {
 
 const dkimKey = readDkimKey();
 
+/**
+ * A PEM to trust for the SMTP connection, on top of the system CAs.
+ *
+ * The BadgerOS submission relay presents a self-signed certificate, so the default trust store
+ * rejects it. The two ways out are pinning that certificate or turning verification off, and this
+ * is the former: **an AUTH password crosses this connection**, and `rejectUnauthorized: false`
+ * accepts *any* certificate, which is precisely the shape a machine-in-the-middle needs to collect
+ * it. Pinning gives the encryption the same strength while still proving we reached the right host.
+ *
+ * The relay's operator offered both; there is no reason to take the weaker one.
+ */
+function readSmtpCa(): string | null {
+  const path = process.env.SMTP_TLS_CA_FILE?.trim();
+  if (!path) return null;
+  try {
+    return fs.readFileSync(path, "utf8");
+  } catch (error) {
+    // Loud, and deliberately NOT falling back to an unverified connection: a config slip must not
+    // silently downgrade the link that carries our credentials.
+    // eslint-disable-next-line no-console
+    console.error(
+      "[mail] SMTP_TLS_CA_FILE is set but unreadable — TLS verification will fail:",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+const smtpCa = readSmtpCa();
+
 function config() {
   const host = process.env.SMTP_HOST?.trim();
   if (!host) return null;
@@ -94,6 +124,7 @@ function config() {
      * Bounces go to this address, so it should be one that exists or is at least monitored.
      */
     envelopeFrom: process.env.SMTP_ENVELOPE_FROM?.trim() || undefined,
+    ca: smtpCa,
     /**
      * DKIM signing. Independent of SPF and worth having even though SPF passes: SPF breaks on any
      * forwarding hop that does not rewrite the envelope (mailing lists, .forward rules), while a
@@ -131,6 +162,10 @@ function getTransporter(): Transporter | null {
     // is omitted entirely when no user is set.
     ...(cfg.user ? { auth: { user: cfg.user, pass: cfg.pass } } : {}),
     ...(cfg.dkim ? { dkim: cfg.dkim } : {}),
+    // `servername` is set explicitly because the pinned certificate's CN is the relay's public
+    // hostname; without it, TLS would validate against whatever `host` happens to be, which breaks
+    // the moment that is an IP or an internal alias.
+    ...(cfg.ca ? { tls: { ca: [cfg.ca], servername: cfg.host } } : {}),
     // A slow or unreachable server must not hold a connection open indefinitely.
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
