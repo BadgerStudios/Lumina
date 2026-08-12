@@ -225,6 +225,7 @@ model User {
   subscriptions          Subscription[]
   coinEntries            CoinLedgerEntry[]
   storeGrants            StoreGrant[]
+  uploadedEmojis         CustomEmoji[]
   accountFlags           AccountFlag[]  @relation("FlaggedUser")
   transactions           Transaction[]
   issuedBans             PlatformBan[]  @relation("BanIssuer")
@@ -379,6 +380,7 @@ model Server {
   notificationOverrides NotificationOverride[]
   addons          ServerAddon[]
   autoModRules AutoModRule[]
+  customEmojis CustomEmoji[]
 }
 
 model Membership {
@@ -519,10 +521,17 @@ model Reaction {
   id         String   @id @default(cuid())
   messageId  BigInt
   userId     String
+  /// For a unicode reaction this is the character itself. For a custom emoji it is the emoji's
+  /// NAME, kept denormalised so the existing @@unique still prevents double-reacting and so a
+  /// deleted emoji leaves a readable trace rather than a dangling id.
   emoji      String
+  /// Set only for custom emoji. A foreign key rather than string matching on `emoji`: renaming an
+  /// emoji would otherwise silently split one reaction into two.
+  customEmojiId String?
   createdAt  DateTime @default(now())
   message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customEmoji CustomEmoji? @relation(fields: [customEmojiId], references: [id], onDelete: Cascade)
   @@unique([messageId, userId, emoji])
 }
 
@@ -1494,4 +1503,29 @@ model CoinLedgerEntry {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+/// Server-uploaded emoji, usable as `:name:` in messages and as a reaction.
+///
+/// `name` is unique per server, not globally: two servers can both have `:blob:` and a member of
+/// both sees the right one in each. Resolution is therefore always server-scoped — see
+/// messages/customEmoji.ts, which is why a `:name:` in a DM cannot resolve to a server emoji.
+model CustomEmoji {
+  id         String   @id @default(cuid())
+  serverId   String
+  /// Lowercase letters, numbers and underscores, 2-32 chars. Matches Discord so muscle memory and
+  /// copied message text both work.
+  name       String
+  imageUrl   String
+  /// Animated emoji render as the original GIF; static ones are re-encoded. Stored rather than
+  /// sniffed at render time so a client never has to fetch the image to know how to display it.
+  animated   Boolean  @default(false)
+  uploaderId String?
+  createdAt  DateTime @default(now())
+  server     Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  uploader   User?    @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
+  reactions  Reaction[]
+
+  @@unique([serverId, name])
+  @@index([serverId])
 }

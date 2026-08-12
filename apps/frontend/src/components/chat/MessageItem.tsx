@@ -8,6 +8,9 @@ import type { MessageDTO } from "@lumina/shared";
 import { UserAvatar } from "../common/UserAvatar";
 import { UserProfileCard } from "../common/UserProfileCard";
 import { renderMarkdown } from "../../lib/markdown";
+import { useCustomEmojis } from "../../queries/emoji";
+import { useParams } from "react-router-dom";
+import { useMemo } from "react";
 import { ReactionPicker } from "./ReactionPicker";
 import { cn } from "../../lib/cn";
 import { attachmentUrl } from "../../lib/apiClient";
@@ -48,6 +51,14 @@ export function MessageItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
+  // Custom emoji are server-scoped, so they resolve from the route's server. In a DM there is no
+  // serverId and the map is empty — `:name:` correctly stays literal text there.
+  const { serverId } = useParams<{ serverId?: string }>();
+  const { data: customEmojis } = useCustomEmojis(serverId);
+  const emojiMap = useMemo(
+    () => new Map((customEmojis ?? []).map((e) => [e.name, e.imageUrl])),
+    [customEmojis],
+  );
   const isOwn = message.authorId === currentUserId;
   const canEdit = isOwn;
   const canDelete = isOwn || canManage;
@@ -175,7 +186,7 @@ export function MessageItem({
             {message.content ? (
               <div
                 className="prose-invert break-words text-sm leading-relaxed text-signal [&_.mention]:rounded [&_.mention]:bg-accent/30 [&_.mention]:px-1 [&_.mention]:text-accent [&_.mention-everyone]:bg-idle/30 [&_.mention-everyone]:text-idle [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-base-900 [&_code]:px-1 [&_code]:py-0.5"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content, emojiMap) }}
               />
             ) : null}
             {message.attachments.length > 0 && (

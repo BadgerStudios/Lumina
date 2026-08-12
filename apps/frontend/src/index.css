@@ -405,3 +405,15 @@ body {
   --accent-hover: #245cd0;
   --grad-soft: linear-gradient(135deg, rgba(47, 111, 237, 0.1) 0%, rgba(109, 75, 219, 0.1) 100%);
 }
+
+/* Custom emoji rendered inline in message text (lib/markdown.ts). Sized to sit on the text
+   baseline rather than pushing line-height around — an emoji that changes row height makes a
+   message list jump as images load. */
+.custom-emoji {
+  display: inline-block;
+  width: 1.375em;
+  height: 1.375em;
+  object-fit: contain;
+  vertical-align: -0.3em;
+  margin: 0 0.05em;
+}

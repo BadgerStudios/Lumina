@@ -26,7 +26,7 @@ import { BadRequestError } from "./errors.js";
  * rather than only in the surfaces whose CSS happens to honour `image-orientation`.
  */
 
-export type ImagePreset = "avatar" | "userBanner" | "serverIcon" | "serverBanner";
+export type ImagePreset = "avatar" | "userBanner" | "serverIcon" | "serverBanner" | "emoji";
 
 interface PresetSpec {
   width: number;
@@ -39,6 +39,10 @@ interface PresetSpec {
 
 const PRESETS: Record<ImagePreset, PresetSpec> = {
   avatar: { width: 512, height: 512, allowAnimation: true, quality: 82 },
+  // 128px: emoji render at 22-48px inline, and anything larger is bytes nobody sees.
+  // Animation preserved because an animated emoji that renders as a still frame is
+  // simply the wrong emoji.
+  emoji: { width: 128, height: 128, allowAnimation: true, quality: 85 },
   serverIcon: { width: 512, height: 512, allowAnimation: true, quality: 82 },
   // 3:1. Matches how every banner surface renders today (a short, full-width strip), so the
   // stored pixels and the displayed box agree and nothing is cropped twice.

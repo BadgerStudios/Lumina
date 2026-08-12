@@ -15,8 +15,9 @@ import { useServerWebhooks, useCreateWebhook, useDeleteWebhook } from "../../que
 import { useAuthStore } from "../../store/authStore";
 import { cn } from "../../lib/cn";
 import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
+import { EmojiSettingsPanel } from "./EmojiSettingsPanel";
 
-type Tab = "overview" | "moderation" | "community" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons";
+type Tab = "overview" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons";
 
 function colorToHex(color: number | null): string {
   return color === null ? "#5b7cfa" : `#${color.toString(16).padStart(6, "0")}`;
@@ -184,6 +185,7 @@ export function ServerSettingsModal() {
     { key: "overview", label: "Overview" },
     { key: "moderation", label: "Moderation" },
     { key: "community", label: "Community" },
+    { key: "emoji", label: "Emoji" },
     { key: "roles", label: "Roles" },
     { key: "bans", label: "Bans" },
     { key: "auditLog", label: "Audit Log" },
@@ -397,6 +399,8 @@ export function ServerSettingsModal() {
           {tab === "community" && server && (
             <CommunityPanel server={server} serverId={serverId} />
           )}
+
+          {tab === "emoji" && <EmojiSettingsPanel serverId={serverId} />}
 
           {tab === "auditLog" && (
             <div className="flex flex-col gap-2">

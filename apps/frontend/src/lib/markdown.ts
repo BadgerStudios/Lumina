@@ -26,14 +26,44 @@ function highlightMentions(text: string): string {
   });
 }
 
-export function renderMarkdown(raw: string): string {
+/** `:name:` — same character class the server enforces on upload. */
+const CUSTOM_EMOJI_RE = /:([a-z0-9_]{2,32}):/g;
+
+/**
+ * Substitutes `:name:` with the server's custom emoji.
+ *
+ * ## Why this runs AFTER sanitization
+ *
+ * `img` is deliberately NOT in ALLOWED_TAGS. Adding it would let anyone type a raw
+ * `<img src="http://tracker/x.png">` into chat: DOMPurify would strip the event handlers so it is
+ * not XSS, but every reader's IP and user-agent would be handed to whoever owns that host, on
+ * sight, with no click required. That is a real privacy leak in a chat app.
+ *
+ * Substituting afterwards means the only `<img>` that can ever appear is one this function built,
+ * from a URL that came out of our own emoji API — never from message text. Emoji names are
+ * validated `[a-z0-9_]` server-side, so nothing here needs escaping beyond the map lookup itself.
+ *
+ * The known cost: a `:name:` inside a code block is substituted too. Worth it for a pipeline where
+ * the untrusted path cannot emit an image at all.
+ */
+function substituteEmoji(html: string, emojis: Map<string, string>): string {
+  if (emojis.size === 0) return html;
+  return html.replace(CUSTOM_EMOJI_RE, (match, name: string) => {
+    const url = emojis.get(name);
+    if (!url) return match;
+    return `<img class="custom-emoji" src="${url}" alt=":${name}:" title=":${name}:" draggable="false">`;
+  });
+}
+
+export function renderMarkdown(raw: string, emojis?: Map<string, string>): string {
   const withMentions = highlightMentions(raw);
   const html = marked.parse(withMentions, { async: false }) as string;
-  return DOMPurify.sanitize(html, {
+  const clean = DOMPurify.sanitize(html, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
     ADD_ATTR: ["target", "rel"],
   });
+  return emojis ? substituteEmoji(clean, emojis) : clean;
 }
 
 /** Extracts distinct @mentions from raw composer text, for local highlighting purposes only. */
