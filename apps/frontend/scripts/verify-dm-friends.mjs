@@ -36,7 +36,20 @@ async function register(username) {
     }),
   });
   if (!res.ok) throw new Error(`register ${username}: ${res.status} ${await res.text()}`);
-  return res.json();
+  const account = await res.json();
+
+  // Age the account past the connection-origin trust window (modules/risk/service.ts,
+  // TRUST_WINDOW_DAYS = 3).
+  //
+  // Without this every assertion below fails with "New accounts can't ... message people they don't
+  // know while connected through a VPN or Tor" — because this box's own egress IS a datacenter
+  // address (OVH), so a freshly-registered account here is exactly the shape that gate refuses.
+  // The gate is working; it simply is not the subject of this suite, and a test that can never pass
+  // from the machine it runs on is a test everyone learns to ignore.
+  //
+  // The gate itself is asserted directly in verify-ip-intel.mjs and the LuminaProbe.
+  sql(`update "User" set "createdAt" = now() - interval '30 days' where username = '${username}';`);
+  return account;
 }
 
 async function login(username) {

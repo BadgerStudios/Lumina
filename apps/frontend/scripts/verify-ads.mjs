@@ -30,6 +30,11 @@ async function mkUser(username) {
     }),
   });
   if (!res.ok) throw new Error(`register ${username}: ${res.status} ${await res.text()}`);
+  // Aged past the connection-origin trust window (modules/risk/service.ts, TRUST_WINDOW_DAYS = 3).
+  // This box's egress is a datacenter IP, so a brand-new account here is refused ad purchases by
+  // design — correct behaviour, but not what this suite is testing. See verify-ip-intel.mjs, which
+  // asserts the gate itself.
+  sql(`update "User" set "createdAt" = now() - interval '30 days' where username = '${username}';`);
   return (await res.json()).accessToken;
 }
 
