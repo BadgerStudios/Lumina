@@ -7,6 +7,7 @@ import { env } from "../../config/env.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { getStripe, isBillingConfigured, isWebhookConfigured, getPlan, getPriceId, PLANS } from "./stripe.js";
+import { credit as creditCoins } from "../store/service.js";
 
 const checkoutSchema = z.object({ planKey: z.string().min(1) });
 
@@ -185,6 +186,32 @@ const STATUS_MAP: Record<string, "TRIALING" | "ACTIVE" | "PAST_DUE" | "CANCELED"
 
 async function handleStripeEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
+    /**
+     * Store coin top-up. This is the ONLY place sparks are granted for money — the success URL
+     * grants nothing, because anyone can visit a success URL.
+     *
+     * `credit()` keys on the session id, so Stripe's retries (it redelivers on any non-2xx, which
+     * is normal operation rather than an edge case) cannot credit the same payment twice.
+     */
+    case "checkout.session.completed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      // Subscription checkouts come through here too; those are handled by the subscription events
+      // below, and have no coin metadata.
+      const userId = session.metadata?.userId;
+      const coins = Number(session.metadata?.coins);
+      if (!userId || !Number.isFinite(coins) || coins <= 0) return;
+      if (session.payment_status !== "paid") return;
+
+      await creditCoins({
+        userId,
+        amount: coins,
+        reason: "PURCHASE_BUNDLE",
+        refId: session.id,
+        note: session.metadata?.bundleKey,
+      });
+      return;
+    }
+
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {

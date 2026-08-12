@@ -58,6 +58,7 @@ import feedRoutes from "./modules/feed/routes.js";
 import ownerRoutes from "./modules/owner/routes.js";
 import banRoutes from "./modules/bans/routes.js";
 import billingRoutes from "./modules/billing/routes.js";
+import storeRoutes from "./modules/store/routes.js";
 import downloadRoutes from "./modules/metrics/downloadRoutes.js";
 import masterRoutes from "./modules/master/routes.js";
 import lookupRoutes from "./modules/lookup/routes.js";
@@ -269,6 +270,7 @@ async function main() {
   await fastify.register(ownerRoutes, { prefix: "/api/owner" });
   await fastify.register(banRoutes, { prefix: "/api/bans" });
   await fastify.register(billingRoutes, { prefix: "/api/billing" });
+  await fastify.register(storeRoutes, { prefix: "/api/store" });
   await fastify.register(downloadRoutes, { prefix: "/api/download" });
   await fastify.register(masterRoutes, { prefix: "/api/master" });
   await fastify.register(lookupRoutes, { prefix: "/api/lookup" });

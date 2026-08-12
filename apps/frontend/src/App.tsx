@@ -15,6 +15,7 @@ import { FriendsRoute } from "./routes/FriendsRoute";
 import { InviteRoute } from "./routes/InviteRoute";
 import { OAuthAuthorizeRoute } from "./routes/OAuthAuthorizeRoute";
 import { FeedRoute } from "./routes/FeedRoute";
+import StoreRoute from "./routes/StoreRoute";
 import { StaffVideosRoute } from "./routes/StaffVideosRoute";
 import { StaffTicketsRoute } from "./routes/StaffTicketsRoute";
 import { OwnerRoute } from "./routes/OwnerRoute";
@@ -98,6 +99,7 @@ export function App() {
             <Route path="/dm/:conversationId" element={<DMRoute />} />
             <Route path="/friends" element={<FriendsRoute />} />
             <Route path="/foryou" element={<FeedRoute />} />
+              <Route path="/store" element={<StoreRoute />} />
             <Route path="/staff/videos" element={<StaffVideosRoute />} />
             <Route path="/staff/reports" element={<StaffTicketsRoute />} />
             <Route path="/owner" element={<OwnerRoute />} />

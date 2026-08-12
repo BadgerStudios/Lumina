@@ -206,6 +206,8 @@ model User {
   authoredAddons         Addon[]        @relation("AddonAuthor")
   addonInstalls          ServerAddon[]  @relation("AddonInstaller")
   subscriptions          Subscription[]
+  coinEntries            CoinLedgerEntry[]
+  storeGrants            StoreGrant[]
   accountFlags           AccountFlag[]  @relation("FlaggedUser")
   transactions           Transaction[]
   issuedBans             PlatformBan[]  @relation("BanIssuer")
@@ -1362,4 +1364,86 @@ model AutoModTerm {
   rule     AutoModRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   @@index([ruleId])
+}
+
+// ---- Store -------------------------------------------------------------------------------------
+//
+// Lumina sells first-party cosmetics for an in-app currency ("sparks"). Two deliberate choices:
+//
+// 1. **Coins, not per-item card charges.** Card processing is roughly 2.9% + $0.30, so a $1.99
+//    item loses ~18% to fees. Selling a bundle once and spending it many times moves that fixed
+//    $0.30 off every purchase and onto every tenth one. Stripe's restricted-business list permits
+//    in-app currency where "the business is the operator of the virtual world", which is us.
+//
+// 2. **Nothing here pays a third party.** Every item is first-party: no creator revenue share, no
+//    payouts. Stripe classifies platforms that let creators take tips or sell their own content as
+//    a RESTRICTED business needing pre-approval, and Connect onboarding is a much larger build.
+//    Keeping the store first-party sidesteps both until there is revenue to justify them.
+
+enum StoreItemKind {
+  THEME
+  ACCENT
+  BADGE
+  PROFILE_EFFECT
+}
+
+enum CoinReason {
+  PURCHASE_BUNDLE
+  SPEND_STORE
+  PROMO_GRANT
+  ADMIN_ADJUST
+  REFUND
+}
+
+model StoreItem {
+  id          String        @id @default(cuid())
+  /// Stable identifier used in code and seeds. Renaming a display name must never orphan a grant.
+  sku         String        @unique
+  kind        StoreItemKind
+  name        String
+  description String
+  /// What the item actually unlocks - e.g. { "theme": "nebula" }. JSON because each kind carries a
+  /// different shape, and modelling four near-empty tables relationally buys nothing.
+  payload     Json
+  priceCoins  Int
+  /// Withdrawn items stay in the table forever: existing grants must keep resolving.
+  active      Boolean       @default(true)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  grants      StoreGrant[]
+
+  @@index([active, sortOrder])
+}
+
+model StoreGrant {
+  id         String    @id @default(cuid())
+  userId     String
+  itemId     String
+  acquiredAt DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item       StoreItem @relation(fields: [itemId], references: [id])
+
+  /// Ownership is binary, so this both prevents buying the same item twice and makes the purchase
+  /// transaction safe against a double-submitted request.
+  @@unique([userId, itemId])
+  @@index([userId])
+}
+
+/// Append-only. Balance is the SUM of a user's entries, never a mutable column - a stored balance
+/// invites lost updates under concurrency, and money-adjacent state should be reconstructible.
+model CoinLedgerEntry {
+  id        BigInt     @id @default(autoincrement())
+  userId    String
+  /// Positive credits, negative debits.
+  delta     Int
+  reason    CoinReason
+  /// Idempotency key. For a Stripe top-up this is the checkout session id, and the unique index is
+  /// what stops a redelivered webhook crediting the same payment twice - Stripe retries on any
+  /// non-2xx, so redelivery is normal operation, not an edge case.
+  refId     String?    @unique
+  note      String?
+  createdAt DateTime   @default(now())
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
