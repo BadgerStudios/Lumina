@@ -135,6 +135,10 @@ export interface ChannelDTO {
   nsfw: boolean;
 }
 
+export type VerificationLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+export type ExplicitContentFilter = "DISABLED" | "MEMBERS_WITHOUT_ROLES" | "ALL_MEMBERS";
+export type NotificationLevel = "ALL" | "MENTIONS" | "NONE";
+
 export interface ServerDTO {
   id: string;
   name: string;
@@ -144,6 +148,17 @@ export interface ServerDTO {
   ownerId: string;
   systemChannelId: string | null;
   createdAt: string;
+  description: string | null;
+  vanityCode: string | null;
+  verificationLevel: VerificationLevel;
+  explicitContentFilter: ExplicitContentFilter;
+  defaultNotificationLevel: NotificationLevel;
+  afkChannelId: string | null;
+  afkTimeoutSec: number;
+  sysJoinMessages: boolean;
+  sysLeaveMessages: boolean;
+  sysBoostMessages: boolean;
+  rulesChannelId: string | null;
 }
 
 export interface AttachmentDTO {

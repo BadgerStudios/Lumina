@@ -19,6 +19,28 @@ const updateServerSchema = z.object({
   bannerUrl: z.string().url().nullable().optional(),
   accentColor: z.number().int().min(0).max(0xffffff).nullable().optional(),
   systemChannelId: z.string().nullable().optional(),
+  description: z.string().max(300).nullable().optional(),
+  // Constrained to the same character class as generated invite codes because the two share one
+  // namespace — /invite/<code> resolves either. Lowercased on write so `Lumina` and `lumina` cannot
+  // both be claimed and then resolve unpredictably.
+  vanityCode: z
+    .string()
+    .min(3)
+    .max(32)
+    .regex(/^[a-zA-Z0-9-]+$/, "Letters, numbers and hyphens only")
+    .nullable()
+    .optional(),
+  verificationLevel: z.enum(["NONE", "LOW", "MEDIUM", "HIGH"]).optional(),
+  explicitContentFilter: z.enum(["DISABLED", "MEMBERS_WITHOUT_ROLES", "ALL_MEMBERS"]).optional(),
+  defaultNotificationLevel: z.enum(["ALL", "MENTIONS", "NONE"]).optional(),
+  afkChannelId: z.string().nullable().optional(),
+  // 60s-1h, matching Discord's ladder. An unbounded value would let an operator set a timeout so
+  // long the feature silently never fires.
+  afkTimeoutSec: z.number().int().min(60).max(3600).optional(),
+  sysJoinMessages: z.boolean().optional(),
+  sysLeaveMessages: z.boolean().optional(),
+  sysBoostMessages: z.boolean().optional(),
+  rulesChannelId: z.string().nullable().optional(),
 });
 
 const updateMemberSchema = z.object({

@@ -14,8 +14,9 @@ import { useBans, useUnbanMember, useAuditLog } from "../../queries/moderation";
 import { useServerWebhooks, useCreateWebhook, useDeleteWebhook } from "../../queries/webhooks";
 import { useAuthStore } from "../../store/authStore";
 import { cn } from "../../lib/cn";
+import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
 
-type Tab = "overview" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons";
+type Tab = "overview" | "moderation" | "community" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons";
 
 function colorToHex(color: number | null): string {
   return color === null ? "#5b7cfa" : `#${color.toString(16).padStart(6, "0")}`;
@@ -181,6 +182,8 @@ export function ServerSettingsModal() {
 
   const tabs: Array<{ key: Tab; label: string }> = [
     { key: "overview", label: "Overview" },
+    { key: "moderation", label: "Moderation" },
+    { key: "community", label: "Community" },
     { key: "roles", label: "Roles" },
     { key: "bans", label: "Bans" },
     { key: "auditLog", label: "Audit Log" },
@@ -385,6 +388,14 @@ export function ServerSettingsModal() {
                 <p className="text-sm text-signal-faint">No bans.</p>
               )}
             </div>
+          )}
+
+          {tab === "moderation" && server && (
+            <ModerationPanel server={server} serverId={serverId} />
+          )}
+
+          {tab === "community" && server && (
+            <CommunityPanel server={server} serverId={serverId} />
           )}
 
           {tab === "auditLog" && (

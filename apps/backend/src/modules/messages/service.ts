@@ -10,6 +10,7 @@ import { syncMessageMentions } from "./mentions.js";
 import { sendPushToUser } from "../../lib/push.js";
 import { runMessageAutomations } from "../addons/runtime.js";
 import { assertPassesAutoMod } from "../automod/service.js";
+import { assertPassesVerification } from "../servers/verification.js";
 
 /**
  * Shared message service — imported by BOTH the REST routes
@@ -142,6 +143,9 @@ export async function createChannelMessage(params: {
 
   await assertNotMuted(params.userId, channel.serverId);
   await checkPermission(params.userId, channel.serverId, Permissions.SEND_MESSAGES);
+  // Server verification gate. After the permission check (so a 403 for "you cannot post here" wins
+  // over "verify your email", which is the more useful error) and before anything is written.
+  await assertPassesVerification(params.userId, channel.serverId);
   await assertSlowmodeOk(params.userId, params.channelId, channel.serverId, channel.slowmodeSeconds);
   assertHasContent(params.content, params.attachments);
 

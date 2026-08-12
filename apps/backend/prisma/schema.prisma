@@ -36,6 +36,23 @@ enum NotificationLevel {
   NONE
 }
 
+/// How much proof a member needs before they can talk. Discord's own ladder, kept because it is
+/// well understood and maps onto signals this codebase already has (account age, email verification,
+/// membership age). Enforced in messages/service.ts, not just displayed.
+enum VerificationLevel {
+  NONE
+  LOW      // must have a verified email
+  MEDIUM   // ...and be registered on Lumina for longer than 5 minutes
+  HIGH     // ...and be a member of this server for longer than 10 minutes
+}
+
+/// Which messages get scanned for explicit media.
+enum ExplicitContentFilter {
+  DISABLED
+  MEMBERS_WITHOUT_ROLES
+  ALL_MEMBERS
+}
+
 // Lifecycle of an uploaded "For You" feed video. Deliberately review-gated: a video is only ever
 // publicly readable in APPROVED, so nothing a user uploads reaches the global cross-server feed
 // without a site admin acting on it first. PROCESSING -> (worker transcodes) -> PENDING_REVIEW ->
@@ -321,6 +338,37 @@ model Server {
   ownerId           String
   systemChannelId   String?
   createdAt         DateTime @default(now())
+
+  // ---- Moderation ----
+  verificationLevel     VerificationLevel     @default(NONE)
+  explicitContentFilter ExplicitContentFilter @default(DISABLED)
+
+  // ---- Defaults for new members ----
+  /// Server-wide default. A member's own NotificationOverride still wins; this only decides what
+  /// happens for someone who has never touched the setting.
+  defaultNotificationLevel NotificationLevel @default(ALL)
+
+  // ---- Inactive (AFK) voice ----
+  /// Members idle in voice this long are moved here. Null disables it entirely.
+  afkChannelId      String?
+  afkTimeoutSec     Int      @default(300)
+
+  // ---- System messages ----
+  /// Each toggles one kind of automatic post in systemChannelId. Separate booleans rather than a
+  /// bitfield: there are three, they are read individually, and a bitfield would be unreadable in
+  /// psql for no saving.
+  sysJoinMessages   Boolean  @default(true)
+  sysLeaveMessages  Boolean  @default(false)
+  sysBoostMessages  Boolean  @default(true)
+
+  // ---- Community ----
+  /// Shown on the join gate when set, so people see the rules before they can post.
+  rulesChannelId    String?
+  description       String?
+  /// Human-friendly invite code (lumina.badgerstudios.net/invite/<vanity>). Unique across the
+  /// instance because it shares a namespace with generated invite codes — see the check in
+  /// invites/serverRoutes.ts, which must reject a vanity that collides with an existing Invite.
+  vanityCode        String?  @unique
   owner             User        @relation("ServerOwner", fields: [ownerId], references: [id])
   memberships       Membership[]
   channels          Channel[]

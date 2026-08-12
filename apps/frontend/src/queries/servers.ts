@@ -44,6 +44,17 @@ export function useUpdateServer(serverId: string) {
       bannerUrl?: string | null;
       accentColor?: number | null;
       systemChannelId?: string | null;
+      description?: string | null;
+      vanityCode?: string | null;
+      verificationLevel?: string;
+      explicitContentFilter?: string;
+      defaultNotificationLevel?: string;
+      afkChannelId?: string | null;
+      afkTimeoutSec?: number;
+      sysJoinMessages?: boolean;
+      sysLeaveMessages?: boolean;
+      sysBoostMessages?: boolean;
+      rulesChannelId?: string | null;
     }) =>
       api.patch<ServerDTO>(`/servers/${serverId}`, body),
     onSuccess: (server) => {

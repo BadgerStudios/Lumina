@@ -163,6 +163,17 @@ type ServerLike = {
   ownerId: string;
   systemChannelId: string | null;
   createdAt: Date;
+  description?: string | null;
+  vanityCode?: string | null;
+  verificationLevel?: string;
+  explicitContentFilter?: string;
+  defaultNotificationLevel?: string;
+  afkChannelId?: string | null;
+  afkTimeoutSec?: number;
+  sysJoinMessages?: boolean;
+  sysLeaveMessages?: boolean;
+  sysBoostMessages?: boolean;
+  rulesChannelId?: string | null;
 };
 
 export function serializeServer(server: ServerLike): ServerDTO {
@@ -175,6 +186,20 @@ export function serializeServer(server: ServerLike): ServerDTO {
     ownerId: server.ownerId,
     systemChannelId: server.systemChannelId,
     createdAt: server.createdAt.toISOString(),
+    description: server.description ?? null,
+    vanityCode: server.vanityCode ?? null,
+    // Defaults mirror the schema's. Some call sites select a narrow subset of Server columns, and
+    // a DTO whose settings silently read as undefined would make the settings UI show every toggle
+    // in the wrong position.
+    verificationLevel: (server.verificationLevel ?? "NONE") as ServerDTO["verificationLevel"],
+    explicitContentFilter: (server.explicitContentFilter ?? "DISABLED") as ServerDTO["explicitContentFilter"],
+    defaultNotificationLevel: (server.defaultNotificationLevel ?? "ALL") as ServerDTO["defaultNotificationLevel"],
+    afkChannelId: server.afkChannelId ?? null,
+    afkTimeoutSec: server.afkTimeoutSec ?? 300,
+    sysJoinMessages: server.sysJoinMessages ?? true,
+    sysLeaveMessages: server.sysLeaveMessages ?? false,
+    sysBoostMessages: server.sysBoostMessages ?? true,
+    rulesChannelId: server.rulesChannelId ?? null,
   };
 }
 
