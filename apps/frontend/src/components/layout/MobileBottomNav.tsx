@@ -1,8 +1,9 @@
 import { APP_HOME } from "../../lib/platform";
 import { useLocation, useNavigate } from "react-router-dom";
-import { LayoutGrid, Hash, MessageCircle, Bell, CircleUserRound, Clapperboard } from "lucide-react";
+import { LayoutGrid, Hash, MessageCircle, Bell, CircleUserRound, Clapperboard, ShieldCheck } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
+import { isStaff } from "../../lib/platformRole";
 import { cn } from "../../lib/cn";
 
 /** Bottom-anchored primary nav for <768px viewports (same bundle the Capacitor Android app
@@ -23,6 +24,8 @@ export function MobileBottomNav() {
   // Hidden unless the account is a confirmed adult — the feed routes refuse anyone else, and a tab
   // that always errors is worse than no tab.
   const canUseFeed = useAuthStore((s) => s.user?.ageVerified === true && s.user?.isMinor === false);
+  const isStaffUser = isStaff(useAuthStore((s) => s.user?.platformRole));
+  const isStaffArea = mobileDrawer === null && location.pathname.startsWith("/staff");
 
   const items: Array<{ key: string; label: string; icon: typeof LayoutGrid; active: boolean; onClick: () => void }> = [
     {
@@ -59,6 +62,22 @@ export function MobileBottomNav() {
             onClick: () => {
               openMobileDrawer(null);
               navigate("/foryou");
+            },
+          },
+        ]
+      : []),
+    // Staff get the suite in the tab bar rather than only in the rail, which on a phone lives
+    // behind the Servers drawer. Moderation is not a thing to have to go looking for.
+    ...(isStaffUser
+      ? [
+          {
+            key: "staff",
+            label: "Staff",
+            icon: ShieldCheck,
+            active: isStaffArea,
+            onClick: () => {
+              openMobileDrawer(null);
+              navigate("/staff");
             },
           },
         ]

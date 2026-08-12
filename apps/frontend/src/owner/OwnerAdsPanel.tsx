@@ -1,5 +1,6 @@
-import { Megaphone, Check, X, Loader2, AlertTriangle } from "lucide-react";
-import { useAdReviewQueue, useReviewCampaign, useAdRevenue } from "../queries/ads";
+import { AlertTriangle } from "lucide-react";
+import { useAdReviewQueue, useAdRevenue } from "../queries/ads";
+import { AdReviewQueue } from "../components/staff/AdReviewQueue";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -11,8 +12,8 @@ const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * two standards would be the only difference.
  */
 export function OwnerAdsPanel() {
+  // Still queried here, but only for the 'awaiting review' count in the header tiles.
   const queue = useAdReviewQueue();
-  const review = useReviewCampaign();
   const revenue = useAdRevenue();
 
   return (
@@ -56,63 +57,10 @@ export function OwnerAdsPanel() {
 
       <div>
         <h3 className="mb-2 text-sm font-bold uppercase text-signal-dim">Awaiting review</h3>
-        {queue.isLoading ? (
-          <div className="flex justify-center py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-signal-faint" />
-          </div>
-        ) : (queue.data ?? []).length === 0 ? (
-          <p className="rounded-lg border border-hairline bg-base-800 p-3 text-sm text-signal-dim">
-            Nothing waiting.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {queue.data!.map((c) => (
-              <div key={c.id} className="flex items-start gap-3 rounded-lg border border-hairline bg-base-800 p-3">
-                {c.video?.thumbnailUrl && (
-                  <img src={c.video.thumbnailUrl} alt="" className="h-16 w-10 shrink-0 rounded object-cover" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <Megaphone className="h-3.5 w-3.5 shrink-0 text-accent" />
-                    <span className="truncate font-medium text-signal">{c.name}</span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-signal-dim">
-                    @{c.advertiser?.username ?? "unknown"} · {money(c.cpmCents)} CPM ·{" "}
-                    {money(c.totalBudgetCents)} budget
-                  </p>
-                  {c.video?.caption && (
-                    <p className="mt-1 line-clamp-2 text-xs text-signal-faint">{c.video.caption}</p>
-                  )}
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => review.mutate({ id: c.id, approve: true })}
-                    disabled={review.isPending}
-                    aria-label={`Approve ${c.name}`}
-                    className="rounded bg-online/15 p-1.5 text-online hover:bg-online/25 disabled:opacity-50"
-                  >
-                    <Check className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // A rejection without a reason is one the advertiser can't act on, so the
-                      // server requires one and so does this.
-                      const reason = window.prompt("Why is this being rejected?");
-                      if (reason?.trim()) review.mutate({ id: c.id, approve: false, reason: reason.trim() });
-                    }}
-                    disabled={review.isPending}
-                    aria-label={`Reject ${c.name}`}
-                    className="rounded bg-dnd/15 p-1.5 text-dnd hover:bg-dnd/25 disabled:opacity-50"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* The same component the staff suite renders, not a copy of it. Ad review is staff work
+            that an owner can also do (the ladder is >=); duplicating the queue here would have been
+            two implementations of one decision, drifting apart, writing to one audit trail. */}
+        <AdReviewQueue />
       </div>
 
       {(revenue.data?.days.length ?? 0) > 0 && (

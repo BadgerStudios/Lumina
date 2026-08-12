@@ -111,8 +111,9 @@ export function ServerRail() {
 
         {isStaff && (
           <Link
-            to="/staff/videos"
-            title="Video review (staff)"
+            to="/staff"
+            title="Staff suite"
+            aria-label="Staff suite"
             onClick={closeMobileDrawer}
             className={cn(
               "flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-base-600 text-amber transition-all hover:rounded-2xl hover:bg-grad hover:text-white",

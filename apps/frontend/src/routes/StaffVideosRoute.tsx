@@ -1,14 +1,11 @@
-import { APP_HOME } from "../lib/platform";
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, ShieldCheck, Check, X, EyeOff, Trash2, Fingerprint } from "lucide-react";
+import { Loader2, Check, X, EyeOff, Trash2, Fingerprint } from "lucide-react";
 import { api } from "../lib/apiClient";
 import type { VideoDTO } from "@lumina/shared";
 import {
   useStaffVideos,
   useStaffVideoCounts,
-  useStaffAudit,
   useApproveVideo,
   useRejectVideo,
   useRemoveVideo,
@@ -17,42 +14,33 @@ import {
 } from "../queries/staff";
 import { videoMediaUrl } from "../queries/videos";
 import { useAuthStore } from "../store/authStore";
-import { isStaff, isMaster } from "../lib/platformRole";
+import { isMaster } from "../lib/platformRole";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { cn } from "../lib/cn";
 
-const TABS: Array<{ key: StaffQueueStatus | "AUDIT"; label: string }> = [
+const TABS: Array<{ key: StaffQueueStatus; label: string }> = [
   { key: "PENDING_REVIEW", label: "Pending" },
   { key: "APPROVED", label: "Approved" },
   { key: "REJECTED", label: "Rejected" },
   { key: "REMOVED", label: "Removed" },
   { key: "FAILED", label: "Failed" },
-  { key: "AUDIT", label: "Audit log" },
 ];
 
 /**
- * Staff moderation queue.
+ * The video queue — one section of the staff suite (see routes/staff/StaffLayout.tsx).
  *
- * The role check here only decides what to render — it is not the access control. Every
+ * The suite owns the page header, the role gate and the outer scroll container, so this renders
+ * only its own status tabs and their contents. Nothing here is access control either way: every
  * /api/staff route independently enforces requireStaff server-side, so a user who edits this role
  * in their own client gets an empty page and 403s rather than anyone else's pending uploads.
  */
 export function StaffVideosRoute() {
-  const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = useState<StaffQueueStatus | "AUDIT">("PENDING_REVIEW");
+  const [tab, setTab] = useState<StaffQueueStatus>("PENDING_REVIEW");
   const { data: counts } = useStaffVideoCounts();
 
-  if (!user) return null;
-  if (!isStaff(user.platformRole)) return <Navigate to={APP_HOME} replace />;
-
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-base-900">
-      <div className="flex items-center gap-2 border-b border-hairline bg-base-800 px-4 py-3">
-        <ShieldCheck className="h-5 w-5 text-accent" />
-        <h1 className="font-display text-lg text-signal">Video review</h1>
-      </div>
-
-      <div className="flex flex-wrap gap-1 border-b border-hairline bg-base-800 px-3 py-2">
+    <div className="flex min-h-full flex-col">
+      <div className="flex flex-wrap gap-1 border-b border-hairline bg-base-800/60 px-3 py-2">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -64,7 +52,7 @@ export function StaffVideosRoute() {
             )}
           >
             {t.label}
-            {t.key !== "AUDIT" && counts?.[t.key] ? (
+            {counts?.[t.key] ? (
               <span className="ml-1.5 rounded-full bg-accent px-1.5 text-xs text-white">
                 {counts[t.key]}
               </span>
@@ -73,8 +61,8 @@ export function StaffVideosRoute() {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {tab === "AUDIT" ? <AuditPanel /> : <QueuePanel status={tab} />}
+      <div className="flex-1 p-4">
+        <QueuePanel status={tab} />
       </div>
     </div>
   );
@@ -342,47 +330,5 @@ function ProvenanceRow({ label, children }: { label: string; children: React.Rea
       <dt className="text-signal-faint">{label}</dt>
       <dd className="min-w-0 text-signal">{children}</dd>
     </>
-  );
-}
-
-function AuditPanel() {
-  const { data: entries, isLoading } = useStaffAudit();
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-10">
-        <Loader2 className="h-6 w-6 animate-spin text-signal-faint" />
-      </div>
-    );
-  }
-  if (!entries || entries.length === 0) {
-    return <p className="py-10 text-center text-signal-dim">No staff actions recorded yet.</p>;
-  }
-
-  return (
-    <div className="mx-auto max-w-3xl divide-y divide-hairline rounded-lg border border-hairline bg-base-800">
-      {entries.map((e) => (
-        <div key={e.id} className="flex items-start gap-3 p-3">
-          <UserAvatar
-            avatarUrl={e.actor?.avatarUrl ?? null}
-            name={e.actor?.displayName ?? e.actor?.username ?? "?"}
-            size={28}
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm text-signal">
-              <span className="font-medium">
-                {e.actor?.displayName ?? e.actor?.username ?? "[deleted user]"}
-              </span>{" "}
-              <span className="text-signal-dim">{e.actionType.replace(/_/g, " ").toLowerCase()}</span>{" "}
-              <span className="text-signal-faint">video {e.targetId}</span>
-            </p>
-            {e.reason && <p className="text-xs text-signal-dim">"{e.reason}"</p>}
-          </div>
-          <span className="shrink-0 text-xs text-signal-faint">
-            {new Date(e.createdAt).toLocaleString()}
-          </span>
-        </div>
-      ))}
-    </div>
   );
 }

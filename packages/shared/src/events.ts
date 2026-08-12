@@ -56,6 +56,14 @@ export const ServerEvents = {
   // rejectionReason. Without this an uploader has no way to learn their video was approved or
   // refused short of reopening the app and re-polling.
   VIDEO_STATUS_UPDATE: "video:status-update",
+  // A change to the recipient's OWN platform role, pushed to `user:${userId}`.
+  //
+  // platformRole only ever arrived with a login or refresh response, so being promoted to staff was
+  // invisible until the person signed out and back in (or, after useRoleSync, until they happened
+  // to tab away and back). The API let them into /api/staff/* immediately while their own UI still
+  // showed them nothing and redirected them out of the suite — the confusing half-state where the
+  // server and the client disagree about who you are.
+  PLATFORM_ROLE_UPDATE: "platform:role-update",
   // Sent to the person who filed a report once staff close the ticket, carrying the outcome and the
   // moderator's note. Pushed to `user:${reporterId}` so it lands wherever they're signed in.
   REPORT_RESOLVED: "report:resolved",

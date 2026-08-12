@@ -187,6 +187,18 @@ export function useSocketEvents(): void {
       queryClient.invalidateQueries({ queryKey: ["myReports"] });
     };
 
+    // Your own platform role changed. Re-fetch the whole /auth/me record rather than patching the
+    // role in from the payload: a promotion can carry other server-side consequences, and the
+    // authoritative answer to "who am I" is the one endpoint that returns it. The rail entry, the
+    // mobile tab and the staff suite all key off this, so they appear the moment it lands rather
+    // than at the next window focus.
+    const onPlatformRoleUpdate = () => {
+      void api
+        .get<UserDTO>("/auth/me")
+        .then((me) => useAuthStore.getState().setUser(me))
+        .catch(() => undefined);
+    };
+
     const onDMUpdate = (conversation: DMConversationDTO) => {
       queryClient.setQueryData<DMConversationDTO[]>(queryKeys.dms(), (old) =>
         old ? old.map((c) => (c.id === conversation.id ? conversation : c)) : old,
@@ -255,6 +267,7 @@ export function useSocketEvents(): void {
     socket.on(ServerEvents.DM_PARTICIPANT_REMOVED, onDMParticipantRemoved);
     socket.on(ServerEvents.VIDEO_STATUS_UPDATE, onVideoStatusUpdate);
     socket.on(ServerEvents.REPORT_RESOLVED, onReportResolved);
+    socket.on(ServerEvents.PLATFORM_ROLE_UPDATE, onPlatformRoleUpdate);
     socket.on(ServerEvents.NOTIFICATION_MENTION, onMentionNotification);
     socket.on(ServerEvents.FRIEND_REQUEST_CREATE, onFriendRequestChange);
     socket.on(ServerEvents.FRIEND_REQUEST_UPDATE, onFriendRequestChange);
@@ -284,6 +297,7 @@ export function useSocketEvents(): void {
       socket.off(ServerEvents.DM_UPDATE, onDMUpdate);
       socket.off(ServerEvents.DM_READ_UPDATE, onDMUpdate);
       socket.off(ServerEvents.VIDEO_STATUS_UPDATE, onVideoStatusUpdate);
+      socket.off(ServerEvents.PLATFORM_ROLE_UPDATE, onPlatformRoleUpdate);
       socket.off(ServerEvents.REPORT_RESOLVED, onReportResolved);
       socket.off(ServerEvents.DM_PARTICIPANT_REMOVED, onDMParticipantRemoved);
       socket.off(ServerEvents.NOTIFICATION_MENTION, onMentionNotification);

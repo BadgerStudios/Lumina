@@ -330,10 +330,18 @@ export function BrandKitPanel() {
   });
 
   const upload = useMutation({
-    mutationFn: (files: FileList) =>
+    // `File[]`, NOT `FileList`, and that is the entire bug this signature exists to prevent.
+    //
+    // A FileList is a LIVE view of the input element's selection. The caller below clears the input
+    // (`e.target.value = ""`) on the very next line so that re-picking the same file fires another
+    // change event — and clearing the input empties the FileList that was just handed over.
+    // React Query invokes mutationFn asynchronously, so by the time this ran the list had zero
+    // entries: a multipart body with no file parts, a 400 in 20ms, and an upload that looked broken
+    // for no visible reason. Taking an array forces the caller to snapshot it synchronously.
+    mutationFn: (files: File[]) =>
       new Promise<{ uploaded: unknown[]; rejected: Array<{ fileName: string; reason: string }> }>((resolve, reject) => {
         const form = new FormData();
-        for (const file of Array.from(files)) form.append("file", file);
+        for (const file of files) form.append("file", file);
         // XHR rather than fetch: a brand kit can be large and fetch cannot report upload progress,
         // which on a phone connection looks indistinguishable from the app having frozen.
         const xhr = new XMLHttpRequest();
@@ -400,8 +408,10 @@ export function BrandKitPanel() {
           onChange={(e) => {
             setError(null);
             setRejected([]);
-            if (e.target.files?.length) upload.mutate(e.target.files);
+            // Snapshot BEFORE clearing the input — see the mutationFn comment above.
+            const picked = Array.from(e.target.files ?? []);
             e.target.value = "";
+            if (picked.length > 0) upload.mutate(picked);
           }}
         />
 

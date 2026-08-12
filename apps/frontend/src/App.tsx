@@ -16,8 +16,11 @@ import { InviteRoute } from "./routes/InviteRoute";
 import { OAuthAuthorizeRoute } from "./routes/OAuthAuthorizeRoute";
 import { FeedRoute } from "./routes/FeedRoute";
 import StoreRoute from "./routes/StoreRoute";
+import { StaffLayout } from "./routes/staff/StaffLayout";
 import { StaffVideosRoute } from "./routes/StaffVideosRoute";
 import { StaffTicketsRoute } from "./routes/StaffTicketsRoute";
+import { StaffAdsRoute } from "./routes/staff/StaffAdsRoute";
+import { StaffAuditRoute } from "./routes/staff/StaffAuditRoute";
 import { OwnerRoute } from "./routes/OwnerRoute";
 import { BanScreen } from "./components/BanScreen";
 import { CrashTest } from "./components/common/CrashTest";
@@ -100,8 +103,16 @@ export function App() {
             <Route path="/friends" element={<FriendsRoute />} />
             <Route path="/foryou" element={<FeedRoute />} />
               <Route path="/store" element={<StoreRoute />} />
-            <Route path="/staff/videos" element={<StaffVideosRoute />} />
-            <Route path="/staff/reports" element={<StaffTicketsRoute />} />
+            {/* The staff suite: one shell, one role gate, four sections. Nested rather than four
+                sibling routes so the sub-nav and its pending badges persist across them — and so a
+                section can never again exist without something linking to it. */}
+            <Route path="/staff" element={<StaffLayout />}>
+              <Route index element={<Navigate to="/staff/videos" replace />} />
+              <Route path="videos" element={<StaffVideosRoute />} />
+              <Route path="reports" element={<StaffTicketsRoute />} />
+              <Route path="ads" element={<StaffAdsRoute />} />
+              <Route path="audit" element={<StaffAuditRoute />} />
+            </Route>
             <Route path="/owner" element={<OwnerRoute />} />
             {/* Dev only — the target for verify-error-boundary.mjs. `import.meta.env.DEV` is
                 replaced with a literal false in a production build and the branch is dropped, so

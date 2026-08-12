@@ -2,6 +2,8 @@ import type { PlatformRole } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import { assignableRoles } from "./platformRole.js";
+import { getIO } from "../realtime/io.js";
+import { ServerEvents } from "@lumina/shared";
 
 /**
  * The single implementation of "change someone's platform role".
@@ -69,6 +71,20 @@ export async function applyRoleGrant(opts: {
       reason: `${target.platformRole} -> ${opts.platformRole}`,
     },
   });
+
+  // Tell them, now, wherever they are signed in. Without this the grant is silent: the person is
+  // staff as far as every API route is concerned, and their own client has no idea.
+  //
+  // Failure here must not undo a role change that has already been written and audited — a socket
+  // that isn't up is a delivery problem, not a reason to refuse the promotion. useRoleSync's
+  // focus-based refresh remains the fallback.
+  try {
+    getIO().to(`user:${updated.id}`).emit(ServerEvents.PLATFORM_ROLE_UPDATE, {
+      platformRole: updated.platformRole,
+    });
+  } catch {
+    /* realtime not up (scripts, tests) — the role change still stands */
+  }
 
   return updated;
 }
