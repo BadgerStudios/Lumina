@@ -39,6 +39,22 @@ for i in $(seq 1 30); do
   # no health word) or this loop spins for the full 30 tries and aborts the whole deploy on
   # every run, never reaching the Android/desktop build steps below.
   unhealthy=$(docker compose ps --format '{{.Name}} {{.Health}}' | grep -v 'healthy' | grep -vE '^\S+[[:space:]]*$' || true)
+
+  # A service with its healthcheck disabled reports an empty .Health field and so is skipped by the
+  # filter above — which is correct for coturn, and was NOT correct for the worker. The transcoder
+  # crash-looped 28 times behind a "all services healthy" line, because "no healthcheck" and "dead"
+  # were indistinguishable here. .State catches what .Health cannot: a container that is restarting
+  # or has exited is a failed deploy no matter what its healthcheck says.
+  crashed=$(docker compose ps -a --format '{{.Name}} {{.State}}' | grep -E ' (restarting|exited|dead)$' || true)
+  if [[ -n "$crashed" ]]; then
+    echo "ERROR: a service is not staying up:"
+    echo "$crashed"
+    # The reason is almost always in the first lines after a restart, which `--tail` on the whole
+    # stack would bury under the healthy services' output.
+    while read -r name _; do docker logs --tail 20 "$name" 2>&1 | sed "s/^/[$name] /"; done <<< "$crashed"
+    exit 1
+  fi
+
   if [[ -z "$unhealthy" ]]; then
     echo "all services healthy"
     break

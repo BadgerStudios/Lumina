@@ -212,6 +212,14 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       UPLOADS_DIR: /data/uploads
       NODE_ENV: ${NODE_ENV}
+      # The worker serves no HTTP and never issues a redirect, so neither of these does anything
+      # here — but it loads the SAME config/env.ts as the API, and that module's production guard
+      # refuses to boot when it sees dev-shaped values. Omitting them left the worker falling back
+      # to `http://localhost:5173` and crash-looping 28 times, silently: the healthcheck is disabled
+      # on this service (see below), so `docker compose --wait` reported the stack healthy while the
+      # transcoder was dead and every new video upload would have sat in PROCESSING forever.
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+      CORS_ORIGIN: ${CORS_ORIGIN}
       MAX_VIDEO_UPLOAD_MB: ${MAX_VIDEO_UPLOAD_MB}
       MAX_VIDEO_DURATION_SEC: ${MAX_VIDEO_DURATION_SEC}
       MAX_VIDEO_UPLOADS_PER_DAY: ${MAX_VIDEO_UPLOADS_PER_DAY}
