@@ -81,6 +81,12 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       STRIPE_PRICE_PREMIUM_MONTHLY: ${STRIPE_PRICE_PREMIUM_MONTHLY}
+      # Store coin bundles. Read by modules/store/service.ts via COIN_BUNDLES[].priceEnvVar —
+      # price objects live in the Stripe dashboard and differ between test and live mode, so
+      # they are configuration, never constants.
+      STRIPE_PRICE_SPARKS_500: ${STRIPE_PRICE_SPARKS_500:-}
+      STRIPE_PRICE_SPARKS_1200: ${STRIPE_PRICE_SPARKS_1200:-}
+      STRIPE_PRICE_SPARKS_2600: ${STRIPE_PRICE_SPARKS_2600:-}
       PUBLIC_APP_URL: ${CORS_ORIGIN}
       DOWNLOADS_DIR: /downloads
       IP_INTEL_DIR: /data/ipintel
