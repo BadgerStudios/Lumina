@@ -76,3 +76,61 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export type Env = typeof env;
+
+/**
+ * Refuses to boot a production instance that is holding development configuration.
+ *
+ * This exists because of a real incident on 2026-08-12. Docker Compose resolves `${VAR}`
+ * interpolation using the `.env` in the **current working directory**, while it walks *up* the tree
+ * to find `compose.yml`. So running `cd apps/backend && docker compose up -d backend` finds the
+ * right compose file and the wrong environment: `apps/backend/.env` is a local-dev file, and the
+ * container came up with dev JWT secrets, `NODE_ENV=development`, and a `localhost:5173` origin —
+ * on the live site.
+ *
+ * Nothing failed. The container reported healthy, the API served traffic, and the only visible
+ * symptom was that verification emails contained a link to localhost. The real damage was silent:
+ * session tokens signed with a development secret.
+ *
+ * These checks are fatal rather than warnings. A production instance running on dev secrets is a
+ * security problem, and `deploy.sh` waits for the healthcheck — so failing here surfaces the
+ * mistake as a failed deploy, which is exactly where it should surface. The alternative, a warning
+ * in a log nobody reads, is how this went unnoticed in the first place.
+ */
+if (env.NODE_ENV === "production") {
+  const problems: string[] = [];
+
+  const origins = env.PUBLIC_APP_URL.split(",").map((o) => o.trim()).filter(Boolean);
+  if (!origins.some((o) => o.startsWith("https://") && !o.includes("localhost"))) {
+    problems.push(
+      `PUBLIC_APP_URL has no public https origin (got "${env.PUBLIC_APP_URL}") — every emailed ` +
+        "link and payment redirect would point somewhere unreachable",
+    );
+  }
+
+  if (!env.CORS_ORIGIN.includes("https://")) {
+    problems.push(`CORS_ORIGIN looks like a dev value (got "${env.CORS_ORIGIN}")`);
+  }
+
+  // Short or repeated secrets are the shape a placeholder takes. Not a strength test — just enough
+  // to catch a dev file, which is the failure mode actually seen.
+  for (const [name, value] of [
+    ["JWT_ACCESS_SECRET", env.JWT_ACCESS_SECRET],
+    ["JWT_REFRESH_SECRET", env.JWT_REFRESH_SECRET],
+  ] as const) {
+    if (value.length < 32 || /^(dev|test|changeme|secret)/i.test(value)) {
+      problems.push(`${name} looks like a development placeholder`);
+    }
+  }
+
+  if (problems.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "Refusing to start: NODE_ENV=production with development configuration.\n" +
+        problems.map((p) => `  - ${p}`).join("\n") +
+        "\n\nMost likely cause: `docker compose` was run from a subdirectory. Compose reads .env " +
+        "from the working directory but finds compose.yml by walking up, so apps/backend/.env " +
+        "silently replaced the root .env. Re-run from the project root.",
+    );
+    process.exit(1);
+  }
+}

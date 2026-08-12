@@ -114,3 +114,37 @@ checking the file's mtime.
 
 Overstating progress to a teammate is how two agents end up building on a base neither of them has.
 Claim what is on disk, and check before you claim it.
+
+## 6. Run `docker compose` from the project root — ALWAYS
+
+Compose finds `compose.yml` by walking **up** the directory tree, but resolves `${VAR}`
+interpolation from the `.env` in the **current working directory**. Those are two different
+directories the moment you are not at the root.
+
+`apps/backend/.env` exists and is a local-development file. So this:
+
+```bash
+cd apps/backend && npx tsc --noEmit && docker compose up -d --build backend
+```
+
+finds the right compose file and the wrong environment. On 2026-08-12 it put the live backend up
+with dev JWT secrets, `NODE_ENV=development`, and `CORS_ORIGIN=http://localhost:5173`.
+
+**Nothing failed.** The container reported healthy and served traffic. The only visible symptom was
+a verification email whose link pointed at `localhost:5173`; the real damage — session tokens signed
+with a development secret — was silent, and was found only because a user tried the link.
+
+Two guards now exist, and neither replaces the habit:
+
+- `config/env.ts` refuses to boot when `NODE_ENV=production` and the config looks like dev
+  (no public https origin, localhost-only CORS, placeholder-shaped JWT secrets). It exits, so the
+  deploy fails visibly instead of succeeding wrongly.
+- After any container recreate, the cheap check is:
+
+  ```bash
+  [ "$(docker exec lumina-backend printenv JWT_ACCESS_SECRET)" \
+    = "$(grep '^JWT_ACCESS_SECRET=' .env | cut -d= -f2-)" ] && echo ok || echo MISMATCH
+  ```
+
+The same trap applies to `prisma`, `npm`, and anything else reading `.env` by convention. Combine
+the typecheck and the deploy in one command line only if that line starts at the project root.

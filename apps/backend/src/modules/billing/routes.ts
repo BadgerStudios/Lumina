@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { primaryAppOrigin } from "../../lib/appOrigin.js";
 import type Stripe from "stripe";
 import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
@@ -96,8 +97,8 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       ...(existing?.stripeCustomerId
         ? { customer: existing.stripeCustomerId }
         : { customer_email: user.email }),
-      success_url: `${env.PUBLIC_APP_URL}/settings/billing?checkout=success`,
-      cancel_url: `${env.PUBLIC_APP_URL}/settings/billing?checkout=cancelled`,
+      success_url: `${primaryAppOrigin()}/settings/billing?checkout=success`,
+      cancel_url: `${primaryAppOrigin()}/settings/billing?checkout=cancelled`,
       // Carried back on the webhook — it is how a Stripe customer is tied to a Lumina account.
       // Client-supplied ids are never trusted for this; only what we put here.
       metadata: { userId: user.id, planKey: plan.key },
@@ -121,7 +122,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: sub.stripeCustomerId,
-      return_url: `${env.PUBLIC_APP_URL}/settings/billing`,
+      return_url: `${primaryAppOrigin()}/settings/billing`,
     });
     return { url: session.url };
   });

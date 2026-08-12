@@ -4,6 +4,7 @@ import { redis } from "../../db/redis.js";
 import { env } from "../../config/env.js";
 import { mailConfigured, sendMail } from "../../lib/mail.js";
 import { MUTED_TEXT_STYLE, button } from "../../lib/mailTemplate.js";
+import { primaryAppOrigin } from "../../lib/appOrigin.js";
 import { BadRequestError } from "../../lib/errors.js";
 
 /**
@@ -128,12 +129,6 @@ export async function sendVerificationEmail(params: {
   return ok ? "sent" : "failed";
 }
 
-/** Same first-origin logic as the passkey relying party: PUBLIC_APP_URL is a comma-separated list
- * of every origin this instance answers on, and a link must point at exactly one of them. */
-function primaryAppOrigin(): string {
-  const origins = env.PUBLIC_APP_URL.split(",").map((o) => o.trim()).filter(Boolean);
-  return origins.find((o) => o.startsWith("https://") && !o.includes("localhost")) ?? origins[0] ?? "";
-}
 
 export async function requestResend(userId: string): Promise<"sent" | "not-configured" | "failed" | "too-soon" | "already-verified"> {
   const user = await prisma.user.findUnique({
