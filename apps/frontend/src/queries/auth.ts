@@ -97,6 +97,22 @@ export function useLogout() {
   });
 }
 
+/**
+ * Sends a fresh verification link to the signed-in account's address.
+ *
+ * This existed on the server (POST /auth/verify-email/resend) with nothing calling it, while
+ * VerifyEmailRoute's expired-link copy told people to "use Resend in Settings" — a button that was
+ * not there. The server distinguishes three non-success outcomes and phrases each itself (rate
+ * limited, no mail server configured, send failed), so the message is passed straight through
+ * rather than being flattened into a generic failure here.
+ */
+export function useResendVerification() {
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ sent: boolean; alreadyVerified: boolean }>("/auth/verify-email/resend"),
+  });
+}
+
 export function useSessions() {
   return useQuery({
     queryKey: ["auth", "sessions"],

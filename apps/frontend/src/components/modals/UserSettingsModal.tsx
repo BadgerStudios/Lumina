@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
-import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone } from "lucide-react";
+import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning } from "lucide-react";
 import { MfaSetup } from "./MfaSetup";
 import {
   biometricAvailability,
@@ -23,7 +23,13 @@ import {
   useDeleteAccount,
   useExportAccountData,
 } from "../../queries/users";
-import { useLogout, useSessions, useRevokeSession, useRevokeOtherSessions } from "../../queries/auth";
+import {
+  useLogout,
+  useSessions,
+  useRevokeSession,
+  useRevokeOtherSessions,
+  useResendVerification,
+} from "../../queries/auth";
 import {
   useMyApplications,
   useCreateApplication,
@@ -453,11 +459,77 @@ function AccountSection() {
       </button>
 
       <div className="mt-2 flex flex-col gap-3 border-t border-base-900/60 pt-4">
+        <EmailVerificationRow />
         <UsernameEditor />
         <PasswordEditor />
       </div>
 
       <DangerZoneSection />
+    </div>
+  );
+}
+
+/**
+ * Email address and its verification state, with the Resend button the rest of the app already
+ * pointed at.
+ *
+ * This is not cosmetic. A server set to any verification level above NONE refuses posts from an
+ * unverified account (see modules/servers/verification.ts), so without this row the answer to "why
+ * can't I post" lived only in an error message, and the fix it named did not exist.
+ *
+ * The server's own wording is shown verbatim on failure — it distinguishes "a link was just sent",
+ * "this server has no mail server configured" and a genuine send failure, and those are three
+ * different things for the person reading them.
+ */
+function EmailVerificationRow() {
+  const user = useAuthStore((s) => s.user);
+  const resend = useResendVerification();
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (!user) return null;
+
+  if (user.emailVerified) {
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <ShieldCheck className="h-4 w-4 shrink-0 text-pulse" />
+        <span className="text-signal-dim">Email verified</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-amber/40 bg-amber/10 p-3">
+      <div className="flex items-start gap-2">
+        <MailWarning className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-signal">Email not verified</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-signal-dim">
+            Some servers require a verified address before you can post. Check your inbox — including
+            spam — or send a new link.
+          </p>
+          <button
+            type="button"
+            disabled={resend.isPending}
+            onClick={() => {
+              setMessage(null);
+              resend.mutate(undefined, {
+                onSuccess: (r) =>
+                  setMessage(
+                    r.alreadyVerified
+                      ? "That address is already verified — reload to update this page."
+                      : "Link sent. It's valid for 24 hours.",
+                  ),
+                onError: (e) =>
+                  setMessage(e instanceof ApiError ? e.message : "Couldn't send the email."),
+              });
+            }}
+            className="mt-2 rounded bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+          >
+            {resend.isPending ? "Sending…" : "Resend verification email"}
+          </button>
+          {message && <p className="mt-2 text-xs text-signal-dim">{message}</p>}
+        </div>
+      </div>
     </div>
   );
 }

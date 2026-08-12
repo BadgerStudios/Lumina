@@ -9,6 +9,10 @@ export interface AdCampaign {
   cpmCents: number;
   totalBudgetCents: number;
   spentCents: number;
+  /** UNFUNDED | PENDING | FUNDED | REFUNDED — separate from `status`, which is the review decision. */
+  fundingStatus: string;
+  paidCents: number;
+  paidAt: string | null;
   startsAt: string;
   endsAt: string;
   targetTags: string[];
@@ -96,9 +100,33 @@ export interface AdRevenue {
   accruedCents: number;
   impressions: number;
   clicks: number;
-  /** False until Stripe actually collects. The dashboard says "accrued", never "revenue". */
+  /** True now that campaigns are prepaid through Stripe. */
   collected: boolean;
+  /** Money actually taken, summed from what Stripe reported collecting. */
+  collectedCents: number;
+  /** Collected but not yet delivered against — inventory still owed to advertisers. */
+  unearnedCents: number;
+  fundedCampaigns: number;
+  /** Approved but not paid for: demand that hasn't converted. */
+  awaitingPaymentCampaigns: number;
   days: Array<{ day: string; impressions: number; clicks: number; accruedCents: number }>;
+}
+
+/**
+ * Starts Stripe Checkout for an approved campaign and hands off to the hosted page.
+ *
+ * A full navigation rather than a new tab: Stripe redirects back to /settings/advertising when it
+ * finishes, and a popup would leave the original tab showing stale campaign state with no signal
+ * that anything happened.
+ */
+export function useFundCampaign() {
+  return useMutation({
+    mutationFn: (id: string) => api.post<{ url: string }>(`/ads/campaigns/${id}/checkout`),
+    onSuccess: (r) => {
+      if (r.url) window.location.href = r.url;
+    },
+    onError: (e) => reportError(e, "Couldn't start checkout"),
+  });
 }
 
 export function useAdRevenue() {

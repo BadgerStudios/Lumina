@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Megaphone, Loader2, AlertTriangle, Pause, Play } from "lucide-react";
-import { useMyCampaigns, useCreateCampaign, useSetCampaignPaused, type AdCampaign } from "../../queries/ads";
+import {
+  useMyCampaigns,
+  useCreateCampaign,
+  useSetCampaignPaused,
+  useFundCampaign,
+  type AdCampaign,
+} from "../../queries/ads";
 import { useMyVideos } from "../../queries/videos";
 
 /**
@@ -99,7 +105,14 @@ export function AdvertisingSection() {
 
 function CampaignRow({ campaign }: { campaign: AdCampaign }) {
   const setPaused = useSetCampaignPaused();
+  const fund = useFundCampaign();
   const canPause = campaign.status === "APPROVED" || campaign.status === "PAUSED";
+  // Approved and not yet paid for. This is the state that used not to exist at all: campaigns ran
+  // for free, so there was nothing to show and nothing to pay. It is deliberately not folded into
+  // `status` — "waiting on review" and "waiting on you to pay" are different things to be told.
+  const needsPayment =
+    campaign.status === "APPROVED" &&
+    (campaign.fundingStatus === "UNFUNDED" || campaign.fundingStatus === "PENDING");
   // Delivery is a proportion of budget, which is the number an advertiser actually cares about —
   // impressions alone don't say how much is left.
   const progress = campaign.totalBudgetCents > 0 ? (campaign.spentCents / campaign.totalBudgetCents) * 100 : 0;
@@ -126,6 +139,28 @@ function CampaignRow({ campaign }: { campaign: AdCampaign }) {
           </div>
           {campaign.rejectionReason && (
             <p className="mt-1.5 text-xs text-dnd">Rejected: {campaign.rejectionReason}</p>
+          )}
+          {needsPayment && (
+            <div className="mt-2 rounded-md border border-amber/40 bg-amber/10 p-2.5">
+              <p className="text-xs leading-relaxed text-signal">
+                {campaign.fundingStatus === "PENDING"
+                  ? "Checkout was started but not finished — this campaign won't run until it's paid for."
+                  : "Approved. It starts running once the budget is paid."}
+              </p>
+              <button
+                type="button"
+                onClick={() => fund.mutate(campaign.id)}
+                disabled={fund.isPending}
+                className="mt-2 rounded bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+              >
+                {fund.isPending ? "Opening checkout…" : `Pay ${money(campaign.totalBudgetCents)}`}
+              </button>
+            </div>
+          )}
+          {campaign.fundingStatus === "FUNDED" && campaign.paidAt && (
+            <p className="mt-1.5 text-xs text-signal-faint">
+              Paid {money(campaign.paidCents)} on {new Date(campaign.paidAt).toLocaleDateString()}
+            </p>
           )}
         </div>
         {canPause && (

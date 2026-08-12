@@ -51,6 +51,11 @@ export async function eligibleCampaigns(): Promise<EligibleCampaign[]> {
   const rows = await prisma.adCampaign.findMany({
     where: {
       status: "APPROVED",
+      // The check that makes payment mean something. Approval is a moderation decision and says
+      // nothing about money; without this an advertiser could get a campaign approved and have it
+      // serve its full budget having paid nothing. PENDING (a checkout opened and abandoned) is
+      // deliberately excluded alongside UNFUNDED and REFUNDED.
+      fundingStatus: "FUNDED",
       startsAt: { lte: now },
       endsAt: { gte: now },
       videoId: { not: null },

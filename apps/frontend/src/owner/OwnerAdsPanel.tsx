@@ -17,10 +17,13 @@ export function OwnerAdsPanel() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Collected first, because it is the real number. Accrued sits beside it rather than
+          replacing it: campaigns are prepaid, so the two differ by whatever has been paid for but
+          not yet delivered — inventory still owed, not profit. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Accrued" value={money(revenue.data?.accruedCents ?? 0)} />
+        <Stat label="Collected" value={money(revenue.data?.collectedCents ?? 0)} />
+        <Stat label="Earned by delivery" value={money(revenue.data?.accruedCents ?? 0)} />
         <Stat label="Impressions" value={(revenue.data?.impressions ?? 0).toLocaleString()} />
-        <Stat label="Clicks" value={(revenue.data?.clicks ?? 0).toLocaleString()} />
         <Stat
           label="Awaiting review"
           value={String(queue.data?.length ?? 0)}
@@ -28,14 +31,25 @@ export function OwnerAdsPanel() {
         />
       </div>
 
-      {/* The distinction the whole panel rests on. Delivery has been earned; nothing has been
-          collected until Stripe is connected, and a dashboard is the worst place to blur that. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="Clicks" value={(revenue.data?.clicks ?? 0).toLocaleString()} />
+        <Stat label="Owed as inventory" value={money(revenue.data?.unearnedCents ?? 0)} />
+        <Stat label="Paid campaigns" value={String(revenue.data?.fundedCampaigns ?? 0)} />
+        {/* Approved but never paid for. A number that climbs here means checkout is failing, and
+            it would otherwise be invisible — the campaigns simply never run. */}
+        <Stat
+          label="Approved, unpaid"
+          value={String(revenue.data?.awaitingPaymentCampaigns ?? 0)}
+          warn={(revenue.data?.awaitingPaymentCampaigns ?? 0) > 0}
+        />
+      </div>
+
       {revenue.data && !revenue.data.collected && (
         <div className="flex items-start gap-2 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-sm text-amber">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            These figures are <strong>accrued</strong>, not collected. Ads deliver and their spend is
-            tracked, but no advertiser has been charged — that needs Stripe connected.
+            These figures are <strong>accrued</strong>, not collected — this server has no payment
+            processor connected, so no advertiser can be charged.
           </span>
         </div>
       )}

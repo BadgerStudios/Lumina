@@ -195,6 +195,14 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
      */
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
+
+      // An ad campaign payment. Told apart by `metadata.kind`, which this server set when it
+      // created the session — never inferred from the amount, which an advertiser can influence.
+      if (session.metadata?.kind === "ad_campaign") {
+        await fundAdCampaign(event, session);
+        return;
+      }
+
       // Subscription checkouts come through here too; those are handled by the subscription events
       // below, and have no coin metadata.
       const userId = session.metadata?.userId;
@@ -275,6 +283,71 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
       // 500ing on an event we simply don't care about would make it retry forever.
       break;
   }
+}
+
+/**
+ * Marks an ad campaign paid, and records the money in the same ledger every other charge lands in.
+ *
+ * ## Idempotency, twice over
+ *
+ * Stripe redelivers a webhook on any non-2xx, which is normal operation rather than an edge case,
+ * so this runs more than once for the same payment as a matter of course. Two constraints cover it:
+ * `AdCampaign.stripeSessionId` is unique, and the update is conditioned on the campaign not already
+ * being FUNDED, so a redelivery updates zero rows instead of double-marking. `recordTransaction`
+ * keys on the Stripe event id and already treats a duplicate as a normal outcome.
+ *
+ * ## Why the amount comes from Stripe
+ *
+ * `amount_total` is what was actually collected. Reading `totalBudgetCents` off the campaign row
+ * instead would record whatever the budget says *now*, which is not necessarily what was charged.
+ */
+async function fundAdCampaign(event: Stripe.Event, session: Stripe.Checkout.Session): Promise<void> {
+  const campaignId = session.metadata?.campaignId;
+  if (!campaignId) return;
+  if (session.payment_status !== "paid") return;
+
+  // `|| null`, not `?? null`: Stripe returns metadata values as strings, and an empty one is not a
+  // user id — it is a foreign key violation waiting to happen.
+  //
+  // The existence check matters more than it looks. Transaction.userId is a real FK, so attaching
+  // a payment to an account that no longer exists throws, the handler 500s, and Stripe retries
+  // that event forever while the campaign is already funded — money taken, ledger permanently
+  // missing a row. An advertiser deleting their account between checkout and webhook is unlikely
+  // but entirely possible, and the ledger row matters more than the attribution: Transaction.user
+  // is already `SetNull` on delete, so a null author is a shape this table expects.
+  const claimedAdvertiserId = session.metadata?.advertiserId || null;
+  const advertiser = claimedAdvertiserId
+    ? await prisma.user.findUnique({ where: { id: claimedAdvertiserId }, select: { id: true } })
+    : null;
+  const advertiserId = advertiser?.id ?? null;
+
+  const paidCents = session.amount_total ?? 0;
+
+  const result = await prisma.adCampaign.updateMany({
+    where: { id: campaignId, fundingStatus: { not: "FUNDED" } },
+    data: {
+      fundingStatus: "FUNDED",
+      paidCents,
+      paidAt: new Date(),
+      stripeSessionId: session.id,
+    },
+  });
+
+  // Zero rows means a redelivery of an already-funded campaign. The transaction is still recorded
+  // below — `recordTransaction` dedupes on the event id, so this stays correct either way, and
+  // returning early here would risk losing the ledger row if the first delivery failed after the
+  // campaign update but before the transaction write.
+  void result;
+
+  await recordTransaction({
+    eventId: event.id,
+    userId: advertiserId,
+    kind: "CHARGE",
+    amountCents: paidCents,
+    currency: session.currency ?? "usd",
+    description: `Ad campaign ${campaignId}`,
+    paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
+  });
 }
 
 async function userIdForCustomer(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null): Promise<string | null> {

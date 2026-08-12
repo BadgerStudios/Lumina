@@ -1263,6 +1263,23 @@ model ServerAddon {
 // a campaign that has spent money it hasn't paid for is visible rather than silently free.
 // ---------------------------------------------------------------------------------------------
 
+/// Whether an advertiser has actually paid for a campaign.
+///
+/// Deliberately separate from AdCampaignStatus rather than folded into it as extra states. The two
+/// answer different questions — "is this creative allowed to run" (a moderation decision, made by
+/// staff) and "has this been paid for" (a payment fact, made by Stripe) — and a campaign can be
+/// approved-and-unpaid or paid-and-paused. Collapsing them would make every delivery query have to
+/// re-derive one from the other.
+enum AdFundingStatus {
+  /// Approved but not yet paid for. Does not deliver.
+  UNFUNDED
+  /// A Checkout session is open. Still does not deliver — an abandoned checkout must never serve.
+  PENDING
+  FUNDED
+  /// Paid and refunded. Terminal; delivery stops.
+  REFUNDED
+}
+
 enum AdCampaignStatus {
   DRAFT
   PENDING_REVIEW
@@ -1291,6 +1308,22 @@ model AdCampaign {
   totalBudgetCents Int
   /// Accrued delivery cost. Never exceeds totalBudgetCents: delivery stops at the cap.
   spentCents    Int              @default(0)
+
+  /// ---- payment ----------------------------------------------------------------------------
+  /// Campaigns are PREPAID, and paid only AFTER staff approval. Charging on submission would mean
+  /// taking money for creative that may then be rejected, and every rejection would become a
+  /// refund; approving first means the platform never holds money for an ad it won't run.
+  ///
+  /// Because delivery already stops at `totalBudgetCents`, a prepaid balance maps exactly onto the
+  /// existing draw-down — no second ledger, and no way to deliver more than was paid for.
+  fundingStatus AdFundingStatus  @default(UNFUNDED)
+  /// What was actually collected, from the Stripe session rather than from the requested budget:
+  /// the two can differ if a budget is ever edited between checkout and payment.
+  paidCents     Int              @default(0)
+  /// Unique so a redelivered `checkout.session.completed` — normal Stripe behaviour, not an edge
+  /// case — cannot fund the same campaign twice.
+  stripeSessionId String?        @unique
+  paidAt        DateTime?
 
   startsAt      DateTime
   endsAt        DateTime

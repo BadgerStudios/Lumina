@@ -6,6 +6,8 @@ import { requireAuth, requireStaff } from "../../plugins/authenticate.js";
 import { requireAdult } from "../age/guard.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { recordClick, recordImpression } from "./delivery.js";
+import { getStripe } from "../billing/stripe.js";
+import { primaryAppOrigin } from "../../lib/appOrigin.js";
 
 /**
  * The advertiser console and the staff review queue. Mounted under /api/ads.
@@ -122,6 +124,75 @@ export default async function adRoutes(fastify: FastifyInstance) {
     return serializeCampaign(updated);
   });
 
+  /**
+   * Pay for an approved campaign.
+   *
+   * Campaigns are prepaid, and the charge happens AFTER staff approval rather than on submission.
+   * Billing first would mean taking money for creative that might then be rejected, turning every
+   * rejection into a refund; this way the platform never holds money for an ad it won't run.
+   *
+   * The amount comes from the campaign row, never from the request — a client-supplied price is a
+   * client-chosen price. Funding is confirmed by the Stripe webhook and nowhere else; the success
+   * URL grants nothing, because anyone can visit a success URL.
+   */
+  fastify.post("/campaigns/:id/checkout", { preHandler: [requireAuth, requireAdult] }, async (request) => {
+    const stripe = getStripe();
+    if (!stripe) throw new BadRequestError("Payments aren't configured on this server");
+
+    const { id } = request.params as { id: string };
+    const campaign = await prisma.adCampaign.findUnique({ where: { id } });
+    if (!campaign || campaign.advertiserId !== request.userId) {
+      throw new NotFoundError("Campaign not found");
+    }
+    if (campaign.fundingStatus === "FUNDED") throw new BadRequestError("This campaign is already paid for");
+    if (campaign.fundingStatus === "REFUNDED") throw new BadRequestError("This campaign was refunded");
+    if (campaign.status !== "APPROVED") {
+      throw new BadRequestError(
+        campaign.status === "PENDING_REVIEW"
+          ? "This campaign is still in review — you'll be able to pay once it's approved."
+          : "Only an approved campaign can be paid for",
+      );
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: request.userId! },
+      select: { email: true },
+    });
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer_email: user?.email,
+      // A price built from the campaign's own budget rather than a preconfigured Stripe Price:
+      // every campaign is a different amount, so there is nothing to configure ahead of time.
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: campaign.totalBudgetCents,
+            product_data: {
+              name: `Lumina ad campaign — ${campaign.name}`,
+              description: `${(campaign.cpmCents / 100).toFixed(2)} USD per 1,000 impressions, up to ${(campaign.totalBudgetCents / 100).toFixed(2)} USD`,
+            },
+          },
+        },
+      ],
+      success_url: `${primaryAppOrigin()}/settings/advertising?checkout=success`,
+      cancel_url: `${primaryAppOrigin()}/settings/advertising?checkout=cancelled`,
+      // The only trustworthy channel back. `kind` is what lets one webhook handler tell an ad
+      // payment apart from a sparks top-up without guessing from the amount.
+      metadata: { kind: "ad_campaign", campaignId: campaign.id, advertiserId: request.userId! },
+    });
+
+    // PENDING, not FUNDED — an abandoned checkout must never deliver. Only the webhook sets FUNDED.
+    await prisma.adCampaign.update({
+      where: { id: campaign.id },
+      data: { fundingStatus: "PENDING" },
+    });
+
+    return { url: session.url };
+  });
+
   /** Impression and click beacons. Authenticated so impressions can be deduped per viewer — an
    * anonymous beacon is one an advertiser cannot be charged for honestly. */
   fastify.post("/campaigns/:id/impression", { preHandler: [requireAuth, requireAdult] }, async (request) => {
@@ -194,7 +265,7 @@ export default async function adRoutes(fastify: FastifyInstance) {
     since.setUTCDate(since.getUTCDate() - 30);
     since.setUTCHours(0, 0, 0, 0);
 
-    const [daily, totals] = await Promise.all([
+    const [daily, totals, funded, pending] = await Promise.all([
       prisma.adCampaignDaily.groupBy({
         by: ["day"],
         where: { day: { gte: since } },
@@ -202,7 +273,18 @@ export default async function adRoutes(fastify: FastifyInstance) {
         orderBy: { day: "asc" },
       }),
       prisma.adCampaign.aggregate({ _sum: { spentCents: true, impressionCount: true, clickCount: true } }),
+      // Money actually taken. Summed from paidCents — what Stripe reported collecting — rather than
+      // from the campaigns' requested budgets, which are an intention, not a payment.
+      prisma.adCampaign.aggregate({
+        where: { fundingStatus: "FUNDED" },
+        _sum: { paidCents: true, spentCents: true },
+        _count: true,
+      }),
+      prisma.adCampaign.count({ where: { status: "APPROVED", fundingStatus: { in: ["UNFUNDED", "PENDING"] } } }),
     ]);
+
+    const collectedCents = funded._sum.paidCents ?? 0;
+    const deliveredAgainstPaid = funded._sum.spentCents ?? 0;
 
     return {
       // Named `accrued`, not `revenue`: this is delivery that has been earned, not money that has
@@ -211,7 +293,16 @@ export default async function adRoutes(fastify: FastifyInstance) {
       accruedCents: totals._sum.spentCents ?? 0,
       impressions: totals._sum.impressionCount ?? 0,
       clicks: totals._sum.clickCount ?? 0,
-      collected: false,
+      // Campaigns are prepaid, so collected is money in the bank and accrued is how much of it has
+      // been earned by delivery. The difference is a liability — inventory still owed to
+      // advertisers — which is why it is reported rather than left to be inferred.
+      collected: true,
+      collectedCents,
+      unearnedCents: Math.max(0, collectedCents - deliveredAgainstPaid),
+      fundedCampaigns: funded._count,
+      // Approved but not paid for: real demand that has not converted, and the number to watch if
+      // checkout is broken.
+      awaitingPaymentCampaigns: pending,
       days: daily.map((d) => ({
         day: d.day.toISOString().slice(0, 10),
         impressions: d._sum.impressions ?? 0,
@@ -229,6 +320,9 @@ function serializeCampaign(c: {
   cpmCents: number;
   totalBudgetCents: number;
   spentCents: number;
+  fundingStatus: string;
+  paidCents: number;
+  paidAt: Date | null;
   startsAt: Date;
   endsAt: Date;
   targetTags: string[];
@@ -245,6 +339,11 @@ function serializeCampaign(c: {
     cpmCents: c.cpmCents,
     totalBudgetCents: c.totalBudgetCents,
     spentCents: c.spentCents,
+    // Surfaced so the advertiser console can tell "waiting on review" apart from "waiting on you to
+    // pay" — two very different things to be told, and previously indistinguishable.
+    fundingStatus: c.fundingStatus,
+    paidCents: c.paidCents,
+    paidAt: c.paidAt?.toISOString() ?? null,
     startsAt: c.startsAt.toISOString(),
     endsAt: c.endsAt.toISOString(),
     targetTags: c.targetTags,
