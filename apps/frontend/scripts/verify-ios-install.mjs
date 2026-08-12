@@ -67,7 +67,7 @@ async function main() {
         Object.defineProperty(window.navigator, "standalone", { value: true, configurable: true });
       });
     }
-    const username = `iosv_${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const username = `zz_iosv_${Date.now()}${Math.floor(Math.random() * 1000)}`;
     try {
       await page.goto(`${BASE}/register`, { waitUntil: "domcontentloaded" });
       await page.getByLabel("Username").fill(username);

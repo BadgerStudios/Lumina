@@ -79,7 +79,7 @@ async function main() {
   const { chromium } = await import("playwright");
   const browser = await chromium.launch();
   const page = await browser.newPage();
-  const username = `veb_${Date.now()}`;
+  const username = `zz_veb_${Date.now()}`;
 
   try {
     // A real session: the crash route lives inside AppShell, behind RequireAuth.

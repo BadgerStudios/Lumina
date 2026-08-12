@@ -28,7 +28,7 @@ async function call(path, { method = "POST", token, body } = {}) {
   return { status: res.status, body: parsed };
 }
 
-const username = `mfa_${Date.now()}`;
+const username = `zz_mfa_${Date.now()}`;
 const password = "mfa-verify-pw-1";
 
 async function main() {

@@ -341,7 +341,7 @@ async function verifyBroadcastReachesAClient() {
   if (!secret) return bad("OPS_AGENT_SECRET is unset — deploy.sh cannot announce updates at all");
 
   const { io } = await import("socket.io-client");
-  const username = `vbc_${Date.now()}`;
+  const username = `zz_vbc_${Date.now()}`;
   let socket;
 
   try {
@@ -431,7 +431,7 @@ async function verifyWebBannerInBrowser() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
-  const username = `vup_${Date.now()}`;
+  const username = `zz_vup_${Date.now()}`;
 
   try {
     const real = await (await fetch(`${BASE}/index.html`, { cache: "no-store" })).text();

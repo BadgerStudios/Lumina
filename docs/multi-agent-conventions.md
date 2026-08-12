@@ -27,11 +27,21 @@ Rules:
 
 Current prefix assignments:
 
-| Session | Prefix | Cleanup scope |
+| Prefix | Owned by | Cleanup scope |
 |---|---|---|
-| `discord-parity-closure-plan` | `zz_` | `username LIKE 'zz\_%'` |
-| `lumina-build` (this session) | `qq_` | `username LIKE 'qq\_%'` |
-| Any other session | pick one and record it here | its own prefix only |
+| `qq_` | The session that authored this file — reachable as `discord-parity-closure-plan` | `username LIKE 'qq\_%'` |
+| `zz_` | The session that reviewed it — the one that wired SMTP and shipped AutoMod | `username LIKE 'zz\_%'` |
+| — | Any other session: pick an unused prefix and add a row | its own prefix only |
+
+**Keyed by prefix, not by session name, on purpose.** The first version of this table was keyed by
+name and had the two rows swapped: it listed `discord-parity-closure-plan` against `zz_`, when that
+session had just agreed to take `qq_`. Each session knows the *other* by the name the messaging
+layer reports and itself by something else, so a name-keyed table is ambiguous exactly where it
+needs to be precise — and a third session reading it would have cleaned up under a prefix it did
+not own, causing the failure this document exists to prevent.
+
+The prefix is the identifier that matters. If you cannot tell which row is yours, you do not own
+either; take a new one.
 
 ## 2. Announce before `./deploy.sh`, and do not edit during someone else's
 

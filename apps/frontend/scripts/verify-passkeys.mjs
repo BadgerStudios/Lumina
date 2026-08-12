@@ -11,7 +11,7 @@ let pass = 0, fail = 0;
 const ok = (m) => (console.log(`PASS: ${m}`), pass++);
 const bad = (m) => (console.log(`FAIL: ${m}`), fail++);
 
-const username = `pk_${Date.now()}`;
+const username = `zz_pk_${Date.now()}`;
 const password = "passkey-verify-pw-1";
 
 async function main() {
