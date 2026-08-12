@@ -21,6 +21,12 @@ RUN npm run build:owner --workspace=apps/frontend
 
 FROM nginx:1.27-alpine AS runtime
 COPY apps/frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# NOT conf.d/ — that directory is auto-included by nginx.conf at the *http* level, so dropping
+# these there loaded them a second time as global config. The result was every response, including
+# proxied /api/ ones the backend already secures via helmet, carrying TWO Content-Security-Policy
+# headers; browsers intersect them, so the API silently ran under a merged policy that matched
+# neither file. snippets/ is not auto-included, so these apply only where explicitly included.
+COPY apps/frontend/security-headers.conf apps/frontend/csp.conf /etc/nginx/snippets/
 COPY --from=build /repo/apps/frontend/dist /usr/share/nginx/html
 COPY --from=build /repo/apps/frontend/dist-owner /usr/share/nginx/html/owner-app
 EXPOSE 80

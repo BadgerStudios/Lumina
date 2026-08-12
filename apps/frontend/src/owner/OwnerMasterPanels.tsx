@@ -194,8 +194,14 @@ export function TeamPanel() {
                         </option>
                       ))}
                     </select>
+                    {/* Named per row, like the select above it. Visually the label is just
+                        "Remove access", which is fine when you can see which row it sits in — and
+                        useless otherwise: a screen reader announced seven identical "Remove access"
+                        buttons with nothing to tell them apart, on a control that strips someone's
+                        platform role. The visible text stays short; the accessible name says who. */}
                     <button
                       type="button"
+                      aria-label={`Remove platform access from ${member.username}`}
                       disabled={grant.isPending}
                       onClick={() => grant.mutate({ userId: member.id, platformRole: "USER" })}
                       className="rounded-lg bg-base-600 px-3 py-1.5 text-xs text-signal hover:bg-flare hover:text-white disabled:opacity-50"

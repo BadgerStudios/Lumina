@@ -4,6 +4,7 @@
 // an advertiser cannot promote something a moderator hasn't approved, an ad cannot appear without
 // being labelled, and an advertiser is never billed twice for reaching the same person.
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 
 const BASE = process.env.LUMINA_BASE ?? "https://lumina.badgerstudios.net";
 const REPO = "/home/lucid/lumina";
@@ -154,12 +155,53 @@ async function main() {
     if (approved.status === 200) ok("staff can approve a campaign");
     else return bad(`approval returned ${approved.status}`);
 
+    // --- approved is NOT enough: campaigns are prepaid ---------------------------------------------
+    //
+    // This assertion is the whole point of the funding gate. Approval is a moderation decision and
+    // says nothing about money; without this check an advertiser could get a campaign approved and
+    // serve its entire budget having paid nothing. The test used to assert delivery right here,
+    // which is exactly the behaviour that was wrong.
+    const feedUnfunded = await (await fetch(`${BASE}/api/feed?limit=30`, {
+      headers: { authorization: `Bearer ${viewToken}` },
+    })).json();
+    if (!feedUnfunded.videos.some((v) => v.sponsoredBy)) {
+      ok("an APPROVED but UNFUNDED campaign still does not deliver");
+    } else {
+      bad("an unpaid campaign delivered — the prepaid gate is not holding");
+    }
+
+    // --- fund it, and now it should ----------------------------------------------------------------
+    //
+    // Marked funded directly rather than through Stripe Checkout: completing a real live payment is
+    // not something a verification script may do. The webhook path that sets this in production
+    // (billing/routes.ts fundAdCampaign) is covered separately by signed-webhook checks; what is
+    // under test here is the DELIVERY gate reading the flag, which is the half that decides whether
+    // an ad is shown.
+    // execFileSync with an argv array, not a shell string: the SQL contains double-quoted
+    // Postgres identifiers ("AdCampaign") inside a shell -c argument, and getting that quoting
+    // right through two layers is a trap that already bit once here. No shell, no quoting.
+    {
+      const repo = new URL("../../..", import.meta.url).pathname;
+      const env = Object.fromEntries(
+        fs.readFileSync(`${repo}/.env`, "utf8")
+          .split("\n")
+          .filter((l) => l.includes("=") && !l.startsWith("#"))
+          .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+      );
+      execFileSync(
+        "docker",
+        ["compose", "exec", "-T", "postgres", "psql", "-U", env.POSTGRES_USER, "-d", env.POSTGRES_DB, "-q", "-c",
+         `update "AdCampaign" set "fundingStatus"='FUNDED', "paidCents"="totalBudgetCents", "paidAt"=now() where id='${campaignId}';`],
+        { cwd: repo, stdio: "pipe" },
+      );
+    }
+
     const feedAfter = await (await fetch(`${BASE}/api/feed?limit=30`, {
       headers: { authorization: `Bearer ${viewToken}` },
     })).json();
     const sponsored = feedAfter.videos.filter((v) => v.sponsoredBy);
-    if (sponsored.length > 0) ok(`the approved campaign delivers (${sponsored.length} sponsored card(s))`);
-    else bad("an approved, in-window, in-budget campaign did not deliver");
+    if (sponsored.length > 0) ok(`the approved AND funded campaign delivers (${sponsored.length} sponsored card(s))`);
+    else bad("an approved, funded, in-window, in-budget campaign did not deliver");
 
     // Every sponsored card must carry the campaign id the label and beacon are driven by. An ad
     // that renders without it is an unlabelled ad.

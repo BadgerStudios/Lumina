@@ -155,6 +155,7 @@ export function OwnerUsersPanel() {
                         {u.platformRole !== "OWNER" && u.platformRole !== "MASTER" && (
                           <button
                             type="button"
+                            aria-label={`Ban ${u.username}`}
                             onClick={() => setBanTarget(u)}
                             className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal hover:bg-flare hover:text-white"
                           >

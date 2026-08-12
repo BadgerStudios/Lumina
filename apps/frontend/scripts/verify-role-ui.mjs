@@ -86,7 +86,7 @@ async function main() {
     // --- Users directory -------------------------------------------------------------------
     await page.goto(`${BASE}/owner`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: /^users$/i }).click();
-    await page.getByPlaceholder(/search by username/i).fill(subjectName);
+    await page.getByPlaceholder(/search name or email/i).fill(subjectName);
     await roleSelect(page, subjectName).waitFor({ timeout: 15000 });
     ok("Users directory: search found the subject and rendered a role control");
 
@@ -111,14 +111,14 @@ async function main() {
 
     await page.reload({ waitUntil: "networkidle" });
     await page.getByRole("button", { name: /^users$/i }).click();
-    await page.getByPlaceholder(/search by username/i).fill(subjectName);
+    await page.getByPlaceholder(/search name or email/i).fill(subjectName);
     const shown = await roleSelect(page, subjectName).inputValue();
     if (shown === "STAFF") ok("role survives a full page reload in the UI");
     else bad(`UI shows ${shown} after reload`);
 
     // The master must not be editable from here — the control should not exist at all rather than
     // exist and fail.
-    await page.getByPlaceholder(/search by username/i).fill("lumina");
+    await page.getByPlaceholder(/search name or email/i).fill("lumina");
     await page.getByText("@lumina", { exact: true }).first().waitFor({ timeout: 15000 });
     if ((await roleSelect(page, "lumina").count()) === 0) {
       ok("master row exposes no role control");
@@ -126,10 +126,22 @@ async function main() {
       bad("master row rendered an editable role control");
     }
     // The server refuses to ban anyone at owner rank or above; the button must not be offered.
-    if ((await page.getByRole("button", { name: /^ban$/i }).count()) === 0) {
+    //
+    // Scoped to the master's own row by the button's accessible name. Counting /^ban$/ across the
+    // whole page was wrong for the same reason the Remove-access locator was: searching "lumina"
+    // matches six accounts (usernames AND emails), five of them ordinary users who correctly DO
+    // get a Ban button. The assertion was reading their buttons and calling it a master-row bug.
+    if ((await page.getByRole("button", { name: /^Ban lumina$/i }).count()) === 0) {
       ok("master row exposes no Ban button");
     } else {
       bad("master row rendered a Ban button the server would reject");
+    }
+    // ...and prove the locator can actually see a Ban button when one legitimately exists, so this
+    // passing never just means "the selector matched nothing".
+    if ((await page.getByRole("button", { name: /^Ban /i }).count()) > 0) {
+      ok("ordinary rows in the same result set still offer Ban (the check is not vacuous)");
+    } else {
+      bad("no Ban button anywhere — the master-row assertion above proves nothing");
     }
 
     // --- Team & access ---------------------------------------------------------------------
@@ -137,15 +149,27 @@ async function main() {
     await roleSelect(page, subjectName).waitFor({ timeout: 15000 });
     ok("Team panel lists the newly-promoted staff member with a rank control");
 
-    // Scoped to the subject's own row. A bare .first() here hit whichever staff member happened to
-    // sort first and demoted a real account — a verification script must never be able to touch
-    // anyone it did not create.
-    await page
-      .locator("div")
-      .filter({ hasText: `@${subjectName}` })
-      .getByRole("button", { name: /remove access/i })
-      .last()
-      .click();
+    // Targeted by the button's own per-row accessible name, which now includes the username.
+    //
+    // The previous attempt at scoping — .locator("div").filter({ hasText: `@${name}` }) — did not
+    // scope anything. `filter` keeps every div that CONTAINS the text, which includes the page
+    // wrapper, so the search for "Remove access" still ranged over the whole table and `.last()`
+    // picked whoever sorted last. This script demoted a real staff account twice that way, the
+    // second time after a comment was added claiming it was fixed.
+    const removeButton = page.getByRole("button", {
+      name: new RegExp(`Remove platform access from ${subjectName}`, "i"),
+    });
+
+    // A hard stop, not just a better selector. This script mutates roles on the LIVE database, so
+    // the invariant worth enforcing is "it can only ever touch the account it created" — asserted
+    // here rather than assumed from a locator being correct.
+    const matches = await removeButton.count();
+    if (matches !== 1) {
+      throw new Error(
+        `refusing to click: expected exactly 1 Remove-access button for ${subjectName}, found ${matches}`,
+      );
+    }
+    await removeButton.click();
     await page.waitForResponse(
       (r) => r.url().includes("/master/grant") && r.request().method() === "POST",
       { timeout: 15000 },

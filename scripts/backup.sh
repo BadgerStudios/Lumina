@@ -122,10 +122,31 @@ rotate 'db-*.sql.gz' "$KEEP_DAILY"
 rotate 'uploads-*.tar.gz' "$KEEP_DAILY"
 
 # --- offsite ------------------------------------------------------------------------------
+# Resolve node explicitly.
+#
+# This script is run by a systemd *user* timer, whose PATH is a minimal /usr/bin:/bin — it does not
+# include ~/.local/bin, where this box's node lives. So every scheduled run logged
+#     backup.sh: line NNN: node: command not found
+# and fell through to "WARNING: offsite upload reported a problem", which is technically accurate
+# and reads like a transient hiccup. It was not transient: the offsite copy had NEVER been made
+# from a scheduled run, so every backup lived on the same physical disk as the data it protects —
+# precisely the failure this script's header says it does not cover.
+#
+# Resolved once, here, rather than by adding a PATH to the unit file: that would fix the timer and
+# leave cron, a CI runner and a plain `sh scripts/backup.sh` still broken.
+NODE_BIN="$(command -v node || true)"
+for candidate in "$HOME/.local/bin/node" /usr/local/bin/node /usr/bin/node; do
+  [ -n "$NODE_BIN" ] && break
+  [ -x "$candidate" ] && NODE_BIN="$candidate"
+done
+if [ -z "$NODE_BIN" ]; then
+  log "ERROR: node not found — offsite upload SKIPPED, this backup is local-only"
+fi
+
 # After verification and after rotation, so only a backup that passed its checks is ever mirrored,
 # and a Cloudflare outage can't stop the local rotation from running. Non-fatal: a failed upload is
 # logged loudly but leaves a good local backup in place rather than reporting total failure.
-if node "$REPO_DIR/scripts/backup-offsite.mjs" 2>&1 | while read -r line; do log "$line"; done; then
+if [ -n "$NODE_BIN" ] && "$NODE_BIN" "$REPO_DIR/scripts/backup-offsite.mjs" 2>&1 | while read -r line; do log "$line"; done; then
   :
 else
   log "WARNING: offsite upload reported a problem — local backup is still good"

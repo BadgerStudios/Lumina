@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadEnv, r2Configured, r2Client, listKeys, getObject } from "../../../scripts/r2.mjs";
+import { decryptFile, encryptionConfigured } from "../../../scripts/encrypt-backup.mjs";
 
 const REPO = "/home/lucid/lumina";
 let pass = 0, fail = 0;
@@ -42,8 +43,34 @@ async function main() {
     if (bytes.length === dumps[0].size) ok(`downloaded ${(bytes.length / 1024).toFixed(0)}KB intact`);
     else bad(`downloaded ${bytes.length} bytes, listing said ${dumps[0].size}`);
 
+    // Decrypt FIRST when the object is encrypted.
+    //
+    // This step was missing, and its absence made this script actively harmful. Backups are
+    // uploaded as `.enc` (AES via scripts/encrypt-backup.mjs), so feeding the downloaded bytes
+    // straight to `gzip -t` always failed with "not in gzip format" and reported
+    // "the downloaded archive is corrupt" — about a backup that was perfectly fine.
+    //
+    // A restore check that cries wolf every run is worse than no check: it trains you to ignore
+    // the one signal that matters, and it could never have distinguished a genuinely corrupt
+    // archive from its own missing step.
+    const encrypted = dumps[0].key.endsWith(".enc");
     const gz = path.join(tmp, "dump.sql.gz");
-    fs.writeFileSync(gz, bytes);
+    if (encrypted) {
+      if (!encryptionConfigured()) {
+        return bad("the offsite dump is encrypted but BACKUP_ENCRYPTION_KEY is not set — it cannot be restored");
+      }
+      const encPath = path.join(tmp, "dump.sql.gz.enc");
+      fs.writeFileSync(encPath, bytes);
+      try {
+        decryptFile(encPath, gz, process.env.BACKUP_ENCRYPTION_KEY);
+        ok("the encrypted dump decrypts with the configured key");
+      } catch (e) {
+        return bad(`decryption failed — the offsite copy is unrecoverable: ${e.message}`);
+      }
+    } else {
+      fs.writeFileSync(gz, bytes);
+    }
+
     try {
       execFileSync("gzip", ["-t", gz]);
       ok("the downloaded archive passes a gzip integrity check");
