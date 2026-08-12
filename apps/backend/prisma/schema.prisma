@@ -328,6 +328,7 @@ model Server {
   auditLogEntries   AuditLogEntry[]
   notificationOverrides NotificationOverride[]
   addons          ServerAddon[]
+  autoModRules AutoModRule[]
 }
 
 model Membership {
@@ -1322,4 +1323,43 @@ model Passkey {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// A per-server automated moderation rule.
+///
+/// v1 is keyword matching that BLOCKS the send, and nothing else. Deliberately narrow: a rule
+/// engine that can also timeout, delete, log and notify is four features whose interactions have to
+/// be reasoned about, and the one that actually stops the message is the one worth having first.
+model AutoModRule {
+  id          String   @id @default(cuid())
+  serverId    String
+  name        String   @db.VarChar(80)
+  /// Lowercased match terms. Stored as rows rather than a delimited string so a term containing a
+  /// comma is not silently split into two.
+  terms       AutoModTerm[]
+  /// Whole-word matching. Off by default, because the common case ("no slurs") wants substring
+  /// matching, and on for the cases where it would otherwise catch innocent words containing the
+  /// term — the Scunthorpe problem, which is a real support burden rather than a joke.
+  wholeWord   Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  /// Roles exempt from this rule — moderators discussing a term they are moderating should not be
+  /// blocked by it.
+  exemptRoleIds String[] @default([])
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  server      Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId, enabled])
+}
+
+model AutoModTerm {
+  id       String      @id @default(cuid())
+  ruleId   String
+  /// Always stored lowercased; matching lowercases the message too.
+  term     String      @db.VarChar(120)
+  rule     AutoModRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
 }

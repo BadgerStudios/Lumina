@@ -5,6 +5,7 @@ import {
   Hash,
   Volume2,
   ChevronDown,
+  ChevronUp,
   Plus,
   Settings,
   Mic,
@@ -20,7 +21,7 @@ import {
   Bell,
 } from "lucide-react";
 import { useState } from "react";
-import { useChannels } from "../../queries/channels";
+import { useChannels, useReorderChannels } from "../../queries/channels";
 import { useServer, useLeaveServer } from "../../queries/servers";
 import { useMembers } from "../../queries/members";
 import { useRoles } from "../../queries/roles";
@@ -39,11 +40,15 @@ function ChannelRow({
   active,
   serverId,
   canManageChannels,
+  onMoveUp,
+  onMoveDown,
 }: {
   channel: ChannelDTO;
   active: boolean;
   serverId: string;
   canManageChannels: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const navigate = useNavigate();
   const closeMobileDrawer = useUIStore((s) => s.closeMobileDrawer);
@@ -65,6 +70,29 @@ function ChannelRow({
         <Hash size={18} className="shrink-0 font-mono text-signal-faint" />
         <span className="truncate">{channel.name}</span>
       </button>
+      {canManageChannels && (onMoveUp || onMoveDown) && (
+        // Revealed on hover with the settings cog, so an ordinary member's sidebar is unchanged.
+        <span className="mr-0.5 flex shrink-0 flex-col opacity-0 group-hover:opacity-100">
+          <button
+            onClick={onMoveUp}
+            disabled={!onMoveUp}
+            title="Move up"
+            aria-label={`Move ${channel.name} up`}
+            className="rounded px-1 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
+          >
+            <ChevronUp size={11} />
+          </button>
+          <button
+            onClick={onMoveDown}
+            disabled={!onMoveDown}
+            title="Move down"
+            aria-label={`Move ${channel.name} down`}
+            className="rounded px-1 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
+          >
+            <ChevronDown size={11} />
+          </button>
+        </span>
+      )}
       {canManageChannels && (
         <button
           onClick={() => openModalWith("channelSettings", { serverId, channelId: channel.id })}
@@ -169,6 +197,7 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
 
   const me = members?.find((m) => m.userId === user?.id);
   const canManageChannels = can("MANAGE_CHANNELS", { userId: user?.id, server, member: me, roles });
+  const reorder = useReorderChannels(serverId);
   const isOwner = server?.ownerId === user?.id;
   const leaveServer = useLeaveServer(serverId);
   const mobileDrawer = useUIStore((s) => s.mobileDrawer);
@@ -188,11 +217,46 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
     }
   }
 
-  function renderChannel(c: ChannelDTO) {
+  /**
+   * Moves a channel one place within its own sibling list.
+   *
+   * Up/down buttons rather than drag-and-drop, deliberately. `PATCH /servers/:id/channels/reorder`
+   * has existed and been enforced since it was written with **nothing calling it** — channels
+   * simply could not be reordered. Drag-and-drop is the nicer interaction and a much larger piece
+   * of work (pointer sensors, a drop indicator, keyboard equivalents for accessibility, and it is
+   * awkward on a phone, which is where half this app is used). Two buttons make the feature exist
+   * today and remain the accessible fallback if dragging is added later.
+   *
+   * The whole sibling list is sent with fresh positions rather than just the moved pair, so the
+   * server never has to infer intent from a partial ordering.
+   */
+  function moveChannel(channel: ChannelDTO, direction: -1 | 1) {
+    const siblings = (channel.parentId ? (byParent.get(channel.parentId) ?? []) : topLevel)
+      .filter((c) => c.type !== "CATEGORY")
+      .sort((a, b) => a.position - b.position);
+
+    const index = siblings.findIndex((c) => c.id === channel.id);
+    const target = index + direction;
+    if (index === -1 || target < 0 || target >= siblings.length) return;
+
+    const reordered = [...siblings];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    reorder.mutate(reordered.map((c, i) => ({ id: c.id, position: i })));
+  }
+
+  function renderChannel(c: ChannelDTO, index: number, list: ChannelDTO[]) {
     return c.type === "VOICE" ? (
       <VoiceChannelRow key={c.id} channel={c} serverId={serverId} />
     ) : (
-      <ChannelRow key={c.id} channel={c} active={c.id === activeChannelId} serverId={serverId} canManageChannels={canManageChannels} />
+      <ChannelRow
+        key={c.id}
+        channel={c}
+        active={c.id === activeChannelId}
+        serverId={serverId}
+        canManageChannels={canManageChannels}
+        onMoveUp={index > 0 ? () => moveChannel(c, -1) : undefined}
+        onMoveDown={index < list.length - 1 ? () => moveChannel(c, 1) : undefined}
+      />
     );
   }
 

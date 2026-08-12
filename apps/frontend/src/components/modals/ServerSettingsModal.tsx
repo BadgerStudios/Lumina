@@ -1,5 +1,6 @@
 import { APP_HOME } from "../../lib/platform";
 import { ServerAddonsPanel } from "./ServerAddonsPanel";
+import { ServerAutoModPanel } from "./ServerAutoModPanel";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Copy, Check, Trash2 } from "lucide-react";
@@ -14,7 +15,7 @@ import { useServerWebhooks, useCreateWebhook, useDeleteWebhook } from "../../que
 import { useAuthStore } from "../../store/authStore";
 import { cn } from "../../lib/cn";
 
-type Tab = "overview" | "roles" | "bans" | "auditLog" | "webhooks" | "addons";
+type Tab = "overview" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons";
 
 function colorToHex(color: number | null): string {
   return color === null ? "#5b7cfa" : `#${color.toString(16).padStart(6, "0")}`;
@@ -184,6 +185,7 @@ export function ServerSettingsModal() {
     { key: "bans", label: "Bans" },
     { key: "auditLog", label: "Audit Log" },
     { key: "webhooks", label: "Webhooks" },
+    { key: "automod", label: "AutoMod" },
     { key: "addons", label: "Addons" },
   ];
 
@@ -341,6 +343,7 @@ export function ServerSettingsModal() {
             </div>
           )}
 
+          {tab === "automod" && <ServerAutoModPanel serverId={serverId} />}
           {tab === "addons" && <ServerAddonsPanel serverId={serverId} />}
 
           {tab === "roles" && (

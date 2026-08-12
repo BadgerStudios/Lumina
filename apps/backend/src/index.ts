@@ -28,6 +28,7 @@ import moderationRoutes from "./modules/moderation/routes.js";
 import serverChannelsRoutes from "./modules/channels/serverRoutes.js";
 import channelRoutes from "./modules/channels/channelRoutes.js";
 import serverRolesRoutes from "./modules/roles/serverRoutes.js";
+import autoModServerRoutes from "./modules/automod/serverRoutes.js";
 import roleRoutes from "./modules/roles/roleRoutes.js";
 import serverInvitesRoutes from "./modules/invites/serverRoutes.js";
 import inviteRoutes from "./modules/invites/inviteRoutes.js";
@@ -238,6 +239,7 @@ async function main() {
   await fastify.register(serverChannelsRoutes, { prefix: "/api/servers" });
   await fastify.register(channelRoutes, { prefix: "/api/channels" });
   await fastify.register(serverRolesRoutes, { prefix: "/api/servers" });
+  await fastify.register(autoModServerRoutes, { prefix: "/api/servers" });
   await fastify.register(roleRoutes, { prefix: "/api/roles" });
   await fastify.register(serverInvitesRoutes, { prefix: "/api/servers" });
   await fastify.register(inviteRoutes, { prefix: "/api/invites" });

@@ -9,6 +9,7 @@ import { parseCursor, parseLimit } from "../../lib/pagination.js";
 import { syncMessageMentions } from "./mentions.js";
 import { sendPushToUser } from "../../lib/push.js";
 import { runMessageAutomations } from "../addons/runtime.js";
+import { assertPassesAutoMod } from "../automod/service.js";
 
 /**
  * Shared message service — imported by BOTH the REST routes
@@ -143,6 +144,26 @@ export async function createChannelMessage(params: {
   await checkPermission(params.userId, channel.serverId, Permissions.SEND_MESSAGES);
   await assertSlowmodeOk(params.userId, params.channelId, channel.serverId, channel.slowmodeSeconds);
   assertHasContent(params.content, params.attachments);
+
+  // AutoMod, at the same point as slowmode: after permission and content checks, before anything is
+  // written. A rule that blocks a message must block it, not delete it a moment later — the
+  // difference is whether it ever appeared in anyone's client, and the socket broadcast below is
+  // what makes that irreversible.
+  //
+  // Returns immediately when the server has no rules, which is the overwhelming majority of sends,
+  // and the rule set is Redis-cached so this is not a query per message.
+  {
+    const membership = await prisma.membership.findUnique({
+      // `userId_serverId`, matching the @@unique field order — same key assertNotMuted uses above.
+      where: { userId_serverId: { userId: params.userId, serverId: channel.serverId } },
+      select: { roles: { select: { roleId: true } } },
+    });
+    await assertPassesAutoMod({
+      serverId: channel.serverId,
+      content: params.content,
+      memberRoleIds: membership?.roles.map((r) => r.roleId) ?? [],
+    });
+  }
 
   if (params.attachments?.length) {
     await checkPermission(params.userId, channel.serverId, Permissions.ATTACH_FILES);

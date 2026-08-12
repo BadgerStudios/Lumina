@@ -1,0 +1,61 @@
+name: CI
+
+# Typecheck, unit tests and a production build on every push.
+#
+# Deliberately contains NO deploy step and needs NO secrets: this repo has no remote yet, and a
+# workflow that requires credentials to do anything useful is one that stays red until somebody
+# supplies them. Everything here runs on a clean checkout, so the moment a remote exists this is
+# already working.
+#
+# What it does NOT cover: the verify-*.mjs suites. Those exercise a real running deployment with a
+# database, Redis and a live domain — they are the other tier, and pretending a CI runner can stand
+# that up would produce a workflow that fails for environmental reasons and gets ignored.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Prisma's generated client is imported by the backend's types, so nothing typechecks without
+      # it. No database connection is needed to generate.
+      - run: npx prisma generate
+        working-directory: apps/backend
+
+      - name: Typecheck backend
+        run: npx tsc --noEmit
+        working-directory: apps/backend
+
+      - name: Typecheck frontend
+        run: npx tsc -p . --noEmit
+        working-directory: apps/frontend
+
+      - name: Unit tests
+        run: npx vitest run
+        working-directory: apps/backend
+
+      - name: Production build
+        run: npm run build --workspace=apps/frontend
+
+  swift:
+    # LuminaKit is deliberately Foundation-only so it builds and tests off an Apple platform — this
+    # job is what keeps that property honest. If someone imports SwiftUI into it, this goes red.
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test LuminaKit
+        run: swift test
+        working-directory: apps/ios/LuminaKit
