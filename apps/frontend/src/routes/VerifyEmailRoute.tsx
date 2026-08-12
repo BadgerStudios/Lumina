@@ -41,7 +41,7 @@ export function VerifyEmailRoute() {
   }, [token]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-base-900 px-6">
+    <div className="flex min-h-app items-center justify-center bg-base-900 px-6">
       <div className="w-full max-w-md rounded-xl bg-base-800 p-8 text-center">
         <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-14 w-14" />
 

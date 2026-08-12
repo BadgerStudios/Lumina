@@ -16,9 +16,33 @@ import { applyRoleGrant } from "../../lib/roleGrant.js";
 import { isBillingConfigured, isWebhookConfigured } from "../billing/stripe.js";
 import { searchBlockReasons } from "@lumina/shared";
 
-/** Design assets only. Deliberately no archives that could smuggle executables, and no HTML/SVG
- * with script — these files are opened by a human on this machine, not served to browsers. */
-const ACCEPTED_BRAND_EXT = /^\.(png|jpe?g|gif|webp|svg|pdf|woff2?|ttf|otf|zip|txt|md|json|ai|psd|sketch|fig)$/;
+/**
+ * Brand-kit file types: a DENYLIST, not an allowlist.
+ *
+ * It used to be an allowlist of 18 design extensions, and that is what "the brand kit upload is
+ * broken" actually was: a real drop from a phone (`.heic` from an iPhone camera roll, `.tiff`,
+ * `.mov`, `.eps`, `.docx`, a `.rar`…) hit `Unsupported file type` and 400'd. An allowlist can only
+ * ever be a guess at what the master will hand over, and every wrong guess looks like an outage.
+ *
+ * Inverting it is safe *here specifically* because of what this endpoint is: master-only, stored
+ * outside the web root, never served to any browser, and renamed to a uuid on disk so the stored
+ * name is ours rather than the caller's. Nothing executes what lands here — it is a file drop for a
+ * human to open locally. So the only thing worth refusing is what could be run or auto-run by
+ * mistake on whoever downloads it later, which is what this list is.
+ *
+ * `.svg` stays accepted (it is a first-class brand asset) — it can carry script, but nothing serves
+ * it, and the old comment claiming SVG was excluded was already contradicted by the old list.
+ */
+const BLOCKED_BRAND_EXT =
+  /^\.(exe|dll|so|dylib|msi|msix|appx|bat|cmd|com|scr|cpl|sys|drv|pif|hta|lnk|scf|reg|vb[se]?|ws[fh]|ps1|psm1|sh|bash|zsh|ksh|csh|run|bin|elf|apk|aab|ipa|jar|deb|rpm|dmg|pkg|js|mjs|cjs|py|rb|pl|php|htm|html|xhtml|shtml|svgz)$/;
+
+/** Kept to one place so the route and its error message can never drift apart. */
+function brandFileRejection(ext: string): string | null {
+  if (BLOCKED_BRAND_EXT.test(ext)) {
+    return `${ext} files can't be dropped here — that type can be executed, and this is an asset drop.`;
+  }
+  return null;
+}
 
 const grantSchema = z.object({
   userId: z.string().min(1),
@@ -198,6 +222,18 @@ export default async function masterRoutes(fastify: FastifyInstance) {
    * and the stored filename is a generated uuid, never the caller's — an uploaded name is
    * attacker-controlled and joining it onto a path is the classic traversal hole. The original name
    * is kept alongside as metadata purely so the listing is readable.
+   *
+   * ## One bad file no longer fails the whole drop
+   *
+   * This used to `throw` the moment any part was unacceptable. Two things went wrong with that.
+   * Files earlier in the same request had already been written to disk, so a 400 was returned for a
+   * request that had in fact stored something — the listing and the error contradicted each other.
+   * And dropping ten files meant re-picking all ten because one was the wrong type.
+   *
+   * So every part is now judged on its own and the response reports both outcomes. The request only
+   * fails outright when nothing at all landed, which is the only case where "the upload failed" is
+   * a true statement. Rejected parts are still drained to the end before moving on — abandoning an
+   * unread part stalls the iterator and the request hangs until it times out.
    */
   fastify.post("/brand-kit", { preHandler: [requireAuth, requireMaster] }, async (request) => {
     if (!request.isMultipart()) throw new BadRequestError("Expected a file upload");
@@ -206,15 +242,27 @@ export default async function masterRoutes(fastify: FastifyInstance) {
     await fs.mkdir(dir, { recursive: true });
 
     const saved: Array<{ id: string; fileName: string; sizeBytes: number }> = [];
+    const rejected: Array<{ fileName: string; reason: string }> = [];
+
+    /** Reads a part to completion without storing it, so the next part can be parsed. */
+    const discard = (part: { file: NodeJS.ReadableStream }) =>
+      new Promise<void>((resolve) => {
+        part.file.on("end", () => resolve());
+        part.file.on("error", () => resolve());
+        part.file.resume();
+      });
+
     for await (const part of request.parts({ limits: { fileSize: 100 * 1024 * 1024, files: 20 } })) {
       if (part.type !== "file") continue;
 
       const originalName = path.basename(part.filename || "upload").slice(0, 120);
       const ext = path.extname(originalName).toLowerCase().slice(0, 10);
-      if (!ACCEPTED_BRAND_EXT.test(ext)) {
-        // Drain the stream before rejecting, or the connection hangs on the unread body.
-        part.file.resume();
-        throw new BadRequestError(`Unsupported file type: ${ext || "(none)"}`);
+
+      const rejection = brandFileRejection(ext);
+      if (rejection) {
+        await discard(part);
+        rejected.push({ fileName: originalName, reason: rejection });
+        continue;
       }
 
       const id = `${randomUUID()}${ext}`;
@@ -228,7 +276,8 @@ export default async function masterRoutes(fastify: FastifyInstance) {
 
       if (part.file.truncated) {
         await fs.unlink(dest).catch(() => undefined);
-        throw new BadRequestError("File exceeds the 100MB limit");
+        rejected.push({ fileName: originalName, reason: "Larger than the 100MB per-file limit." });
+        continue;
       }
 
       await fs.writeFile(
@@ -238,8 +287,22 @@ export default async function masterRoutes(fastify: FastifyInstance) {
       saved.push({ id, fileName: originalName, sizeBytes: size });
     }
 
-    if (saved.length === 0) throw new BadRequestError("No files were uploaded");
-    return { uploaded: saved };
+    if (saved.length === 0) {
+      // Logged, not just returned: the previous failure was diagnosable only by guessing, because
+      // the error handler records the status code and never the message.
+      request.log.warn({ rejected }, "brand-kit upload stored nothing");
+      if (rejected.length > 0) {
+        throw new BadRequestError(
+          rejected.length === 1
+            ? rejected[0]!.reason
+            : `None of the ${rejected.length} files could be stored.`,
+        );
+      }
+      throw new BadRequestError("No files were uploaded");
+    }
+
+    if (rejected.length > 0) request.log.warn({ rejected }, "brand-kit upload partially rejected");
+    return { uploaded: saved, rejected };
   });
 
   /** Lists what has been uploaded, so the master can confirm a file actually landed. */

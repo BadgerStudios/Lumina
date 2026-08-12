@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { COMPACT_QUERY } from "../lib/viewport";
 
 export type ModalType =
   | "createServer"
@@ -126,14 +127,18 @@ interface UIState {
   closeMobileDrawer: () => void;
 }
 
-/** Mobile (<768px, matches the `md` breakpoint used throughout the layout) starts with the
- * member list collapsed since there's no room for a 4th column there — same boolean the
- * existing desktop toggle already used, just a viewport-aware initial value. MemberList itself
- * renders as a fixed overlay instead of an inline column below that breakpoint (see
- * components/layout/MemberList.tsx), so toggling it open on mobile doesn't squeeze the chat
- * pane down to nothing. */
+/** A compact viewport starts with the member list collapsed since there's no room for a 4th column
+ * there — same boolean the existing desktop toggle already used, just a viewport-aware initial
+ * value. MemberList itself renders as a fixed overlay instead of an inline column below that
+ * breakpoint (see components/layout/MemberList.tsx), so toggling it open on mobile doesn't squeeze
+ * the chat pane down to nothing.
+ *
+ * Reads the same query the `md:` breakpoint uses rather than its own `innerWidth < 768` test: those
+ * two disagreed the moment `md` started considering height as well, so a phone in landscape would
+ * have opened with the member list expanded on a 390px-tall screen. */
 function defaultMemberListCollapsed(): boolean {
-  return typeof window !== "undefined" && window.innerWidth < 768;
+  if (typeof window === "undefined") return false;
+  return window.matchMedia?.(COMPACT_QUERY).matches ?? window.innerWidth < 768;
 }
 
 export const useUIStore = create<UIState>((set, get) => ({

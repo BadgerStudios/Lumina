@@ -220,12 +220,79 @@
 
 html {
   color-scheme: dark light;
+
+  /* ===== Viewport fallbacks =====
+     lib/viewport.ts overwrites all three with measured pixel values as soon as it runs. These are
+     what the FIRST paint uses, and what a browser with JS still parsing gets, so they need to be
+     as close as possible on their own.
+
+     `100vh` is deliberately not the primary value: on every mobile browser it means the viewport
+     with the URL bar retracted, so while the bar is showing — which is most of the time — the app
+     is taller than the screen. On an `overflow-hidden` shell that puts the bottom nav and the
+     composer permanently off-screen with no way to scroll to them. `dvh` tracks the bar and is the
+     correct answer wherever it exists; the plain `vh` line above it only serves browsers that
+     would otherwise drop the declaration entirely. */
+  --app-height: 100vh;
+  --app-height: 100dvh;
+  --app-width: 100vw;
+  --app-width: 100dvw;
+  /* Only JS can know this one — no CSS unit reports the on-screen keyboard. */
+  --keyboard-inset: 0px;
+
+  /* The height actually available to content. Every panel that used to be sized in `vh` — modals,
+     the comment sheet, the pinned/search popovers — is sized as a fraction of THIS instead, because
+     `70vh` on a phone is 70% of a viewport taller than the screen and the bottom of the panel lands
+     off-screen. Derived rather than published from JS so it stays correct between measurements. */
+  --app-height-safe: calc(var(--app-height) - var(--keyboard-inset));
+
+  /* The mobile tab bar's height, declared once because two components need to agree on it: the bar
+     sets its own height from this, and AppShell reserves exactly this much padding so the composer
+     never ends up underneath it. They were previously two hardcoded `3.25rem` literals. */
+  --bottom-nav-h: 3.25rem;
+}
+
+/* A phone in landscape has ~390px of height to spend. The tab bar drops its captions there (see
+   MobileBottomNav.tsx) and shrinks to match — 14px back, which is a row and a half of chat. */
+@media (max-height: 499.98px) {
+  html {
+    --bottom-nav-h: 2.4rem;
+  }
 }
 
 body {
   margin: 0;
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  /* A rotation or a keyboard shouldn't leave the page scrolled sideways. The app shell manages its
+     own scrolling panes; the document itself never needs to scroll horizontally. */
+  overflow-x: hidden;
+}
+
+/* Layout roots use this instead of `h-screen`. Kept as a class rather than an arbitrary Tailwind
+   value at ~15 call sites so the definition — and any future correction to it — lives in one
+   place. */
+.h-app {
+  height: var(--app-height);
+}
+.min-h-app {
+  min-height: var(--app-height);
+}
+
+/* Anything anchored to the bottom of the screen has to lift when the keyboard opens, or it sits
+   behind it. `--keyboard-inset` is 0 whenever the keyboard is closed, so all three of these are
+   inert the rest of the time.
+
+   Two variants are needed because the keyboard affects flow content and fixed content differently:
+   a flow-positioned shell shrinks (`h-app-safe`), while a `position: fixed` element is placed
+   against the viewport and has to be pushed up explicitly (`bottom-keyboard`). */
+.pb-keyboard {
+  padding-bottom: var(--keyboard-inset);
+}
+.h-app-safe {
+  height: var(--app-height-safe);
+}
+.bottom-keyboard {
+  bottom: var(--keyboard-inset);
 }
 
 @media (prefers-reduced-motion: reduce) {

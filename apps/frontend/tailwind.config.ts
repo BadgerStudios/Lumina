@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 /**
  * A CSS-variable colour that still supports Tailwind's `/opacity` modifier.
@@ -25,6 +26,30 @@ export default {
   darkMode: "class",
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
+    /**
+     * `md` is the layout breakpoint — it is what decides between the three-column desktop shell and
+     * the single-column mobile one, across ~60 usages in nine layout components.
+     *
+     * It used to be width-only, and that is wrong for a phone in landscape. An iPhone rotated to
+     * landscape is 844×390: wider than 768, so it crossed the breakpoint and got the full desktop
+     * layout — server rail, channel sidebar, header, message list, composer and member list — in
+     * 390px of height. Less vertical room than the same phone has in portrait, spent on more
+     * chrome.
+     *
+     * Requiring BOTH dimensions fixes every one of those usages at once, without editing them.
+     * 500px separates cleanly: the tallest phone in landscape is around 430px (iPhone Pro Max), the
+     * shortest tablet in landscape is around 768px (iPad mini), and a laptop is 700px+.
+     *
+     * `sm` and `lg` stay width-only on purpose — they tune padding and type scale, where height is
+     * irrelevant.
+     */
+    screens: {
+      sm: "640px",
+      md: { raw: "(min-width: 768px) and (min-height: 500px)" },
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+    },
     extend: {
       colors: {
         // Semantic names kept identical to the pre-redesign palette so every existing
@@ -72,5 +97,21 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    plugin(({ addVariant }) => {
+      /**
+       * `max-md:` — the exact complement of the `md` query above.
+       *
+       * Tailwind only generates `max-*` variants automatically for min-width screens; a `raw`
+       * screen gets none, so the ten existing `max-md:` usages would have silently produced no CSS
+       * at all. Declaring it by hand keeps `md:` and `max-md:` true opposites, which is what every
+       * call site already assumes.
+       */
+      addVariant("max-md", "@media (max-width: 767.98px), (max-height: 499.98px)");
+
+      /** Height-only escapes, for the cases where a layout needs to shed vertical chrome. */
+      addVariant("short", "@media (max-height: 499.98px)");
+      addVariant("tall", "@media (min-height: 900px)");
+    }),
+  ],
 } satisfies Config;

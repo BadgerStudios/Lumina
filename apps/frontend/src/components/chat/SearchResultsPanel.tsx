@@ -34,7 +34,7 @@ export function SearchResultsPanel({
   const channelName = (id: string | null) => channels?.find((c) => c.id === id)?.name ?? "unknown";
 
   return (
-    <div className="absolute right-3 top-14 z-20 flex max-h-[70vh] w-96 flex-col overflow-hidden rounded-lg border border-base-500 bg-base-800 shadow-2xl">
+    <div className="absolute right-3 top-14 z-20 flex max-h-[calc(var(--app-height-safe)*0.70)] w-96 flex-col overflow-hidden rounded-lg border border-base-500 bg-base-800 shadow-2xl">
       <div className="flex shrink-0 items-center gap-1.5 border-b border-base-900/60 px-3 py-2.5 text-sm font-semibold text-signal">
         <Search size={15} className="text-accent" />
         Results for “{query}”

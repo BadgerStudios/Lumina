@@ -13,6 +13,26 @@ interface BrandFile {
   sizeBytes: number;
 }
 
+interface UploadResult {
+  uploaded: Array<{ id: string; fileName: string; sizeBytes: number }>;
+  rejected?: Array<{ fileName: string; reason: string }>;
+}
+
+/**
+ * MIME types first, extensions after, and a wildcard entry present.
+ *
+ * Android's picker filters on MIME and largely ignores bare extensions: an extension-only list
+ * greys out every file, which reads as a broken upload. iOS applies its own interpretation and will
+ * hide a `.heic` straight from the camera roll unless the list is permissive. The server decides
+ * what is actually acceptable — this attribute is a convenience hint, and a hint that hides the
+ * user's own files is worse than no hint.
+ */
+const ACCEPT_HINT =
+  "image/*,application/pdf,font/woff,font/woff2,font/ttf,font/otf," +
+  "application/zip,text/plain,text/markdown,application/json,*/*," +
+  ".png,.jpg,.jpeg,.heic,.heif,.gif,.webp,.avif,.tif,.tiff,.svg,.pdf," +
+  ".woff,.woff2,.ttf,.otf,.zip,.txt,.md,.json,.ai,.psd,.sketch,.fig,.xd,.eps";
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB"];
@@ -42,6 +62,7 @@ export function UploadRoute() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [justUploaded, setJustUploaded] = useState(0);
+  const [rejected, setRejected] = useState<Array<{ fileName: string; reason: string }>>([]);
 
   const { data } = useQuery({
     queryKey: ["master", "brand-kit"],
@@ -51,7 +72,7 @@ export function UploadRoute() {
 
   const upload = useMutation({
     mutationFn: (files: File[]) =>
-      new Promise<void>((resolve, reject) => {
+      new Promise<UploadResult>((resolve, reject) => {
         const form = new FormData();
         for (const f of files) form.append("file", f);
         // XHR, not fetch: fetch cannot report upload progress, and a large brand kit with no
@@ -65,23 +86,28 @@ export function UploadRoute() {
           if (e.lengthComputable) setProgress(e.loaded / e.total);
         };
         xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else {
-            let message = "Upload failed";
-            try {
-              message = (JSON.parse(xhr.responseText) as { error?: string }).error ?? message;
-            } catch {
-              /* non-JSON body */
-            }
-            reject(new Error(message));
+          let body: Partial<UploadResult> & { error?: string } = {};
+          try {
+            body = JSON.parse(xhr.responseText) as typeof body;
+          } catch {
+            /* non-JSON body */
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ uploaded: body.uploaded ?? [], rejected: body.rejected ?? [] });
+          } else {
+            reject(new Error(body.error ?? "Upload failed"));
           }
         };
         xhr.onerror = () => reject(new Error("Upload failed — check your connection"));
         xhr.send(form);
       }),
-    onSuccess: (_r, files) => {
+    // Counted from what the SERVER says it stored, not from how many files were picked. The two
+    // differ whenever a file is refused, and reporting the picked count would claim a success that
+    // did not happen.
+    onSuccess: (result) => {
       setProgress(0);
-      setJustUploaded(files.length);
+      setJustUploaded(result.uploaded.length);
+      setRejected(result.rejected ?? []);
       void queryClient.invalidateQueries({ queryKey: ["master", "brand-kit"] });
     },
     onError: (err) => {
@@ -96,12 +122,13 @@ export function UploadRoute() {
     if (list.length === 0) return;
     setError(null);
     setJustUploaded(0);
+    setRejected([]);
     upload.mutate(list);
   };
 
   if (status === "loading") {
     return (
-      <div className="flex h-screen items-center justify-center bg-base-900 text-signal-faint">
+      <div className="flex h-app items-center justify-center bg-base-900 text-signal-faint">
         Loading…
       </div>
     );
@@ -110,7 +137,7 @@ export function UploadRoute() {
 
   if (!isMaster(user.platformRole)) {
     return (
-      <div className="flex h-screen items-center justify-center bg-base-900 p-6">
+      <div className="flex h-app items-center justify-center bg-base-900 p-6">
         <div className="w-full max-w-sm rounded-xl border border-hairline bg-base-800 p-6 text-center">
           <ShieldAlert className="mx-auto mb-3 h-10 w-10 text-flare" />
           <h1 className="font-display text-lg text-signal">Not available</h1>
@@ -123,7 +150,7 @@ export function UploadRoute() {
   }
 
   return (
-    <div className="min-h-screen bg-base-900 p-4 text-signal sm:p-8">
+    <div className="min-h-app bg-base-900 p-4 text-signal sm:p-8">
       <div className="mx-auto max-w-2xl space-y-6">
         <header>
           <h1 className="font-display text-2xl">File drop</h1>
@@ -138,7 +165,7 @@ export function UploadRoute() {
           type="file"
           multiple
           className="hidden"
-          accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.woff,.woff2,.ttf,.otf,.zip,.txt,.md,.json,.ai,.psd,.sketch,.fig"
+          accept={ACCEPT_HINT}
           onChange={(e) => {
             send(e.target.files);
             e.target.value = "";
@@ -192,6 +219,21 @@ export function UploadRoute() {
             <CheckCircle2 className="h-4 w-4" />
             {justUploaded} file{justUploaded === 1 ? "" : "s"} uploaded.
           </p>
+        )}
+        {rejected.length > 0 && !upload.isPending && (
+          <div className="rounded-xl border border-flare/40 bg-flare/10 p-3">
+            <p className="mb-1.5 flex items-center gap-2 text-sm text-flare">
+              <ShieldAlert className="h-4 w-4 shrink-0" />
+              {rejected.length} file{rejected.length === 1 ? " was" : "s were"} skipped
+            </p>
+            <ul className="space-y-1">
+              {rejected.map((r) => (
+                <li key={r.fileName} className="text-xs text-signal-dim">
+                  <span className="break-all text-signal">{r.fileName}</span> — {r.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {error && <p className="text-sm text-flare">{error}</p>}
 

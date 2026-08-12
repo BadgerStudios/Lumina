@@ -29,7 +29,7 @@ import {
  */
 export function LandingRoute() {
   return (
-    <div className="min-h-screen overflow-x-hidden bg-base-900 text-signal">
+    <div className="min-h-app overflow-x-hidden bg-base-900 text-signal">
       <SiteNav />
       <Hero />
       <Features />

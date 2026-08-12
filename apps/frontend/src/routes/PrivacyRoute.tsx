@@ -13,7 +13,7 @@ import { ShieldCheck } from "lucide-react";
  */
 export function PrivacyRoute() {
   return (
-    <div className="min-h-screen bg-base-900 px-4 py-10 text-signal">
+    <div className="min-h-app bg-base-900 px-4 py-10 text-signal">
       <article className="mx-auto max-w-2xl space-y-8">
         <header>
           <Link to="/" className="text-sm text-accent hover:underline">

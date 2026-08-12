@@ -19,7 +19,9 @@ export function ToastHost() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-[70] flex flex-col items-center gap-2 px-4 md:bottom-6"
+      // Clears the tab bar on mobile and the keyboard when it's open — a toast that lands behind
+      // either is a message nobody reads.
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--bottom-nav-h)+0.75rem+env(safe-area-inset-bottom)+var(--keyboard-inset))] z-[70] flex flex-col items-center gap-2 px-4 md:bottom-6"
       role="status"
       aria-live="polite"
     >

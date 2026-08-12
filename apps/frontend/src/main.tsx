@@ -4,7 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { BiometricGate } from "./components/common/BiometricGate";
+import { startViewportSync } from "./lib/viewport";
 import "./index.css";
+
+// Before the first render, not inside an effect: an effect runs after the initial paint, so the app
+// would lay out at the CSS fallback height and then jump once the real measurement arrived. This
+// also publishes data-orientation/data-viewport on <html> for the whole document to key off.
+startViewportSync();
 
 const queryClient = new QueryClient({
   defaultOptions: {

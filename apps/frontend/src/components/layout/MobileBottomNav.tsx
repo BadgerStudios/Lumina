@@ -80,19 +80,29 @@ export function MobileBottomNav() {
   ];
 
   return (
+    // `bottom-keyboard` rather than `bottom-0`: on iOS the layout viewport does not shrink when the
+    // keyboard opens, so a bar pinned to bottom:0 ends up behind it. The inset is 0 otherwise.
+    //
+    // In landscape the label under each icon is dropped and the bar loses ~14px of height. On a
+    // 390px-tall viewport that row of 10px captions is a real fraction of the screen, and the icons
+    // carry the same meaning on their own — `title` keeps them reachable for a screen reader.
     <nav
-      className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-base-900/60 bg-base-900 px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 md:hidden"
-      style={{ height: "calc(3.25rem + env(safe-area-inset-bottom))" }}
+      className="fixed inset-x-0 bottom-keyboard z-50 flex items-center justify-around border-t border-base-900/60 bg-base-900 px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 md:hidden"
+      style={{ height: "calc(var(--bottom-nav-h) + env(safe-area-inset-bottom))" }}
     >
       {items.map(({ key, label, icon: Icon, active, onClick }) => (
         <button
           key={key}
           onClick={onClick}
           title={label}
-          className={cn("flex flex-col items-center gap-0.5 px-3 py-1 text-[0.6rem] font-medium", active ? "text-signal" : "text-signal-faint")}
+          aria-label={label}
+          className={cn(
+            "flex flex-col items-center gap-0.5 px-3 py-1 text-[0.6rem] font-medium",
+            active ? "text-signal" : "text-signal-faint",
+          )}
         >
           <Icon size={20} className={active ? "text-accent" : undefined} />
-          {label}
+          <span className="short:hidden">{label}</span>
         </button>
       ))}
     </nav>

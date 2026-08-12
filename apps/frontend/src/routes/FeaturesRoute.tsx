@@ -32,7 +32,7 @@ import {
  */
 export function FeaturesRoute() {
   return (
-    <div className="min-h-screen bg-base-900 text-signal">
+    <div className="min-h-app bg-base-900 text-signal">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
         <Link to="/" className="flex items-center gap-2.5">
           <img src="/icons/logo-128.png" alt="" aria-hidden="true" className="h-8 w-8 rounded-xl" />

@@ -198,6 +198,17 @@ async function main() {
     listed.body?.files?.some((f) => f.fileName === "palette.txt"),
     `${listed.body?.files?.length ?? 0} files`);
 
+  // The bug this replaced: a real drop from a phone (.heic straight off the camera roll) hit an
+  // 18-extension allowlist and 400'd. Anything that isn't executable must now be accepted.
+  const heicForm = new FormData();
+  heicForm.append("file", new Blob([Buffer.from("not really heic")], { type: "image/heic" }), "IMG_4021.HEIC");
+  const heicUpload = await fetch(`${BASE}/api/master/brand-kit`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${MASTER_TOKEN}` },
+    body: heicForm,
+  });
+  check("a phone photo (.HEIC) is accepted", heicUpload.status === 200, `got ${heicUpload.status}`);
+
   const badForm = new FormData();
   badForm.append("file", new Blob([Buffer.from("#!/bin/sh")], { type: "text/plain" }), "evil.sh");
   const badUpload = await fetch(`${BASE}/api/master/brand-kit`, {
@@ -205,7 +216,24 @@ async function main() {
     headers: { authorization: `Bearer ${MASTER_TOKEN}` },
     body: badForm,
   });
-  check("unsupported brand-kit file type rejected", badUpload.status === 400, `got ${badUpload.status}`);
+  check("executable brand-kit file type rejected", badUpload.status === 400, `got ${badUpload.status}`);
+
+  // One bad file used to fail the whole request AFTER writing the good ones to disk — a 400 for a
+  // request that had in fact stored something. Now each file is judged on its own.
+  const mixedForm = new FormData();
+  mixedForm.append("file", new Blob([Buffer.from("payload")], { type: "text/plain" }), "install.sh");
+  mixedForm.append("file", new Blob([Buffer.from("logo bytes")], { type: "image/png" }), "logo-mixed.png");
+  const mixed = await fetch(`${BASE}/api/master/brand-kit`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${MASTER_TOKEN}` },
+    body: mixedForm,
+  });
+  const mixedBody = await mixed.json().catch(() => ({}));
+  check("a mixed drop stores the good files and reports the rest",
+    mixed.status === 200 &&
+      mixedBody.uploaded?.some((f) => f.fileName === "logo-mixed.png") &&
+      mixedBody.rejected?.some((f) => f.fileName === "install.sh"),
+    `status ${mixed.status}, ${mixedBody.uploaded?.length ?? 0} stored / ${mixedBody.rejected?.length ?? 0} skipped`);
 
   const plainUpload = await fetch(`${BASE}/api/master/brand-kit`, {
     method: "POST",

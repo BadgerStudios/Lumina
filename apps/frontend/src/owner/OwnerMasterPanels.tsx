@@ -322,6 +322,7 @@ export function BrandKitPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [rejected, setRejected] = useState<Array<{ fileName: string; reason: string }>>([]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["master", "brand-kit"],
@@ -330,7 +331,7 @@ export function BrandKitPanel() {
 
   const upload = useMutation({
     mutationFn: (files: FileList) =>
-      new Promise<void>((resolve, reject) => {
+      new Promise<{ uploaded: unknown[]; rejected: Array<{ fileName: string; reason: string }> }>((resolve, reject) => {
         const form = new FormData();
         for (const file of Array.from(files)) form.append("file", file);
         // XHR rather than fetch: a brand kit can be large and fetch cannot report upload progress,
@@ -344,22 +345,30 @@ export function BrandKitPanel() {
           if (e.lengthComputable) setProgress(e.loaded / e.total);
         };
         xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else {
-            let message = "Upload failed";
-            try {
-              message = (JSON.parse(xhr.responseText) as { error?: string }).error ?? message;
-            } catch {
-              /* non-JSON error */
-            }
-            reject(new Error(message));
+          let body: {
+            error?: string;
+            uploaded?: unknown[];
+            rejected?: Array<{ fileName: string; reason: string }>;
+          } = {};
+          try {
+            body = JSON.parse(xhr.responseText) as typeof body;
+          } catch {
+            /* non-JSON error */
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ uploaded: body.uploaded ?? [], rejected: body.rejected ?? [] });
+          } else {
+            reject(new Error(body.error ?? "Upload failed"));
           }
         };
         xhr.onerror = () => reject(new Error("Upload failed — check your connection"));
         xhr.send(form);
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setProgress(0);
+      // A partly-rejected drop is a success for the files that landed and a failure for the rest.
+      // Reporting only the first half is how "it uploaded" and "my file isn't there" coexist.
+      setRejected(result.rejected);
       void queryClient.invalidateQueries({ queryKey: ["master", "brand-kit"] });
     },
     onError: (err) => {
@@ -385,10 +394,12 @@ export function BrandKitPanel() {
           accept={
             "image/*,application/pdf,font/woff,font/woff2,font/ttf,font/otf," +
             "application/zip,text/plain,text/markdown,application/json,*/*," +
-            ".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.woff,.woff2,.ttf,.otf,.zip,.txt,.md,.json,.ai,.psd,.sketch,.fig"
+            ".png,.jpg,.jpeg,.heic,.heif,.gif,.webp,.avif,.tif,.tiff,.svg,.pdf," +
+            ".woff,.woff2,.ttf,.otf,.zip,.txt,.md,.json,.ai,.psd,.sketch,.fig,.xd,.eps"
           }
           onChange={(e) => {
             setError(null);
+            setRejected([]);
             if (e.target.files?.length) upload.mutate(e.target.files);
             e.target.value = "";
           }}
@@ -415,6 +426,20 @@ export function BrandKitPanel() {
             <p className="text-xs text-signal-faint">
               {progress >= 1 ? "Finishing up…" : `Uploading… ${Math.round(progress * 100)}%`}
             </p>
+          </div>
+        )}
+        {rejected.length > 0 && !upload.isPending && (
+          <div className="rounded-xl border border-flare/40 bg-flare/10 p-3">
+            <p className="mb-1.5 text-sm text-flare">
+              {rejected.length} file{rejected.length === 1 ? " was" : "s were"} skipped
+            </p>
+            <ul className="space-y-1">
+              {rejected.map((r) => (
+                <li key={r.fileName} className="text-xs text-signal-dim">
+                  <span className="break-all text-signal">{r.fileName}</span> — {r.reason}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         {error && <p className="text-sm text-flare">{error}</p>}

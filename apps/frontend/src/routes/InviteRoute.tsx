@@ -17,7 +17,7 @@ export function InviteRoute() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-base-900">
+    <div className="flex min-h-app items-center justify-center bg-base-900">
       <div className="w-full max-w-md rounded-md bg-base-800 p-8 text-center shadow-lg">
         <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
         {isLoading ? (

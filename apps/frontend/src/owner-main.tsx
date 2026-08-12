@@ -12,7 +12,12 @@ import { useAuthStore } from "./store/authStore";
 import { silentRefresh } from "./lib/apiClient";
 import { useLogout } from "./queries/auth";
 import { isOwner } from "./lib/platformRole";
+import { startViewportSync } from "./lib/viewport";
 import "./index.css";
+
+// The console is its own bundle with its own entry point, so it needs this as much as the main app
+// does — it is the surface most often opened on a phone.
+startViewportSync();
 
 /**
  * Entry point for the standalone owner console — the whole program in the owner Android build.
@@ -48,7 +53,7 @@ function OwnerRoot() {
 
   if (status === "loading") {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-base-900 text-signal-faint">
+      <div className="flex h-app items-center justify-center bg-base-900 text-signal-faint">
         Loading…
       </div>
     );
@@ -62,7 +67,7 @@ function OwnerRoot() {
 function NotAuthorized() {
   const logout = useLogout();
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-base-900 p-6">
+    <div className="flex h-app items-center justify-center bg-base-900 p-6">
       <div className="w-full max-w-sm rounded-xl border border-hairline bg-base-800 p-6 text-center">
         <ShieldAlert className="mx-auto mb-3 h-10 w-10 text-flare" />
         <h1 className="font-display text-lg text-signal">Owner access required</h1>

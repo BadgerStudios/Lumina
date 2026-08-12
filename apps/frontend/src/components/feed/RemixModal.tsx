@@ -200,7 +200,7 @@ export function RemixModal({
     <Dialog.Root open onOpenChange={(open) => !open && !busy && (stopStream(), onClose())}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] flex max-h-[92vh] w-[min(92vw,44rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto rounded-lg bg-base-800 p-4 shadow-xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] flex max-h-[calc(var(--app-height-safe)*0.92)] w-[min(92vw,44rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto rounded-lg bg-base-800 p-4 shadow-xl">
           <div className="mb-3 flex items-center justify-between">
             <Dialog.Title className="text-lg font-semibold text-signal">
               {mode === "DUET" ? "Duet" : "Stitch"} with @{source.author?.username ?? "someone"}
@@ -339,7 +339,7 @@ export function RemixModal({
 
 function Pane({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="relative aspect-[9/16] max-h-[42vh] overflow-hidden rounded bg-black">
+    <div className="relative aspect-[9/16] max-h-[calc(var(--app-height-safe)*0.42)] overflow-hidden rounded bg-black">
       {children}
       <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
         {label}

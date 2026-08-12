@@ -77,7 +77,11 @@ export function AppShell() {
   }, [server?.accentColor]);
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-base-800 text-signal">
+    // h-app-safe, not h-screen: `100vh` on mobile is the viewport with the URL bar retracted, so
+    // with `overflow-hidden` the bottom nav and composer sat permanently below the fold with no way
+    // to scroll to them. The class resolves to the measured visible height minus whatever the
+    // on-screen keyboard is covering (see lib/viewport.ts).
+    <div className="flex h-app-safe flex-col overflow-hidden bg-base-800 text-signal">
       {/* Above the update banner: on iPhone this is the difference between the app being a tab and
           being an installed app that can receive notifications at all. Renders nothing on every
           other platform, and nothing once installed. */}
@@ -88,7 +92,10 @@ export function AppShell() {
         {/* pb reserves room for the fixed MobileBottomNav below md so it never sits on top of
             the composer / DM list content; drawer overlays (ChannelSidebar etc.) are
             position:fixed so this padding doesn't affect them. */}
-        <div className="flex h-full min-w-0 flex-1 pb-[calc(3.25rem+env(safe-area-inset-bottom))] md:pb-0" style={accentStyle}>
+        <div
+          className="flex h-full min-w-0 flex-1 pb-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom))] md:pb-0"
+          style={accentStyle}
+        >
           {/* Inside the rail and the bottom nav, not around them: a channel that throws should
               leave every other channel one tap away, rather than taking the navigation down with
               it and forcing a reload. Keyed by pathname so moving somewhere else clears it. */}

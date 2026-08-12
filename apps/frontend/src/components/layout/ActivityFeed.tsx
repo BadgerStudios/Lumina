@@ -28,7 +28,7 @@ export function ActivityFeed() {
   return (
     <>
       <div className="mobile-drawer-backdrop fixed inset-0 z-30 md:hidden" onClick={closeMobileDrawer} />
-      <div className="fixed inset-x-4 bottom-20 z-40 flex max-h-[60vh] flex-col overflow-hidden rounded-xl border border-base-500 bg-base-800 shadow-2xl md:hidden">
+      <div className="fixed inset-x-4 bottom-20 z-40 flex max-h-[calc(var(--app-height-safe)*0.60)] flex-col overflow-hidden rounded-xl border border-base-500 bg-base-800 shadow-2xl md:hidden">
         <div className="flex shrink-0 items-center gap-1.5 border-b border-base-900/60 px-4 py-3 text-sm font-semibold text-signal">
           <AtSign size={16} className="text-accent" /> Mentions
         </div>

@@ -76,7 +76,7 @@ export function Login() {
 
   if (mfaTicket) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-base-900">
+      <div className="flex min-h-app items-center justify-center bg-base-900">
         <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
           <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
           <h1 className="mb-1 text-center text-2xl font-bold text-signal">Two-factor</h1>
@@ -123,7 +123,7 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-base-900">
+    <div className="flex min-h-app items-center justify-center bg-base-900">
       <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
         <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
         <h1 className="mb-1 text-center text-2xl font-bold text-signal">Welcome back</h1>

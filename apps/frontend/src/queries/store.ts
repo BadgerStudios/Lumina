@@ -37,12 +37,12 @@ export function useStoreCatalogue() {
   });
 }
 
-export function useInventory() {
-  return useQuery<{ items: Array<{ sku: string; kind: StoreItemKind; name: string; payload: Record<string, unknown>; acquiredAt: string }>; balance: number }>({
-    queryKey: ["store", "inventory"],
-    queryFn: () => api.get("/store/inventory"),
-  });
-}
+// There is no `useInventory` here on purpose. One was written alongside the store and never called
+// from anything — this repo's recurring "backend built, no UI calls it" bug, this time mine. It was
+// also redundant: `/store/catalogue` already returns an `owned` flag per item, which is what the UI
+// actually renders, so a second request for the same knowledge would only have made the two able to
+// disagree. `GET /store/inventory` still exists server-side for anything that needs the acquisition
+// dates; when a "My items" view is built, add the hook back with the component that uses it.
 
 export function usePurchaseItem() {
   const qc = useQueryClient();
