@@ -56,8 +56,10 @@ function ChannelRow({
   return (
     <div
       className={cn(
-        "group flex w-full items-center rounded-md text-sm font-medium",
-        active ? "bg-base-600 font-semibold text-signal" : "text-signal-dim hover:bg-base-600 hover:text-signal",
+        "group flex w-full items-center rounded-xl text-sm font-medium transition-colors",
+        active
+          ? "bg-accent/15 font-semibold text-signal"
+          : "text-signal-dim hover:bg-base-700/60 hover:text-signal",
       )}
     >
       <button
@@ -129,7 +131,7 @@ function VoiceChannelRow({ channel, serverId }: { channel: ChannelDTO; serverId:
       <button
         onClick={() => (isConnected ? leave() : void join(serverId, channel.id))}
         className={cn(
-          "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-medium",
+          "flex w-full items-center gap-1.5 rounded-xl px-2 py-1.5 text-left text-sm font-medium transition-colors",
           isConnected ? "text-online" : "text-signal-dim hover:bg-base-600 hover:text-signal",
         )}
       >

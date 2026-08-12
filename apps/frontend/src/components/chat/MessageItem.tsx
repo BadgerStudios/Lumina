@@ -80,7 +80,7 @@ export function MessageItem({
   }
 
   return (
-    <div className={cn("group relative flex gap-3 px-4 py-0.5 hover:bg-base-700/40", showHeader && "mt-3 pt-1.5")}>
+    <div className={cn("group relative flex gap-3 px-3 py-0.5 md:py-2.5 hover:bg-base-700/40", showHeader && "mt-3 pt-1.5")}>
       <div className="w-10 shrink-0">
         {showHeader ? (
           author ? (

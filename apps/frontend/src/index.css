@@ -81,18 +81,18 @@
    custom properties) — this is what re-themes the whole app without touching component JSX. */
 :root {
   /* raw palette */
-  --void: #0c0a17;
-  --nebula: #16121f;
-  --nebula-2: #1f1a30;
-  --nebula-3: #2a2340;
-  --hairline: #322a49;
-  --ion: #5b7cfa;
+  --void: #0a0714;
+  --nebula: #150f26;
+  --nebula-2: #1e1636;
+  --nebula-3: #2a1f4a;
+  --hairline: #2e2350;
+  --ion: #8b5cf6;
   --ion-dim: #3d4f9e;
-  --aurora: #a45cf5;
+  --aurora: #22d3ee;
   --aurora-dim: #6e3fa3;
-  --signal: #eeecf7;
-  --signal-dim: #a39dc2;
-  --signal-faint: #6c6690;
+  --signal: #f2eefc;
+  --signal-dim: #b3a8d4;
+  --signal-faint: #7a6fa0;
   --pulse: #33d6a6;
   --flare: #ff5c72;
   --amber: #f5b942;

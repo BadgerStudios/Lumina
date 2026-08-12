@@ -146,7 +146,7 @@ function MemberRolesMenu({
             unless you already knew to hover exactly here. Always visible now. */}
         <button
           className={cn(
-            "flex shrink-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-base-500 hover:text-signal",
+            "flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 hover:bg-base-500 hover:text-signal",
             isTimedOut ? "text-dnd" : "text-signal-faint",
           )}
           title={isTimedOut ? "Manage member (timed out)" : "Manage member"}
