@@ -120,7 +120,12 @@ export function Register() {
                 operate, and the requirement is that the purpose be stated and reachable, not that
                 it be printed on the form itself. */}
             <p className="-mt-1 text-xs text-signal-faint">
-              Lumina is 18+. Your date of birth is never shown on your profile — see our{" "}
+              Lumina is 18+. Your date of birth is never shown on your profile. By registering you
+              agree to our{" "}
+              <Link to="/terms" className="text-accent hover:underline">
+                terms of service
+              </Link>{" "}
+              and{" "}
               <Link to="/privacy" className="text-accent hover:underline">
                 privacy policy
               </Link>

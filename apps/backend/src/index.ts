@@ -172,8 +172,30 @@ async function main() {
   // are fully documented in TypeScript instead, at packages/shared/src/types.ts.
   fastify.setValidatorCompiler(validatorCompiler);
   fastify.setSerializerCompiler(serializerCompiler);
+  /**
+   * Route prefixes kept OUT of the published spec.
+   *
+   * The docs are deliberately public — Lumina has a developer platform, and someone writing a bot
+   * should be able to read the API without an account. That argument does not extend to the
+   * administrative surface: the spec was publishing 47 privileged paths, complete with parameter
+   * names and request schemas, for /api/master/grant, /api/owner/users/{id}/role, /api/ops/* and
+   * the staff review queue.
+   *
+   * None of those are reachable without the right role — this is not a hole. It is free
+   * reconnaissance: an exact map of what to aim a stolen owner token at, and a diff-able record of
+   * which privileged endpoints exist and when they appear. Nothing is gained by publishing it,
+   * since the only people who may call these already have the source.
+   */
+  const PRIVATE_PREFIXES = ["/api/master", "/api/owner", "/api/ops", "/api/staff", "/api/billing"];
+
   await fastify.register(fastifySwagger, {
-    transform: jsonSchemaTransform,
+    transform: (data) => {
+      const transformed = jsonSchemaTransform(data);
+      if (PRIVATE_PREFIXES.some((prefix) => data.url.startsWith(prefix))) {
+        return { ...transformed, schema: { ...transformed.schema, hide: true } };
+      }
+      return transformed;
+    },
     openapi: {
       info: {
         title: "Lumina API",
@@ -285,6 +307,47 @@ async function main() {
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
   fastify.log.info(`Lumina backend listening on :${env.PORT}`);
+
+  /**
+   * Graceful shutdown.
+   *
+   * There was none. `docker compose up -d` sends SIGTERM on every deploy, Node's default action for
+   * an unhandled SIGTERM is to exit immediately, and Docker then SIGKILLs after the grace period.
+   * So each deploy dropped whatever was in flight: a half-written upload, a Stripe webhook mid-
+   * handler (Stripe retries that one, which is the only reason it never showed), and every open
+   * Socket.IO connection severed rather than closed — clients see a transport error and reconnect
+   * in a thundering herd instead of a clean disconnect.
+   *
+   * `fastify.close()` stops accepting new connections and waits for in-flight handlers to finish,
+   * and it runs any registered onClose hooks, which is what lets Prisma and the Socket.IO server
+   * shut their own connections down properly.
+   *
+   * The timer is the safety net: if something never settles, exiting on our own terms after 15s is
+   * better than waiting for SIGKILL. `unref()` so it never itself keeps the process alive.
+   */
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    fastify.log.info(`${signal} received — draining`);
+
+    const forced = setTimeout(() => {
+      fastify.log.error("shutdown timed out after 15s — exiting anyway");
+      process.exit(1);
+    }, 15_000);
+    forced.unref();
+
+    try {
+      await fastify.close();
+      fastify.log.info("closed cleanly");
+      process.exit(0);
+    } catch (err) {
+      fastify.log.error({ err }, "error while shutting down");
+      process.exit(1);
+    }
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 main().catch((err) => {

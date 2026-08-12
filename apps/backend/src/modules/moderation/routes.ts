@@ -106,7 +106,13 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
       ],
     },
     async (request) => {
-      const bans = await prisma.ban.findMany({ where: { serverId: request.serverId! }, orderBy: { createdAt: "desc" } });
+      // A ban list only ever grows — nothing removes rows except an explicit unban — so this is one
+      // of the few server-scoped tables with genuinely unbounded growth. Newest first, capped.
+      const bans = await prisma.ban.findMany({
+        where: { serverId: request.serverId! },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      });
       return bans.map((b) => ({
         serverId: b.serverId,
         userId: b.userId,

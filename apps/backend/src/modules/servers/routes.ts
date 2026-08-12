@@ -254,11 +254,28 @@ export default async function serversRoutes(fastify: FastifyInstance) {
     "/:id/members",
     { preHandler: [requireAuth, requireMembership(resolveServerId.fromParam("id"))] },
     async (request) => {
-      const members = await prisma.membership.findMany({
-        where: { serverId: request.serverId! },
-        include: memberInclude,
-        orderBy: { joinedAt: "asc" },
-      });
+      // Capped. This returned EVERY member of a server with their full user record joined in —
+      // fine at nine members, a multi-megabyte response and a memory spike on a 768MB container at
+      // ten thousand. The member list is also fetched on every server switch, so the cost is paid
+      // constantly rather than once.
+      //
+      // A hard cap rather than cursor pagination because the client renders this as a single
+      // sidebar list and has nowhere to put a "load more" yet; raising it later is a one-line
+      // change, whereas an unbounded query that has already OOMed the API is an outage. The count
+      // is returned alongside so the UI can say "showing 1000 of 4212" instead of quietly lying.
+      const MEMBER_PAGE = 1000;
+      const [members, total] = await Promise.all([
+        prisma.membership.findMany({
+          where: { serverId: request.serverId! },
+          include: memberInclude,
+          orderBy: { joinedAt: "asc" },
+          take: MEMBER_PAGE,
+        }),
+        prisma.membership.count({ where: { serverId: request.serverId! } }),
+      ]);
+      if (total > MEMBER_PAGE) {
+        request.log.warn({ serverId: request.serverId, total }, "member list truncated");
+      }
       return members.map(serializeMember);
     },
   );

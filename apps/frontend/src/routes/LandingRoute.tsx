@@ -428,6 +428,9 @@ function SiteFooter() {
           <Link to="/privacy" className="transition hover:text-signal">
             Privacy
           </Link>
+          <Link to="/terms" className="transition hover:text-signal">
+            Terms
+          </Link>
           <a href="/downloads/lumina.apk" className="transition hover:text-signal">
             Android
           </a>

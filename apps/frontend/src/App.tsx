@@ -26,6 +26,7 @@ import { BanScreen } from "./components/BanScreen";
 import { CrashTest } from "./components/common/CrashTest";
 import { UploadRoute } from "./routes/UploadRoute";
 import { PrivacyRoute } from "./routes/PrivacyRoute";
+import { TermsRoute } from "./routes/TermsRoute";
 import { FeaturesRoute } from "./routes/FeaturesRoute";
 import { InstallRoute } from "./routes/InstallRoute";
 import { VerifyEmailRoute } from "./routes/VerifyEmailRoute";
@@ -86,6 +87,7 @@ export function App() {
         <Route path="/oauth2/authorize" element={<OAuthAuthorizeRoute />} />
         <Route path="/upload" element={<UploadRoute />} />
         <Route path="/privacy" element={<PrivacyRoute />} />
+        <Route path="/terms" element={<TermsRoute />} />
         <Route path="/features" element={<FeaturesRoute />} />
         <Route path="/install" element={<InstallRoute />} />
         {/* Signed-out on purpose: the link is often opened on a different device from the one that

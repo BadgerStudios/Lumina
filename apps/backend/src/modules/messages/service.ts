@@ -492,10 +492,14 @@ export async function listPinnedMessages(params: { userId: string; channelId: st
 
   await checkPermission(params.userId, channel.serverId, Permissions.VIEW_CHANNELS);
 
+  // Discord caps pins at 50 per channel and so does this — the difference is that Discord enforces
+  // it on the way in. Here nothing stops a channel accumulating thousands of pins, and this query
+  // joined every one of them with its author, attachments and reactions into a popover panel.
   const messages = await prisma.message.findMany({
     where: { channelId: params.channelId, pinned: true, deletedAt: null },
     orderBy: { id: "desc" },
     include: messageInclude,
+    take: 100,
   });
   return messages.map((m) => serializeMessage(m, params.userId));
 }

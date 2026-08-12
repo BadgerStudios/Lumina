@@ -1,8 +1,25 @@
+# Container log rotation, applied to every service via `<<: *logging`.
+#
+# Docker's default json-file driver has NO size limit: logs grow until the disk does. The backend
+# logs a line per request through pino, so on a busy day that is the fastest-growing thing on the
+# host, and it fills the same disk Postgres and the uploads volume live on. There is no warning
+# before it bites — the database simply stops being able to write.
+#
+# 10MB x 3 files caps every container at 30MB. `docker compose logs` still reaches back far enough
+# to debug a recent incident; anything older belongs in a real log store, not on this disk.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: lumina-postgres
     restart: unless-stopped
+    <<: *logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -22,6 +39,7 @@ services:
     image: redis:7-alpine
     container_name: lumina-redis
     restart: unless-stopped
+    <<: *logging
     # maxmemory-policy is `noeviction`, NOT the usual `allkeys-lru`: nothing stored here is a cache.
     # It holds Socket.IO adapter state, presence connection counters (evicting one corrupts a
     # user's online status), and BullMQ's video transcode jobs — evicting a job silently strands
@@ -45,6 +63,7 @@ services:
       dockerfile: apps/backend/Dockerfile
     container_name: lumina-backend
     restart: unless-stopped
+    <<: *logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +179,7 @@ services:
       dockerfile: services/mail-relay/Dockerfile
     container_name: lumina-mail
     restart: unless-stopped
+    <<: *logging
     environment:
       RELAY_ALLOWED_SENDER_DOMAINS: ${RELAY_ALLOWED_SENDER_DOMAINS:-}
       RELAY_HELO_HOSTNAME: ${RELAY_HELO_HOSTNAME:-}
@@ -192,6 +212,7 @@ services:
       dockerfile: apps/backend/Dockerfile
     container_name: lumina-worker
     restart: unless-stopped
+    <<: *logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -247,6 +268,7 @@ services:
     image: coturn/coturn:4.6.2-alpine
     container_name: lumina-coturn
     restart: unless-stopped
+    <<: *logging
     # Host networking rather than Docker's bridge + published-ports: this host's public IP
     # (15.204.81.153) is bound directly to its real NIC, not behind a cloud provider's 1:1 NAT —
     # confirmed via `ip addr` — so there's no private/public address pair for coturn to
@@ -280,6 +302,7 @@ services:
       dockerfile: apps/frontend/Dockerfile
     container_name: lumina-frontend
     restart: unless-stopped
+    <<: *logging
     depends_on:
       # service_started, NOT service_healthy. nginx serves the app shell and the /downloads
       # endpoint without the backend, and only needs the container to exist so `backend` resolves

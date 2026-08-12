@@ -420,6 +420,9 @@ model RoleAssignment {
   membership    Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
   role          Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   @@unique([membershipId, roleId])
+  /// The unique above is keyed on membershipId, so it cannot serve a lookup BY role — and "who
+  /// holds this role" runs inside permission computation, which runs on every message send.
+  @@index([roleId])
 }
 
 model Channel {
@@ -476,6 +479,10 @@ model Message {
   searchVector     Unsupported("tsvector")?
   @@index([channelId, id])
   @@index([dmConversationId, id])
+  /// Every message a user wrote. Two paths need this and both are user-visible:
+  /// the account data export, and account DELETION — authorId is SetNull-on-delete, so removing an
+  /// account with a long history was a full scan of Message per delete.
+  @@index([authorId])
 }
 
 // Discord-style incoming webhook: a channel-scoped, token-authenticated URL (no user session
@@ -502,6 +509,9 @@ model MessageMention {
   roleId     String?
   everyone   Boolean  @default(false)
   message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  /// Joined on every message list render; unindexed it scanned the whole table per page.
+  @@index([messageId])
 }
 
 model Attachment {
@@ -515,6 +525,9 @@ model Attachment {
   height     Int?
   createdAt  DateTime @default(now())
   message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  /// Joined on every message list render; unindexed it scanned the whole table per page.
+  @@index([messageId])
 }
 
 model Reaction {
