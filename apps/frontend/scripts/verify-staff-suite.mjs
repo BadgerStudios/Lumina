@@ -46,6 +46,18 @@ const railStaffBefore = await page.getByRole("link", { name: "Staff suite" }).co
 if (railStaffBefore === 0) ok("no Staff suite entry in the rail for a plain user");
 else bad("a plain user can see the Staff suite rail entry");
 
+// The owner entry is a separate rung and gets asserted separately at BOTH ranks below. The rail
+// renders staff and owner from two independent checks, so "staff is hidden" says nothing about
+// whether owner is.
+const railOwnerBefore = await page.getByRole("link", { name: "Owner dashboard" }).count();
+if (railOwnerBefore === 0) ok("no Owner dashboard entry in the rail for a plain user");
+else bad("a plain user can see the Owner dashboard rail entry");
+
+await page.goto(`${BASE}/owner`, { waitUntil: "networkidle" });
+await page.waitForTimeout(1200);
+if (!page.url().includes("/owner")) ok(`a plain user visiting /owner is redirected (${new URL(page.url()).pathname})`);
+else bad("a plain user was left on /owner");
+
 await page.goto(`${BASE}/staff/videos`, { waitUntil: "networkidle" });
 await page.waitForTimeout(1200);
 if (!page.url().includes("/staff")) ok(`a plain user visiting /staff/videos is redirected (${new URL(page.url()).pathname})`);
@@ -56,7 +68,7 @@ else bad("a plain user was left on /staff/videos");
 await page.goto(`${BASE}/app`, { waitUntil: "networkidle" });
 await page.waitForTimeout(800);
 if (!bearer) bad("never observed an Authorization header — the checks below would be meaningless");
-for (const path of ["/staff/videos", "/staff/videos/counts", "/staff/audit"]) {
+for (const path of ["/staff/videos", "/staff/videos/counts", "/staff/audit", "/owner/stats", "/owner/health"]) {
   const status = await page.evaluate(async ([base, p, auth]) => {
     const r = await fetch(`${base}/api${p}`, { headers: { authorization: auth } });
     return r.status;
@@ -86,6 +98,25 @@ try {
   await page.getByRole("link", { name: "Staff suite" }).waitFor({ state: "visible", timeout: 8000 });
   ok("the Staff suite appears in the rail after promotion, with no reload");
 } catch (e) { bad("Staff suite did not appear in the rail after promotion", String(e)); }
+
+// --- STAFF is not OWNER: the rung above must stay shut ---
+const railOwnerAfter = await page.getByRole("link", { name: "Owner dashboard" }).count();
+if (railOwnerAfter === 0) ok("a STAFF user still sees no Owner dashboard rail entry");
+else bad("a STAFF user can see the Owner dashboard rail entry");
+
+for (const path of ["/owner/stats", "/owner/health"]) {
+  const status = await page.evaluate(async ([base, p, auth]) => {
+    const r = await fetch(`${base}/api${p}`, { headers: { authorization: auth } });
+    return r.status;
+  }, [BASE, path, bearer]);
+  if (status === 403) ok(`GET /api${path} is 403 for a STAFF user`);
+  else bad(`GET /api${path} returned ${status} for a STAFF user, expected 403`);
+}
+
+await page.goto(`${BASE}/owner`, { waitUntil: "networkidle" });
+await page.waitForTimeout(1200);
+if (!page.url().includes("/owner")) ok(`a STAFF user visiting /owner is redirected (${new URL(page.url()).pathname})`);
+else bad("a STAFF user was left on /owner");
 
 // --- every section reachable from the suite's own nav ---
 await page.goto(`${BASE}/staff`, { waitUntil: "networkidle" });
