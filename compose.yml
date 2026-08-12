@@ -93,6 +93,14 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
       SMTP_SECURE: ${SMTP_SECURE:-}
+      # Envelope sender (SMTP MAIL FROM) — what SPF is checked against, and deliberately a
+      # different domain from the From: header. See lib/mail.ts for why.
+      SMTP_ENVELOPE_FROM: ${SMTP_ENVELOPE_FROM:-}
+      # DKIM. The key itself is mounted as a file below rather than passed here: `environment:`
+      # values are visible to anyone who can run `docker inspect`.
+      DKIM_DOMAIN: ${DKIM_DOMAIN:-}
+      DKIM_SELECTOR: ${DKIM_SELECTOR:-}
+      DKIM_PRIVATE_KEY_FILE: ${DKIM_PRIVATE_KEY_FILE:-}
     volumes:
       - lumina-uploads:/data/uploads
       # Read-only: the counted download route (modules/metrics/downloadRoutes.ts) streams releases
@@ -104,6 +112,17 @@ services:
       # than baked into the image so a refresh doesn't need a rebuild — lib/ipIntel.ts re-reads the
       # files when their mtime changes.
       - ./data/ipintel:/data/ipintel:ro
+      # DKIM signing key. Mounted rather than baked into the image (it would then live in every
+      # layer and every registry copy) and rather than passed as an env var (visible in
+      # `docker inspect`). Gitignored.
+      #
+      # The FILE is mounted, not the directory that holds it, and the two permissions are chosen
+      # together: `secrets/` is 0700 so no other host user can traverse into it, while the key
+      # itself is 0604 because this container runs as uid 100 and could not otherwise read a
+      # host file owned by uid 1000. The world-read bit is unreachable on the host precisely
+      # because the directory denies traversal — and the bind mount never needs that traversal,
+      # since the Docker daemon resolves the path as root at mount time.
+      - ./secrets/dkim.key:/run/secrets/dkim.key:ro
     ports:
       - "127.0.0.1:4000:4000"
     healthcheck:
@@ -113,6 +132,34 @@ services:
       retries: 10
       start_period: 15s
     mem_limit: 768m
+    security_opt:
+      - no-new-privileges:true
+
+  # Outbound SMTP relay — delivers Lumina's mail straight to each recipient's MX.
+  #
+  # Deliberately publishes NO ports. It listens on 2525 on the Docker network only, so the sole
+  # things that can connect are the other containers here; that is half of what stops this being an
+  # open relay (the other half is the sender-domain check in relay.py, which holds even if a port is
+  # ever published by accident). Adding a `ports:` entry to this service turns it into a relay for
+  # the entire internet — the IP gets blacklisted within hours and ALL Lumina mail stops.
+  mail:
+    build:
+      context: .
+      dockerfile: services/mail-relay/Dockerfile
+    container_name: lumina-mail
+    restart: unless-stopped
+    environment:
+      RELAY_ALLOWED_SENDER_DOMAINS: ${RELAY_ALLOWED_SENDER_DOMAINS:-}
+      RELAY_HELO_HOSTNAME: ${RELAY_HELO_HOSTNAME:-}
+    healthcheck:
+      # Opens a TCP connection and reads the SMTP banner. A plain port check would call it healthy
+      # while the handler was wedged; the banner proves aiosmtpd is actually serving.
+      test: ["CMD", "python", "-c", "import socket,sys; s=socket.create_connection(('127.0.0.1',2525),3); sys.exit(0 if s.recv(64).startswith(b'220') else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 128m
     security_opt:
       - no-new-privileges:true
 

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 
@@ -29,6 +30,35 @@ export interface MailMessage {
   html?: string;
 }
 
+/**
+ * The DKIM signing key, read from a file rather than an environment variable.
+ *
+ * Env vars for this specific secret are a poor fit twice over: a PEM is multi-line, which `.env`
+ * and compose handle badly, and anything in `environment:` shows up in plain `docker inspect`
+ * output, which is a much wider audience than a 0600 file. `DKIM_PRIVATE_KEY` is still honoured as
+ * a fallback so a deployment that has no convenient way to mount a file is not locked out.
+ *
+ * Read once at startup, not per send: this is on the path of every verification email.
+ */
+function readDkimKey(): string | null {
+  const path = process.env.DKIM_PRIVATE_KEY_FILE?.trim();
+  if (path) {
+    try {
+      return fs.readFileSync(path, "utf8");
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[mail] DKIM_PRIVATE_KEY_FILE is set but unreadable — sending UNSIGNED:",
+        error instanceof Error ? error.message : error,
+      );
+      return null;
+    }
+  }
+  return process.env.DKIM_PRIVATE_KEY?.trim() || null;
+}
+
+const dkimKey = readDkimKey();
+
 function config() {
   const host = process.env.SMTP_HOST?.trim();
   if (!host) return null;
@@ -50,6 +80,34 @@ function config() {
     // means those replies vanish. Reply-To points at an address a human reads, so "I never got my
     // code" reaches someone instead of bouncing into nothing.
     replyTo: process.env.SMTP_REPLY_TO?.trim() || undefined,
+    /**
+     * The envelope sender (SMTP `MAIL FROM`), which is a different thing from the `From:` header
+     * and is the one SPF actually checks.
+     *
+     * badgerstudios.net's SPF record is `v=spf1 ip4:15.204.252.37 -all` — a hard fail for anything
+     * sent from this host. Rather than widen that record (which is shared with the BadgerOS mail
+     * server and risks its deliverability), mail leaves here with an envelope sender on the
+     * `lumina.badgerstudios.net` subdomain, which carries its own SPF record authorising this box.
+     * DMARC is published with `aspf=r` (relaxed), under which a subdomain aligns with the parent —
+     * so the `From:` header can still read `lumina@badgerstudios.net` and pass.
+     *
+     * Bounces go to this address, so it should be one that exists or is at least monitored.
+     */
+    envelopeFrom: process.env.SMTP_ENVELOPE_FROM?.trim() || undefined,
+    /**
+     * DKIM signing. Independent of SPF and worth having even though SPF passes: SPF breaks on any
+     * forwarding hop that does not rewrite the envelope (mailing lists, .forward rules), while a
+     * DKIM signature survives it. DMARC passes if *either* aligns, so signing turns a single point
+     * of failure into two.
+     */
+    dkim:
+      dkimKey && process.env.DKIM_DOMAIN?.trim()
+        ? {
+            domainName: process.env.DKIM_DOMAIN.trim(),
+            keySelector: process.env.DKIM_SELECTOR?.trim() || "lumina",
+            privateKey: dkimKey,
+          }
+        : undefined,
   };
 }
 
@@ -72,6 +130,7 @@ function getTransporter(): Transporter | null {
     // auth block with undefined values makes nodemailer attempt AUTH and fail against those, so it
     // is omitted entirely when no user is set.
     ...(cfg.user ? { auth: { user: cfg.user, pass: cfg.pass } } : {}),
+    ...(cfg.dkim ? { dkim: cfg.dkim } : {}),
     // A slow or unreachable server must not hold a connection open indefinitely.
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
@@ -90,6 +149,11 @@ export async function sendMail(message: MailMessage): Promise<boolean> {
     await tx.sendMail({
       from: cfg.from,
       ...(cfg.replyTo ? { replyTo: cfg.replyTo } : {}),
+      // Overriding the envelope leaves the visible `From:` header untouched — see `envelopeFrom`.
+      // Both fields must be given when overriding at all; nodemailer does not merge one in.
+      ...(cfg.envelopeFrom
+        ? { envelope: { from: cfg.envelopeFrom, to: message.to } }
+        : {}),
       to: message.to,
       subject: message.subject,
       text: message.text,
