@@ -136,12 +136,12 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
   });
   internal.on(
     "interaction:create",
-    (i: { id: string; token: string; type: string; commandName: string | null; optionsJson: unknown; componentCustomId: string | null; channelId: string | null; serverId: string | null; userId: string }) => {
+    (i: { id: string; token: string; type: string; commandName: string | null; options: Record<string, string | number | boolean> | null; componentCustomId: string | null; channelId: string | null; serverId: string | null; userId: string }) => {
       void (async () => {
         const user = await prisma.user.findUnique({ where: { id: i.userId } });
         if (!user) return;
         const mappedUser = await mapUser(user);
-        const isCommand = i.type === "COMMAND" || !!i.commandName;
+        const isCommand = i.type === "command" || !!i.commandName;
         send(
           session,
           0,
@@ -163,11 +163,27 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
                   id: await toSnowflake("role", `command:${i.commandName}`),
                   name: i.commandName,
                   type: 1,
-                  options: Array.isArray(i.optionsJson) ? i.optionsJson : [],
+                  // Lumina stores options as a {name: value} record; Discord's shape is an
+                  // array of {name, type, value} — translate so getString()/getInteger() work.
+                  options:
+                    i.options && typeof i.options === "object"
+                      ? Object.entries(i.options).map(([name, value]) => ({
+                          name,
+                          type: typeof value === "number" ? 4 : typeof value === "boolean" ? 5 : 3,
+                          value,
+                        }))
+                      : [],
                 }
               : { custom_id: i.componentCustomId, component_type: 2 },
             app_permissions: "0",
             locale: "en-US",
+            guild_locale: "en-US",
+            // discord.js ≥14.2x dereferences these unconditionally (monetization + user-app
+            // installs); omitting them crashes its INTERACTION_CREATE handler outright.
+            entitlements: [],
+            authorizing_integration_owners: {},
+            context: 0,
+            ...(i.channelId ? { channel: { id: await toSnowflake("channel", i.channelId), type: 0 } } : {}),
           },
           "INTERACTION_CREATE",
         );

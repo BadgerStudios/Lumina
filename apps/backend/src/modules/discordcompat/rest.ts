@@ -167,6 +167,35 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     reply.code(res.status >= 400 ? res.status : 204).send();
   });
 
+  // ---- slash commands: discord.js registers via Routes.applicationCommands(clientId), i.e.
+  // PUT /applications/:id/commands with Discord's NUMERIC option types. Translate onto Lumina's
+  // bulk overwrite (authenticated as the bot itself, so :id is informational — the token names
+  // the application, exactly like Lumina's own route).
+  const OPTION_TYPE: Record<number, string> = { 3: "string", 4: "integer", 5: "boolean", 6: "user", 7: "channel", 10: "number" };
+  fastify.put("/applications/:id/commands", async (request, reply) => {
+    const commands = Array.isArray(request.body) ? (request.body as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[]) : [];
+    const mapped = commands.map((c) => ({
+      name: c.name,
+      description: c.description ?? "",
+      options: (c.options ?? []).map((o) => ({
+        name: o.name,
+        description: o.description ?? "",
+        type: OPTION_TYPE[o.type ?? 3] ?? "string",
+        required: !!o.required,
+      })),
+    }));
+    const res = await internal(request, "PUT", "/interactions/commands", mapped);
+    reply.code(res.status >= 400 ? res.status : 200);
+    if (res.status >= 400) return res.json;
+    const appId = (request.params as { id: string }).id;
+    return commands.map((c, i) => ({ id: String(i + 1), application_id: appId, version: "1", type: 1, ...c }));
+  });
+  fastify.get("/applications/:id/commands", async (request, reply) => {
+    const res = await internal(request, "GET", "/interactions/commands");
+    reply.code(res.status);
+    return res.json;
+  });
+
   // ---- interactions (respond via the real interaction machinery)
   fastify.post("/interactions/:id/:token/callback", async (request, reply) => {
     const { token } = request.params as { token: string };
