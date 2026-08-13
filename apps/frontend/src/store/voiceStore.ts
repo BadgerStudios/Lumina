@@ -25,6 +25,50 @@ const SPEAKING_THRESHOLD = 12; // 0-255 scale off the analyser's average byte fr
 
 type VideoSource = "camera" | "screen" | null;
 
+/**
+ * How the microphone decides when to transmit.
+ *
+ *  - `open`  — always live while unmuted. What every call did before this existed.
+ *  - `voice` — voice activity detection: the gate opens when you speak and closes when you stop.
+ *  - `ptt`   — push-to-talk: the gate is closed unless the bound key is held.
+ */
+export type MicMode = "open" | "voice" | "ptt";
+
+const MIC_MODE_KEY = "lumina-mic-mode";
+const VAD_SENSITIVITY_KEY = "lumina-vad-sensitivity";
+
+/**
+ * How long the gate stays open after you drop below the threshold, in ms.
+ *
+ * Without this the gate tracks the waveform itself and closes in the natural gaps *inside* speech
+ * — between syllables, on plosives, across the pause before a stressed word. The result is
+ * chopped, robotic audio where the first phoneme after every gap is missing. Opening instantly
+ * but closing lazily is the standard shape for a noise gate, and 300ms is long enough to bridge
+ * ordinary speech gaps while still cutting off promptly at the end of a sentence.
+ */
+const VAD_HANG_MS = 300;
+
+/**
+ * Sensitivity is exposed to the user as 0–100 (higher = picks up quieter sound) because a raw
+ * 0–255 frequency-average means nothing to anyone. This is the only place the two scales meet.
+ */
+export function vadThresholdFor(sensitivity: number): number {
+  const clamped = Math.min(100, Math.max(0, sensitivity));
+  return 40 - clamped * 0.38;
+}
+
+function readStoredMicMode(): MicMode {
+  if (typeof window === "undefined") return "open";
+  const stored = window.localStorage.getItem(MIC_MODE_KEY);
+  return stored === "voice" || stored === "ptt" ? stored : "open";
+}
+
+function readStoredVadSensitivity(): number {
+  if (typeof window === "undefined") return 65;
+  const stored = Number(window.localStorage.getItem(VAD_SENSITIVITY_KEY));
+  return Number.isFinite(stored) && stored >= 0 && stored <= 100 ? stored : 65;
+}
+
 interface VoiceParticipant {
   userId: string;
   socketId: string;
@@ -39,6 +83,16 @@ interface VoiceState {
   connecting: boolean;
   muted: boolean;
   deafened: boolean;
+  micMode: MicMode;
+  /** 0–100, user-facing. See vadThresholdFor for the mapping onto the analyser's scale. */
+  vadSensitivity: number;
+  /** Whether the push-to-talk key is held right now. Runtime only — never persisted. */
+  pttHeld: boolean;
+  /** Whether voice activity detection currently hears you. Runtime only. */
+  vadOpen: boolean;
+  /** Whether audio is actually leaving this machine — the resolved answer across mute, deafen
+   * and the gate. Components render the mic indicator off this rather than re-deriving it. */
+  transmitting: boolean;
   videoSource: VideoSource;
   participants: Record<string, VoiceParticipant>; // keyed by socketId, excludes self
   // Server-wide "who's in which voice channel" roster, keyed by channelId — populated for
@@ -55,6 +109,9 @@ interface VoiceState {
   leave: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
+  setMicMode: (mode: MicMode) => void;
+  setVadSensitivity: (sensitivity: number) => void;
+  setPttHeld: (held: boolean) => void;
   toggleCamera: () => Promise<void>;
   toggleScreenShare: () => Promise<void>;
 }
@@ -90,6 +147,107 @@ const remoteAudioEls = new Map<string, HTMLAudioElement>();
 const remoteVideoStreams = new Map<string, MediaStream>();
 const speakingLoops = new Map<string, { ctx: AudioContext; analyser: AnalyserNode; raf: number }>();
 let listenersAttached = false;
+
+// Local voice-activity detection engine. Separate from `speakingLoops` above, which watches
+// REMOTE participants to drive their speaking rings — this one watches your own microphone to
+// decide whether to transmit at all.
+let vadCtx: AudioContext | null = null;
+let vadTrack: MediaStreamTrack | null = null;
+let vadRaf = 0;
+let vadOpenUntil = 0;
+
+/**
+ * Decide whether the microphone should be live right now.
+ *
+ * One function, consulted from every path that could change the answer, rather than each caller
+ * setting `track.enabled` from its own partial view. That structure is what makes the modes
+ * composable at all: mute, deafen, push-to-talk and voice detection are four independent reasons
+ * to be silent, and any of them alone is sufficient.
+ *
+ * It also fixes a real pre-existing bug. `toggleDeafen` used to set `enabled = !deafened`
+ * directly, so un-deafening re-opened the microphone even when you were also muted — the UI said
+ * muted while your audio was going out. Deriving the answer instead of assigning it makes that
+ * class of drift impossible.
+ */
+function shouldTransmit(s: VoiceState): boolean {
+  if (s.muted || s.deafened) return false;
+  if (s.micMode === "ptt") return s.pttHeld;
+  if (s.micMode === "voice") return s.vadOpen;
+  return true;
+}
+
+function applyMicGate(): void {
+  const state = useVoiceStore.getState();
+  const on = shouldTransmit(state);
+  localAudioStream?.getAudioTracks().forEach((t) => (t.enabled = on));
+  if (state.transmitting !== on) useVoiceStore.setState({ transmitting: on });
+}
+
+function stopLocalVad(): void {
+  if (vadRaf) cancelAnimationFrame(vadRaf);
+  vadRaf = 0;
+  vadTrack?.stop();
+  vadTrack = null;
+  void vadCtx?.close().catch(() => undefined);
+  vadCtx = null;
+  vadOpenUntil = 0;
+  if (useVoiceStore.getState().vadOpen) useVoiceStore.setState({ vadOpen: false });
+}
+
+/**
+ * Watch the local microphone and publish `vadOpen`.
+ *
+ * ## Why this analyses a CLONE of the mic track
+ *
+ * The obvious implementation — point an analyser at `localAudioStream` — cannot work, and fails
+ * in a way that looks like a total mic outage rather than a bug. Gating is implemented by setting
+ * `track.enabled = false`, and a disabled track does not merely stop being sent: it emits
+ * *silence* to every consumer, including our own analyser. So the moment the gate closed, the
+ * analyser would read zero, conclude you had stopped speaking, and keep it closed forever. The
+ * gate would open exactly once and then latch shut.
+ *
+ * `MediaStreamTrack.clone()` returns a track backed by the same hardware source but with its own
+ * independent `enabled` state. Analysing the clone (always enabled, never sent to any peer) while
+ * gating the original is what lets detection keep working through a closed gate.
+ */
+function startLocalVad(): void {
+  stopLocalVad();
+  const source = localAudioStream?.getAudioTracks()[0];
+  if (!source) return;
+
+  vadTrack = source.clone();
+  vadTrack.enabled = true;
+  const ctx = new AudioContext();
+  vadCtx = ctx;
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  ctx.createMediaStreamSource(new MediaStream([vadTrack])).connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+
+  function tick() {
+    analyser.getByteFrequencyData(data);
+    const avg = data.reduce((sum, v) => sum + v, 0) / data.length;
+    const threshold = vadThresholdFor(useVoiceStore.getState().vadSensitivity);
+    const now = performance.now();
+    if (avg > threshold) vadOpenUntil = now + VAD_HANG_MS;
+
+    const open = now < vadOpenUntil;
+    if (open !== useVoiceStore.getState().vadOpen) {
+      useVoiceStore.setState({ vadOpen: open });
+      applyMicGate();
+    }
+    vadRaf = requestAnimationFrame(tick);
+  }
+  vadRaf = requestAnimationFrame(tick);
+}
+
+/** Start or stop local detection to match the current mode. Idempotent. */
+function syncVadEngine(): void {
+  const { micMode, channelId } = useVoiceStore.getState();
+  const wanted = micMode === "voice" && channelId !== null;
+  if (wanted && !vadCtx) startLocalVad();
+  else if (!wanted && vadCtx) stopLocalVad();
+}
 
 function stopSpeakingLoop(socketId: string): void {
   const loop = speakingLoops.get(socketId);
@@ -294,6 +452,10 @@ function stopLocalVideo(): void {
 
 function teardown(): void {
   for (const socketId of Array.from(peers.keys())) closePeer(socketId);
+  // Before the source tracks are stopped — the VAD clone shares their hardware source, and
+  // leaving it running would hold the microphone open (and the recording indicator lit) after
+  // the call ended.
+  stopLocalVad();
   localAudioStream?.getTracks().forEach((t) => t.stop());
   localAudioStream = null;
   stopLocalVideo();
@@ -305,6 +467,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   connecting: false,
   muted: false,
   deafened: false,
+  micMode: readStoredMicMode(),
+  vadSensitivity: readStoredVadSensitivity(),
+  pttHeld: false,
+  vadOpen: false,
+  transmitting: false,
   videoSource: null,
   participants: {},
   roster: {},
@@ -332,7 +499,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     const iceServersReady = refreshIceServers();
     try {
       localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      localAudioStream.getAudioTracks().forEach((t) => (t.enabled = !get().muted));
+      // The gate is applied before the first peer connection exists, so in push-to-talk or
+      // voice-activity mode nothing is ever transmitted between joining and the first time you
+      // actually mean to speak.
+      syncVadEngine();
+      applyMicGate();
     } catch {
       set({ connecting: false, serverId: null, channelId: null, error: "Microphone access denied or unavailable." });
       return;
@@ -363,13 +534,22 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     if (!get().channelId) return;
     getSocket().emit(ClientEvents.VOICE_LEAVE);
     teardown();
-    set({ serverId: null, channelId: null, participants: {}, connecting: false, error: null, videoSource: null });
+    set({
+      serverId: null,
+      channelId: null,
+      participants: {},
+      connecting: false,
+      error: null,
+      videoSource: null,
+      pttHeld: false,
+      vadOpen: false,
+      transmitting: false,
+    });
   },
 
   toggleMute: () => {
-    const muted = !get().muted;
-    localAudioStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
-    set({ muted });
+    set({ muted: !get().muted });
+    applyMicGate();
   },
 
   toggleDeafen: () => {
@@ -378,8 +558,29 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     // Deafening also mutes the mic (matches Discord — talking while unable to hear anyone
     // respond isn't useful, and it's a clearer mental model than two independently-tracked
     // states that can silently drift apart).
-    localAudioStream?.getAudioTracks().forEach((t) => (t.enabled = !deafened));
     set({ deafened, muted: deafened ? true : get().muted });
+    applyMicGate();
+  },
+
+  setMicMode: (micMode) => {
+    window.localStorage.setItem(MIC_MODE_KEY, micMode);
+    // Leaving push-to-talk while the key happens to be held would strand `pttHeld` true, and the
+    // keyup that would have cleared it belongs to a mode we are no longer in.
+    set({ micMode, pttHeld: false });
+    syncVadEngine();
+    applyMicGate();
+  },
+
+  setVadSensitivity: (vadSensitivity) => {
+    const clamped = Math.min(100, Math.max(0, vadSensitivity));
+    window.localStorage.setItem(VAD_SENSITIVITY_KEY, String(clamped));
+    set({ vadSensitivity: clamped });
+  },
+
+  setPttHeld: (pttHeld) => {
+    if (get().pttHeld === pttHeld) return; // keydown autorepeat fires continuously while held
+    set({ pttHeld });
+    applyMicGate();
   },
 
   // Camera and screen share share ONE video track slot — turning one on while the other is

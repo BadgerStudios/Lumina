@@ -3,7 +3,7 @@ import { ClientEvents, ServerEvents, Permissions } from "@lumina/shared";
 import type { VoiceParticipantDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeUser } from "../../lib/serialize.js";
-import { checkPermission } from "../../permissions/permissionService.js";
+import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 
 /**
  * Mesh WebRTC signaling relay — the server never touches media (no SFU, no recording, no
@@ -73,7 +73,7 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
           where: { userId_serverId: { userId, serverId: channel.serverId } },
         });
         if (!membership) throw new Error("Not a member of this server");
-        await checkPermission(userId, channel.serverId, Permissions.VIEW_CHANNELS);
+        await checkChannelPermission(userId, channel.serverId, channel.id, Permissions.VIEW_CHANNELS);
 
         // A socket can only be in one voice channel at a time — switching channels leaves the
         // old one first (and notifies its participants) rather than accumulating memberships.

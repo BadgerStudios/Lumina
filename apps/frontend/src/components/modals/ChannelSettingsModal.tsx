@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
 import { useUIStore } from "../../store/uiStore";
 import { useChannels, useUpdateChannel, useDeleteChannel } from "../../queries/channels";
+import { ChannelPermissionsPanel } from "./ChannelPermissionsPanel";
+import { cn } from "../../lib/cn";
 
 // Discord's own slowmode preset ladder — 0 means off.
 const SLOWMODE_PRESETS: Array<{ label: string; seconds: number }> = [
@@ -43,9 +45,11 @@ export function ChannelSettingsModal() {
   const [topic, setTopic] = useState("");
   const [slowmodeSeconds, setSlowmodeSeconds] = useState(0);
   const [nsfw, setNsfw] = useState(false);
+  const [tab, setTab] = useState<"overview" | "permissions">("overview");
 
   useEffect(() => {
     if (open && channel) {
+      setTab("overview");
       setName(channel.name);
       setTopic(channel.topic ?? "");
       setSlowmodeSeconds(channel.slowmodeSeconds);
@@ -75,6 +79,24 @@ export function ChannelSettingsModal() {
 
   return (
     <Modal open={open} onOpenChange={(o) => !o && closeModal()} title={channel ? `#${channel.name} Settings` : "Channel Settings"} width="max-w-lg">
+      <div className="mb-4 flex gap-1 border-b border-base-700">
+        {(["overview", "permissions"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "-mb-px border-b-2 px-3 py-2 text-sm font-medium capitalize",
+              tab === t ? "border-accent text-signal" : "border-transparent text-signal-dim hover:text-signal",
+            )}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === "permissions" ? (
+        <ChannelPermissionsPanel serverId={serverId} channelId={channelId} />
+      ) : (
       <div className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-bold uppercase text-signal-dim">Channel name</span>
@@ -124,6 +146,7 @@ export function ChannelSettingsModal() {
           </>
         )}
       </div>
+      )}
 
       <div className="mt-5 flex items-center justify-between gap-3">
         <button onClick={() => void handleDelete()} className="text-sm text-dnd hover:underline">
@@ -131,15 +154,19 @@ export function ChannelSettingsModal() {
         </button>
         <div className="flex gap-3">
           <button onClick={closeModal} className="rounded px-4 py-2 text-sm font-medium text-signal-dim hover:underline">
-            Cancel
+            {/* Permission edits save on click, so there is nothing pending to discard on that tab
+                and "Cancel" would be a lie about what closing does. */}
+            {tab === "permissions" ? "Close" : "Cancel"}
           </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={updateChannel.isPending || !name.trim()}
-            className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-          >
-            Save
-          </button>
+          {tab === "overview" && (
+            <button
+              onClick={() => void handleSave()}
+              disabled={updateChannel.isPending || !name.trim()}
+              className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              Save
+            </button>
+          )}
         </div>
       </div>
     </Modal>

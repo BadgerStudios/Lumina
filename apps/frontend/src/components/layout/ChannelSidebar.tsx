@@ -189,6 +189,11 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const voiceChannelId = useVoiceStore((s) => s.channelId);
   const voiceMuted = useVoiceStore((s) => s.muted);
+  const micMode = useVoiceStore((s) => s.micMode);
+  const transmitting = useVoiceStore((s) => s.transmitting);
+  /** Push-to-talk and voice activity both gate the mic behind something other than the mute
+   * button; open-mic does not, and its indicator should stay exactly as it was. */
+  const gatedMic = micMode !== "open";
   const voiceDeafened = useVoiceStore((s) => s.deafened);
   const videoSource = useVoiceStore((s) => s.videoSource);
   const toggleMute = useVoiceStore((s) => s.toggleMute);
@@ -393,8 +398,30 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
           <button
             onClick={toggleMute}
             disabled={!connectedVoiceChannel}
-            className={cn("rounded p-1.5 hover:bg-base-600", voiceMuted ? "text-dnd" : "text-signal-dim hover:text-signal", !connectedVoiceChannel && "opacity-40")}
-            title={connectedVoiceChannel ? (voiceMuted ? "Unmute" : "Mute") : "Join a voice channel to mute"}
+            className={cn(
+              "rounded p-1.5 hover:bg-base-600",
+              voiceMuted ? "text-dnd" : "text-signal-dim hover:text-signal",
+              // In push-to-talk or voice-activity mode the gate, not the mute button, decides
+              // whether audio is going out — so the button has to show the gate. Without this
+              // there is no feedback anywhere that push-to-talk is working, and the honest
+              // reading of a plain mic icon is "you are being heard", which is wrong most of
+              // the time in these modes.
+              !voiceMuted && gatedMic && (transmitting ? "text-online" : "text-signal-faint"),
+              !connectedVoiceChannel && "opacity-40",
+            )}
+            title={
+              !connectedVoiceChannel
+                ? "Join a voice channel to mute"
+                : voiceMuted
+                  ? "Unmute"
+                  : gatedMic
+                    ? transmitting
+                      ? "Transmitting"
+                      : micMode === "ptt"
+                        ? "Hold your push-to-talk key to speak"
+                        : "Waiting for you to speak"
+                    : "Mute"
+            }
           >
             {voiceMuted ? <MicOff size={17} /> : <Mic size={17} />}
           </button>

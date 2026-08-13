@@ -1,7 +1,7 @@
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import { ClientEvents, Permissions } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
-import { checkPermission } from "../../permissions/permissionService.js";
+import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 
 export function registerChannelRoomHandlers(_io: SocketIOServer, socket: Socket): void {
   const userId = socket.data.userId as string;
@@ -18,7 +18,7 @@ export function registerChannelRoomHandlers(_io: SocketIOServer, socket: Socket)
         });
         if (!membership) throw new Error("Not a member of this server");
 
-        await checkPermission(userId, channel.serverId, Permissions.VIEW_CHANNELS);
+        await checkChannelPermission(userId, channel.serverId, channel.id, Permissions.VIEW_CHANNELS);
 
         await socket.join(`channel:${payload.channelId}`);
         ack?.({ ok: true });

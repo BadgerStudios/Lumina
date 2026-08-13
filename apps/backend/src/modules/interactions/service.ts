@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Permissions, ServerEvents } from "@lumina/shared";
 import type { InteractionDTO, SlashCommandDTO, SlashCommandOptionDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
-import { checkPermission } from "../../permissions/permissionService.js";
+import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
 import { createChannelMessage, createDMMessage } from "../messages/service.js";
@@ -384,8 +384,8 @@ export async function invokeComponent(params: {
   if (!message || message.deletedAt) throw new NotFoundError("Message not found");
   if (!message.componentsJson) throw new BadRequestError("That message has no components");
 
-  if (message.channel) {
-    await checkPermission(params.userId, message.channel.serverId, Permissions.VIEW_CHANNELS);
+  if (message.channel && message.channelId) {
+    await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.VIEW_CHANNELS);
   } else if (message.dmConversationId) {
     const participant = await prisma.dMParticipant.findUnique({
       where: { conversationId_userId: { conversationId: message.dmConversationId, userId: params.userId } },

@@ -162,6 +162,14 @@ export function useSocketEvents(): void {
       queryClient.setQueryData<ChannelDTO[]>(queryKeys.channels(payload.serverId), (old) => removeById(old, payload.id));
     };
 
+    const onChannelOverwritesUpdate = (payload: { channelId: string }) => {
+      // Refetch rather than patch: the effective permissions differ per recipient, so the server
+      // cannot broadcast one correct answer. Invalidating the channel list is the important half
+      // — this event is what makes a channel appear in, or vanish from, this member's sidebar.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelOverwrites(payload.channelId) });
+      void queryClient.invalidateQueries({ queryKey: ["channels"] });
+    };
+
     const onRoleCreate = (role: RoleDTO) => {
       queryClient.setQueryData<RoleDTO[]>(queryKeys.roles(role.serverId), (old) => upsertRole(old, role));
     };
@@ -274,6 +282,7 @@ export function useSocketEvents(): void {
     socket.on(ServerEvents.CHANNEL_CREATE, onChannelCreate);
     socket.on(ServerEvents.CHANNEL_UPDATE, onChannelUpdate);
     socket.on(ServerEvents.CHANNEL_DELETE, onChannelDelete);
+    socket.on(ServerEvents.CHANNEL_OVERWRITES_UPDATE, onChannelOverwritesUpdate);
     socket.on(ServerEvents.ROLE_CREATE, onRoleCreate);
     socket.on(ServerEvents.ROLE_UPDATE, onRoleUpdate);
     socket.on(ServerEvents.ROLE_DELETE, onRoleDelete);
@@ -310,6 +319,7 @@ export function useSocketEvents(): void {
       socket.off(ServerEvents.CHANNEL_CREATE, onChannelCreate);
       socket.off(ServerEvents.CHANNEL_UPDATE, onChannelUpdate);
       socket.off(ServerEvents.CHANNEL_DELETE, onChannelDelete);
+      socket.off(ServerEvents.CHANNEL_OVERWRITES_UPDATE, onChannelOverwritesUpdate);
       socket.off(ServerEvents.ROLE_CREATE, onRoleCreate);
       socket.off(ServerEvents.ROLE_UPDATE, onRoleUpdate);
       socket.off(ServerEvents.ROLE_DELETE, onRoleDelete);

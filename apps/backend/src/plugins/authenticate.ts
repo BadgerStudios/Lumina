@@ -2,7 +2,7 @@ import fp from "fastify-plugin";
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from "fastify";
 import { hashRefreshToken, verifyAccessToken } from "../lib/jwt.js";
 import { BannedError, ForbiddenError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
-import { checkPermission } from "../permissions/permissionService.js";
+import { checkPermission, checkChannelPermission } from "../permissions/permissionService.js";
 import { prisma } from "../db/prisma.js";
 import { hasPlatformRole } from "../lib/platformRole.js";
 import { isUserBanned } from "../modules/bans/service.js";
@@ -11,6 +11,13 @@ declare module "fastify" {
   interface FastifyRequest {
     userId?: string;
     serverId?: string;
+    /**
+     * Set by any ServerIdResolver that resolved through a channel. Its presence is what makes
+     * requirePermission evaluate channel overwrites rather than server-wide permissions alone —
+     * so a route gains overwrite support purely by using a channel-shaped resolver, with no
+     * change at the call site. See requirePermission.
+     */
+    channelId?: string;
   }
 }
 
@@ -85,6 +92,7 @@ export const resolveServerId = {
       const channelId = (request.params as Record<string, string>)[paramName];
       const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { serverId: true } });
       if (!channel) throw new NotFoundError("Channel not found");
+      request.channelId = channelId;
       return channel.serverId;
     },
   fromRoleParam:
@@ -109,17 +117,21 @@ export const resolveServerId = {
       const messageId = (request.params as Record<string, string>)[paramName];
       const message = await prisma.message.findUnique({
         where: { id: BigInt(messageId) },
-        select: { channel: { select: { serverId: true } } },
+        select: { channelId: true, channel: { select: { serverId: true } } },
       });
       if (!message?.channel) throw new NotFoundError("Message not found");
+      // Nullable in the schema because a Message can belong to a DM instead of a channel; the
+      // guard above has already established this one has a channel.
+      request.channelId = message.channelId ?? undefined;
       return message.channel.serverId;
     },
   fromWebhookParam:
     (paramName = "id"): ServerIdResolver =>
     async (request) => {
       const webhookId = (request.params as Record<string, string>)[paramName];
-      const webhook = await prisma.webhook.findUnique({ where: { id: webhookId }, select: { channel: { select: { serverId: true } } } });
+      const webhook = await prisma.webhook.findUnique({ where: { id: webhookId }, select: { channelId: true, channel: { select: { serverId: true } } } });
       if (!webhook) throw new NotFoundError("Webhook not found");
+      request.channelId = webhook.channelId ?? undefined;
       return webhook.channel.serverId;
     },
 };
@@ -147,10 +159,24 @@ export function requireMembership(resolver: ServerIdResolver): preHandlerHookHan
   };
 }
 
-/** Must run after requireMembership (needs request.serverId set). */
+/**
+ * Must run after requireMembership (needs request.serverId set).
+ *
+ * Automatically becomes channel-aware when the resolver that ran resolved through a channel —
+ * see FastifyRequest.channelId. That indirection is deliberate: there are 80-odd requirePermission
+ * call sites, and a design that needed each one to opt in to overwrites would have left whichever
+ * ones were missed silently enforcing server-wide permissions on a channel that had been
+ * configured as private. Routing it through the resolver means the channel-shaped routes are
+ * covered by construction, and the server-shaped ones (server settings, roles, bans) correctly
+ * keep using the server-wide check because no channel is in scope for them at all.
+ */
 export function requirePermission(bit: bigint): preHandlerHookHandler {
   return async (request: FastifyRequest) => {
     if (!request.userId || !request.serverId) throw new UnauthorizedError();
+    if (request.channelId) {
+      await checkChannelPermission(request.userId, request.serverId, request.channelId, bit);
+      return;
+    }
     await checkPermission(request.userId, request.serverId, bit);
   };
 }

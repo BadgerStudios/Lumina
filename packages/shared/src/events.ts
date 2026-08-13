@@ -40,6 +40,10 @@ export const ServerEvents = {
   CHANNEL_CREATE: "channel:create",
   CHANNEL_UPDATE: "channel:update",
   CHANNEL_DELETE: "channel:delete",
+  /** A channel's permission overwrites changed. Carries only the channelId: the recipients have
+   * different effective permissions from each other, so there is no single payload that is
+   * correct for the whole room — each client refetches and gets its own answer. */
+  CHANNEL_OVERWRITES_UPDATE: "channel:overwrites:update",
   SERVER_UPDATE: "server:update",
   SERVER_DELETE: "server:delete",
   DM_CREATE: "dm:create",

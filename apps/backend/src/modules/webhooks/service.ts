@@ -3,7 +3,7 @@ import type { MessageDTO, WebhookDTO, WebhookWithTokenDTO } from "@lumina/shared
 import { prisma } from "../../db/prisma.js";
 import { generateRefreshToken, hashRefreshToken } from "../../lib/jwt.js";
 import { serializeWebhook } from "../../lib/serialize.js";
-import { checkPermission } from "../../permissions/permissionService.js";
+import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 import { BadRequestError, NotFoundError, UnauthorizedError } from "../../lib/errors.js";
 import { createWebhookMessage } from "../messages/service.js";
 
@@ -15,7 +15,7 @@ export async function createWebhook(params: {
 }): Promise<WebhookWithTokenDTO> {
   const channel = await prisma.channel.findUnique({ where: { id: params.channelId } });
   if (!channel) throw new NotFoundError("Channel not found");
-  await checkPermission(params.userId, channel.serverId, Permissions.MANAGE_WEBHOOKS);
+  await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.MANAGE_WEBHOOKS);
 
   const name = params.name.trim();
   if (!name) throw new BadRequestError("Name is required");
@@ -32,7 +32,7 @@ export async function createWebhook(params: {
 export async function listChannelWebhooks(params: { userId: string; channelId: string }): Promise<WebhookDTO[]> {
   const channel = await prisma.channel.findUnique({ where: { id: params.channelId } });
   if (!channel) throw new NotFoundError("Channel not found");
-  await checkPermission(params.userId, channel.serverId, Permissions.MANAGE_WEBHOOKS);
+  await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.MANAGE_WEBHOOKS);
 
   const webhooks = await prisma.webhook.findMany({ where: { channelId: params.channelId }, orderBy: { createdAt: "desc" } });
   return webhooks.map(serializeWebhook);
@@ -53,7 +53,7 @@ export async function listServerWebhooks(params: { userId: string; serverId: str
 export async function deleteWebhook(params: { userId: string; webhookId: string }): Promise<void> {
   const webhook = await prisma.webhook.findUnique({ where: { id: params.webhookId }, include: { channel: true } });
   if (!webhook) throw new NotFoundError("Webhook not found");
-  await checkPermission(params.userId, webhook.channel.serverId, Permissions.MANAGE_WEBHOOKS);
+  await checkChannelPermission(params.userId, webhook.channel.serverId, webhook.channelId, Permissions.MANAGE_WEBHOOKS);
   await prisma.webhook.delete({ where: { id: params.webhookId } });
 }
 

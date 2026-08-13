@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Permissions } from "@lumina/shared";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
+import { filterVisibleChannels } from "../../permissions/permissionService.js";
 import { serializeMessage } from "../../lib/serialize.js";
 // Imported rather than redeclared: this used to be a local copy of
 // `{ author, attachments, reactions }`, which silently stopped being the full set the moment
@@ -29,11 +31,21 @@ export default async function searchRoutes(fastify: FastifyInstance) {
     async (request) => {
       const { q } = request.query as z.infer<typeof querySchema>;
 
+      // Search has to respect channel overwrites explicitly. It queries Message directly rather
+      // than going through any channel-scoped permission check, so without this a member could
+      // read the contents of a private channel simply by searching for a word in it — the exact
+      // leak that makes "private channel" mean nothing.
+      const all = await prisma.channel.findMany({ where: { serverId: request.serverId! }, select: { id: true } });
+      const visible = await filterVisibleChannels(request.userId!, request.serverId!, all);
+      if (visible.length === 0) return [];
+      const visibleIds = visible.map((c) => c.id);
+
       const rows = await prisma.$queryRaw<{ id: bigint }[]>`
         SELECT m.id
         FROM "Message" m
         JOIN "Channel" c ON m."channelId" = c.id
         WHERE c."serverId" = ${request.serverId!}
+          AND c.id IN (${Prisma.join(visibleIds)})
           AND m."deletedAt" IS NULL
           AND m."searchVector" @@ plainto_tsquery('english', ${q})
         ORDER BY m.id DESC

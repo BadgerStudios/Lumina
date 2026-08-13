@@ -54,6 +54,55 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Push-to-talk. Deliberately a separate listener from the mute/deafen one above, because it
+  // needs the opposite policy on two counts:
+  //
+  //  1. It must survive focus being in the composer. Talking while typing is the main thing
+  //     push-to-talk is for, so the "ignore while typing" rule above would defeat it. The default
+  //     bind is a modifier precisely so this is safe; if someone rebinds it to a printable
+  //     character we fall back to the typing guard, since transmitting on every "v" typed into a
+  //     message is worse than a bind that doesn't work in the composer.
+  //  2. It needs keyup, and it needs a blur fallback — releasing the key while the window is not
+  //     focused delivers no keyup at all, which would strand the microphone open indefinitely.
+  useEffect(() => {
+    function isPrintable(code: string): boolean {
+      return /^(Key|Digit|Numpad)/.test(code) || code === "Space";
+    }
+    function inEditable(target: EventTarget | null): boolean {
+      const el = target as HTMLElement | null;
+      return el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" || Boolean(el?.isContentEditable);
+    }
+    function relevant(e: KeyboardEvent): boolean {
+      const voice = useVoiceStore.getState();
+      if (!voice.channelId || voice.micMode !== "ptt") return false;
+      const bind = useUIStore.getState().keybinds.pushToTalk;
+      if (e.code !== bind) return false;
+      return !(isPrintable(bind) && inEditable(e.target));
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (!relevant(e)) return;
+      if (isPrintable(e.code)) e.preventDefault();
+      useVoiceStore.getState().setPttHeld(true);
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      // No `relevant` guard on release: if the mode or focus changed while the key was down, the
+      // key still needs to release. Only ever closes the gate, so it is safe to run eagerly.
+      if (e.code !== useUIStore.getState().keybinds.pushToTalk) return;
+      useVoiceStore.getState().setPttHeld(false);
+    }
+    function onBlur() {
+      useVoiceStore.getState().setPttHeld(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
   // Server-wide theme (ServerSettingsModal.tsx's "Server theme color") — an owner/MANAGE_SERVER
   // pick that recolors --ion/--aurora/--accent-hover (see index.css) for EVERY member while
   // viewing that server, not just the person who set it. Scoped to only the Outlet subtree

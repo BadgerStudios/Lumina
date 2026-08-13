@@ -13,11 +13,13 @@ import { silentRefresh } from "./lib/apiClient";
 import { useLogout } from "./queries/auth";
 import { isOwner } from "./lib/platformRole";
 import { startViewportSync } from "./lib/viewport";
+import { installInspectGuard } from "./lib/inspectGuard";
 import "./index.css";
 
 // The console is its own bundle with its own entry point, so it needs this as much as the main app
 // does — it is the surface most often opened on a phone.
 startViewportSync();
+installInspectGuard();
 
 /**
  * Entry point for the standalone owner console — the whole program in the owner Android build.

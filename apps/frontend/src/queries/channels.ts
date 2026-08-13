@@ -72,3 +72,52 @@ export function useReorderChannels(serverId: string) {
     },
   });
 }
+
+// ---------------------------------------------------------------- permission overwrites
+
+/** Bitfields are decimal strings on the wire — see the backend's serializeOverwrite for why. */
+export interface ChannelOverwriteDTO {
+  channelId: string;
+  targetType: "ROLE" | "USER";
+  targetId: string;
+  allow: string;
+  deny: string;
+}
+
+export function useChannelOverwrites(channelId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.channelOverwrites(channelId ?? ""),
+    queryFn: () => api.get<ChannelOverwriteDTO[]>(`/channels/${channelId}/overwrites`),
+    enabled: !!channelId,
+  });
+}
+
+export function useSetChannelOverwrite(serverId: string, channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ targetId, targetType, allow, deny }: { targetId: string; targetType: "ROLE" | "USER"; allow: bigint; deny: bigint }) =>
+      api.put<ChannelOverwriteDTO>(`/channels/${channelId}/overwrites/${targetId}`, {
+        targetType,
+        allow: allow.toString(),
+        deny: deny.toString(),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelOverwrites(channelId) });
+      // The acting user's own view of the channel list can change as a result of this — denying
+      // @everyone VIEW_CHANNELS on a channel you can no longer see should remove it from your
+      // own sidebar too, not just everyone else's.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channels(serverId) });
+    },
+  });
+}
+
+export function useClearChannelOverwrite(serverId: string, channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (targetId: string) => api.delete<void>(`/channels/${channelId}/overwrites/${targetId}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelOverwrites(channelId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channels(serverId) });
+    },
+  });
+}

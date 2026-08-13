@@ -13,6 +13,7 @@ import {
 } from "../../lib/biometricLock";
 import { useUIStore, ACCENT_THEMES, THEMES, LIGHT_THEMES, type AccentTheme, type Theme } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
+import { useVoiceStore, vadThresholdFor, type MicMode } from "../../store/voiceStore";
 import {
   useUpdateProfile,
   useUpdatePresence,
@@ -1222,7 +1223,19 @@ function PlaceholderSection({ icon: Icon, title, body }: { icon: typeof User; ti
 function keyLabel(code: string): string {
   if (code.startsWith("Key")) return code.slice(3);
   if (code.startsWith("Digit")) return code.slice(5);
-  return code;
+  // Modifiers are the sensible push-to-talk binds, and "ControlLeft" is not what anyone calls
+  // that key.
+  const named: Record<string, string> = {
+    ControlLeft: "Left Ctrl",
+    ControlRight: "Right Ctrl",
+    ShiftLeft: "Left Shift",
+    ShiftRight: "Right Shift",
+    AltLeft: "Left Alt",
+    AltRight: "Right Alt",
+    Space: "Space",
+    Backquote: "`",
+  };
+  return named[code] ?? code;
 }
 
 /** No keybind system existed at all before this — a top-level keydown listener in
@@ -1261,19 +1274,163 @@ function KeybindRow({ label, action }: { label: string; action: keyof import("..
   );
 }
 
+/**
+ * Live microphone level, 0–255 on the same scale voiceStore's detector uses.
+ *
+ * Opens its own `getUserMedia` stream rather than reading the call's, so sensitivity can be
+ * calibrated from settings without being in a voice channel — which is when people actually set
+ * it. Returns 0 and holds no hardware while `active` is false, so the microphone is only live
+ * while the Voice section is genuinely on screen in a mode that needs it.
+ */
+function useMicLevel(active: boolean): number {
+  const [level, setLevel] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    let raf = 0;
+    let cancelled = false;
+
+    void navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((s) => {
+        // The effect can be torn down while this promise is still in flight — without this the
+        // stream is created after cleanup ran and never stopped, leaving the mic indicator lit.
+        if (cancelled) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        stream = s;
+        ctx = new AudioContext();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        ctx.createMediaStreamSource(s).connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          analyser.getByteFrequencyData(data);
+          setLevel(data.reduce((sum, v) => sum + v, 0) / data.length);
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      void ctx?.close().catch(() => undefined);
+      setLevel(0);
+    };
+  }, [active]);
+
+  return level;
+}
+
+const MIC_MODES: { value: MicMode; label: string; hint: string }[] = [
+  { value: "open", label: "Open mic", hint: "Transmit whenever you're unmuted." },
+  { value: "voice", label: "Voice activity", hint: "Transmit only while you're speaking." },
+  { value: "ptt", label: "Push to talk", hint: "Transmit only while a key is held." },
+];
+
 function VoiceSection() {
+  const micMode = useVoiceStore((s) => s.micMode);
+  const setMicMode = useVoiceStore((s) => s.setMicMode);
+  const vadSensitivity = useVoiceStore((s) => s.vadSensitivity);
+  const setVadSensitivity = useVoiceStore((s) => s.setVadSensitivity);
+
+  const level = useMicLevel(micMode === "voice");
+  const threshold = vadThresholdFor(vadSensitivity);
+  // The meter is 0–255 in theory but ordinary speech sits low on that scale, so the bar is drawn
+  // against a 90 ceiling — otherwise the useful range is squeezed into the leftmost third and the
+  // threshold marker is impossible to place accurately by eye.
+  const pct = (v: number) => Math.min(100, (v / 90) * 100);
+
   return (
     <div className="flex flex-col gap-5">
       <p className="text-sm text-signal-dim">
         Join any voice channel from the server sidebar to talk, share your camera, or share your screen.
       </p>
+
+      <div>
+        <span className="text-xs font-bold uppercase text-signal-dim">Input mode</span>
+        <div className="mt-2 flex flex-col gap-1.5">
+          {MIC_MODES.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => setMicMode(m.value)}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors",
+                micMode === m.value ? "bg-accent/15 ring-1 ring-accent" : "bg-base-900 hover:bg-base-800",
+              )}
+            >
+              <span
+                className={cn(
+                  "size-3.5 shrink-0 rounded-full border-2",
+                  micMode === m.value ? "border-accent bg-accent" : "border-signal-faint",
+                )}
+              />
+              <span>
+                <span className="block text-sm font-medium text-signal">{m.label}</span>
+                <span className="block text-xs text-signal-faint">{m.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {micMode === "voice" && (
+        <div>
+          <span className="text-xs font-bold uppercase text-signal-dim">Input sensitivity</span>
+          <p className="mb-2 text-sm text-signal-faint">
+            Speak normally — the bar turns green when you'd be transmitting. Drag until quiet room noise
+            stays grey.
+          </p>
+          <div className="rounded-lg bg-base-900 p-4">
+            <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-base-700">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-75",
+                  level > threshold ? "bg-emerald-400" : "bg-signal-faint",
+                )}
+                style={{ width: `${pct(level)}%` }}
+              />
+            </div>
+            {/* The marker sits outside the clipped bar so it stays visible at any fill level. */}
+            <div className="relative h-3">
+              <div
+                className="absolute top-0 h-3 w-0.5 -translate-x-1/2 rounded bg-signal"
+                style={{ left: `${pct(threshold)}%` }}
+              />
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={vadSensitivity}
+              onChange={(e) => setVadSensitivity(Number(e.target.value))}
+              className="mt-2 w-full accent-accent"
+              aria-label="Input sensitivity"
+            />
+          </div>
+        </div>
+      )}
+
       <div>
         <span className="text-xs font-bold uppercase text-signal-dim">Keybinds</span>
         <p className="mb-2 text-sm text-signal-faint">Work anywhere in the app while you're in a voice call.</p>
         <div className="flex flex-col gap-1.5">
           <KeybindRow label="Toggle mute" action="toggleMute" />
           <KeybindRow label="Toggle deafen" action="toggleDeafen" />
+          {micMode === "ptt" && <KeybindRow label="Push to talk" action="pushToTalk" />}
         </div>
+        {micMode === "ptt" && (
+          <p className="mt-2 text-xs text-signal-faint">
+            A modifier key is recommended. A letter or number bind is ignored while you're typing, so it
+            won't work from the message box.
+          </p>
+        )}
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { Permissions, ServerEvents } from "@lumina/shared";
 import type { MessageDTO, MentionFeedItemDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeMessage } from "../../lib/serialize.js";
-import { checkPermission } from "../../permissions/permissionService.js";
+import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 import { BadRequestError, ForbiddenError, NotFoundError, TooManyRequestsError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
 import { parseCursor, parseLimit } from "../../lib/pagination.js";
@@ -94,7 +94,7 @@ export async function listChannelMessages(params: {
   const channel = await prisma.channel.findUnique({ where: { id: params.channelId } });
   if (!channel) throw new NotFoundError("Channel not found");
 
-  await checkPermission(params.userId, channel.serverId, Permissions.VIEW_CHANNELS);
+  await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.VIEW_CHANNELS);
 
   const cursor = parseCursor(params.before);
   const limit = parseLimit(params.limit);
@@ -147,7 +147,7 @@ export async function listDMMessages(params: {
 async function assertSlowmodeOk(userId: string, channelId: string, serverId: string, slowmodeSeconds: number): Promise<void> {
   if (slowmodeSeconds <= 0) return;
   try {
-    await checkPermission(userId, serverId, Permissions.MANAGE_MESSAGES);
+    await checkChannelPermission(userId, serverId, channelId, Permissions.MANAGE_MESSAGES);
     return;
   } catch {
     /* not exempt, fall through to the actual check */
@@ -178,7 +178,7 @@ export async function createChannelMessage(params: {
   if (!channel) throw new NotFoundError("Channel not found");
 
   await assertNotMuted(params.userId, channel.serverId);
-  await checkPermission(params.userId, channel.serverId, Permissions.SEND_MESSAGES);
+  await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.SEND_MESSAGES);
   // Server verification gate. After the permission check (so a 403 for "you cannot post here" wins
   // over "verify your email", which is the more useful error) and before anything is written.
   await assertPassesVerification(params.userId, channel.serverId);
@@ -207,7 +207,7 @@ export async function createChannelMessage(params: {
   }
 
   if (params.attachments?.length) {
-    await checkPermission(params.userId, channel.serverId, Permissions.ATTACH_FILES);
+    await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.ATTACH_FILES);
   }
 
   const message = await prisma.message.create({
@@ -347,7 +347,7 @@ export async function editMessage(params: { userId: string; messageId: string; c
 
   if (message.authorId !== params.userId) {
     if (message.channelId && message.channel) {
-      await checkPermission(params.userId, message.channel.serverId, Permissions.MANAGE_MESSAGES);
+      await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.MANAGE_MESSAGES);
     } else {
       throw new ForbiddenError("Only the author can edit this message");
     }
@@ -385,7 +385,7 @@ export async function deleteMessage(params: { userId: string; messageId: string 
 
   if (message.authorId !== params.userId) {
     if (message.channelId && message.channel) {
-      await checkPermission(params.userId, message.channel.serverId, Permissions.MANAGE_MESSAGES);
+      await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.MANAGE_MESSAGES);
     } else {
       throw new ForbiddenError("Only the author can delete this message");
     }
@@ -410,7 +410,7 @@ export async function addReaction(params: { userId: string; messageId: string; e
   const message = await loadMessageOrThrow(params.messageId);
 
   if (message.channelId && message.channel) {
-    await checkPermission(params.userId, message.channel.serverId, Permissions.ADD_REACTIONS);
+    await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.ADD_REACTIONS);
   } else if (!message.dmConversationId) {
     throw new NotFoundError("Message not found");
   } else {
@@ -524,7 +524,7 @@ export async function togglePinMessage(params: { userId: string; messageId: stri
   const message = await loadMessageOrThrow(params.messageId);
   if (!message.channelId || !message.channel) throw new BadRequestError("DM messages cannot be pinned");
 
-  await checkPermission(params.userId, message.channel.serverId, Permissions.MANAGE_MESSAGES);
+  await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.MANAGE_MESSAGES);
 
   const updated = await prisma.message.update({
     where: { id: message.id },
@@ -541,7 +541,7 @@ export async function listPinnedMessages(params: { userId: string; channelId: st
   const channel = await prisma.channel.findUnique({ where: { id: params.channelId } });
   if (!channel) throw new NotFoundError("Channel not found");
 
-  await checkPermission(params.userId, channel.serverId, Permissions.VIEW_CHANNELS);
+  await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.VIEW_CHANNELS);
 
   // Discord caps pins at 50 per channel and so does this — the difference is that Discord enforces
   // it on the way in. Here nothing stops a channel accumulating thousands of pins, and this query

@@ -6,6 +6,7 @@ import { prisma } from "../../db/prisma.js";
 import { serializeChannel, serializeUser } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
+import { filterVisibleChannels } from "../../permissions/permissionService.js";
 import { getIO } from "../../realtime/io.js";
 import { ServerEvents } from "@lumina/shared";
 
@@ -76,7 +77,12 @@ export default async function serverChannelsRoutes(fastify: FastifyInstance) {
         where: { serverId: request.serverId! },
         orderBy: { position: "asc" },
       });
-      return channels.map(serializeChannel);
+      // The single most important application of channel overwrites: a channel the member cannot
+      // view must not appear in their sidebar at all. Filtering here rather than in the client is
+      // the whole point — a client-side filter would still have shipped the channel's name and
+      // topic to someone who was configured not to see it.
+      const visible = await filterVisibleChannels(request.userId!, request.serverId!, channels);
+      return visible.map(serializeChannel);
     },
   );
 
@@ -87,10 +93,13 @@ export default async function serverChannelsRoutes(fastify: FastifyInstance) {
     "/:id/voice-state",
     { preHandler: [requireAuth, requireMembership(resolveServerId.fromParam("id"))] },
     async (request) => {
-      const voiceChannels = await prisma.channel.findMany({
+      const allVoice = await prisma.channel.findMany({
         where: { serverId: request.serverId!, type: "VOICE" },
         select: { id: true },
       });
+      // Same filter as the channel list. Without it the roster would leak who is sitting in a
+      // voice channel the member cannot see.
+      const voiceChannels = await filterVisibleChannels(request.userId!, request.serverId!, allVoice);
       const io = getIO();
       const result: Record<string, VoiceParticipantDTO[]> = {};
       for (const channel of voiceChannels) {

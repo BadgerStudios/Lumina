@@ -2,7 +2,7 @@ import { Permissions, ServerEvents } from "@lumina/shared";
 import type { PollDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializePoll } from "../../lib/serialize.js";
-import { checkPermission } from "../../permissions/permissionService.js";
+import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
 
@@ -145,7 +145,7 @@ async function assertCanVoteHere(
     if (!channel) throw new NotFoundError("Poll not found");
     // VIEW_CHANNELS, not SEND_MESSAGES: voting is not posting, and a read-only announcement channel
     // running a poll is a legitimate thing to want.
-    await checkPermission(userId, channel.serverId, Permissions.VIEW_CHANNELS);
+    await checkChannelPermission(userId, channel.serverId, message.channelId, Permissions.VIEW_CHANNELS);
     return;
   }
   if (message.dmConversationId) {

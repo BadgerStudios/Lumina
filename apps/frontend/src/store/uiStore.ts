@@ -58,9 +58,14 @@ function readStoredNotificationSound(): boolean {
 export interface Keybinds {
   toggleMute: string;
   toggleDeafen: string;
+  pushToTalk: string;
 }
 
-const DEFAULT_KEYBINDS: Keybinds = { toggleMute: "KeyM", toggleDeafen: "KeyD" };
+/** Push-to-talk defaults to a modifier rather than a letter for the same reason AppShell ignores
+ * keybinds while typing: a letter default would transmit every time that letter appeared in a
+ * message. A modifier is safe to hold anywhere, including mid-sentence in the composer — which is
+ * exactly when people use push-to-talk. */
+const DEFAULT_KEYBINDS: Keybinds = { toggleMute: "KeyM", toggleDeafen: "KeyD", pushToTalk: "ControlLeft" };
 
 function readStoredKeybinds(): Keybinds {
   if (typeof window === "undefined") return DEFAULT_KEYBINDS;

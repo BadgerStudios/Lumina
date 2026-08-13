@@ -461,8 +461,42 @@ model Channel {
   children        Channel[]   @relation("ChannelToCategory")
   messages        Message[]
   webhooks        Webhook[]
+  overwrites      ChannelPermissionOverwrite[]
 
   @@index([serverId])
+}
+
+enum OverwriteTargetType {
+  ROLE
+  USER
+}
+
+/**
+ * A per-channel adjustment to the server-wide permissions a role or member already has.
+ *
+ * Two bitfields rather than one, because a channel has to be able to express both directions
+ * independently: "this role may post here even though it cannot post server-wide" (allow) and
+ * "this role may not post here even though it can everywhere else" (deny). A single field could
+ * only ever say one of those, and a tri-state per bit is exactly what two fields encode — a bit
+ * set in neither means "inherit", which is the common case and correctly stays sensitive to later
+ * changes in the underlying role.
+ *
+ * `targetId` is intentionally not a foreign key: it points at a Role or a User depending on
+ * `targetType`, and Prisma cannot express a polymorphic relation. Cleanup of stale rows is
+ * therefore explicit — see deleteChannelOverwritesForRole, called when a role is deleted.
+ */
+model ChannelPermissionOverwrite {
+  id         String              @id @default(cuid())
+  channelId  String
+  targetType OverwriteTargetType
+  targetId   String
+  allow      BigInt              @default(0)
+  deny       BigInt              @default(0)
+  createdAt  DateTime            @default(now())
+  channel    Channel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, targetType, targetId])
+  @@index([channelId])
 }
 
 model Message {

@@ -4,7 +4,7 @@ import { Permissions, ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeRole } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
-import { checkRoleHierarchy } from "../../permissions/permissionService.js";
+import { checkRoleHierarchy, deleteOverwritesForTarget } from "../../permissions/permissionService.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { getIO } from "../../realtime/io.js";
@@ -95,6 +95,10 @@ export default async function roleRoutes(fastify: FastifyInstance) {
       await checkRoleHierarchy(request.userId!, request.serverId!, role.position);
 
       await prisma.role.delete({ where: { id } });
+      // ChannelPermissionOverwrite.targetId is polymorphic and so has no foreign key to cascade
+      // from (see the schema comment). Left behind, these rows would keep applying to a role that
+      // no longer exists — and would attach to a future role that reused the id.
+      await deleteOverwritesForTarget(id);
 
       await recordAuditLog({
         serverId: request.serverId!,
