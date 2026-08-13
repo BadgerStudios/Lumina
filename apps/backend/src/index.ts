@@ -33,9 +33,11 @@ import discoveryRoutes from "./modules/discovery/routes.js";
 import gameRoutes from "./modules/game/routes.js";
 import activityRoutes from "./modules/activities/routes.js";
 import economyRoutes, { seedGifts } from "./modules/economy/routes.js";
+import membershipRoutes from "./modules/economy/memberships.js";
 import { seedPolicies } from "./modules/economy/service.js";
 import inboxRoutes from "./modules/inbox/routes.js";
 import xpRoutes from "./modules/xp/routes.js";
+import eventRoutes from "./modules/events/routes.js";
 import serverRolesRoutes from "./modules/roles/serverRoutes.js";
 import autoModServerRoutes from "./modules/automod/serverRoutes.js";
 import roleRoutes from "./modules/roles/roleRoutes.js";
@@ -336,9 +338,11 @@ async function main() {
   // and /activities/:id, the same split threads already use.
   await fastify.register(activityRoutes, { prefix: "/api" });
   await fastify.register(economyRoutes, { prefix: "/api/economy" });
+  await fastify.register(membershipRoutes, { prefix: "/api/economy" });
   await fastify.register(inboxRoutes, { prefix: "/api/inbox" });
   // Same /api/servers prefix the other server-scoped modules use.
   await fastify.register(xpRoutes, { prefix: "/api/servers" });
+  await fastify.register(eventRoutes, { prefix: "/api/servers" });
   // Versioned economics + the gift catalogue exist from first boot — idempotent seeds.
   await seedPolicies();
   await seedGifts();

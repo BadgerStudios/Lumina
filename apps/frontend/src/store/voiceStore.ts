@@ -445,6 +445,17 @@ function attachSignalingListeners(): void {
   });
 }
 
+/** Tell the server what we're broadcasting so LIVE badges update server-wide (the media itself
+ * still flows peer-to-peer — this is state, not video). Fire-and-forget: if the socket is down
+ * the next roster broadcast corrects everyone anyway. */
+function announceStreamState(kind: "screen" | "camera" | null): void {
+  try {
+    getSocket().emit(ClientEvents.VOICE_STREAM_STATE, { kind });
+  } catch {
+    /* not connected — nothing to announce */
+  }
+}
+
 function stopLocalVideo(): void {
   localVideoStream?.getTracks().forEach((t) => t.stop());
   localVideoStream = null;
@@ -595,6 +606,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         pc.getSenders().filter((s) => s.track?.kind === "video").forEach((s) => pc.removeTrack(s));
       }
       set({ videoSource: null });
+      announceStreamState(null);
       return;
     }
     try {
@@ -605,6 +617,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         for (const track of stream.getTracks()) pc.addTrack(track, stream);
       }
       set({ videoSource: "camera" });
+      announceStreamState("camera");
     } catch {
       set({ error: "Camera access denied or unavailable." });
     }
@@ -617,6 +630,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         pc.getSenders().filter((s) => s.track?.kind === "video").forEach((s) => pc.removeTrack(s));
       }
       set({ videoSource: null });
+      announceStreamState(null);
       return;
     }
     try {
@@ -627,6 +641,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         for (const track of stream.getTracks()) pc.addTrack(track, stream);
       }
       set({ videoSource: "screen" });
+      announceStreamState("screen");
       // The browser's own native "Stop sharing" control ends the track directly — listen for
       // that instead of only relying on our own toggle button.
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {

@@ -11,6 +11,8 @@ import { LINK_PREVIEW_QUEUE, type LinkPreviewJobData } from "./modules/messages/
 import { fetchPreview, broadcastEmbeds } from "./lib/linkPreview.js";
 import { sweepArchivableThreads } from "./modules/threads/service.js";
 import { releaseMaturedEarnings } from "./modules/economy/service.js";
+import { sweepAdPools } from "./modules/economy/pools.js";
+import { sweepEventReminders } from "./modules/events/service.js";
 import { runFinancialAssertions } from "./modules/economy/reconcile.js";
 
 /** How long a video may sit in PROCESSING before the sweep assumes its job was lost. Comfortably
@@ -156,6 +158,21 @@ async function main() {
   // Creator economy automation — §1.1's "no routine staff queues" made literal: the hold-window
   // release and the financial invariants run on the clock, forever, with no approve button.
   const economyTick = async () => {
+    try {
+      const reminded = await sweepEventReminders();
+      // eslint-disable-next-line no-console
+      if (reminded > 0) console.log(`[worker] sent reminders for ${reminded} upcoming event(s)`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] event reminder sweep failed:", err);
+    }
+    try {
+      // Daily ad-spend pools → creator earnings, for any completed day not yet allocated.
+      await sweepAdPools();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] ad pool sweep failed:", err);
+    }
     try {
       const released = await releaseMaturedEarnings();
       // eslint-disable-next-line no-console

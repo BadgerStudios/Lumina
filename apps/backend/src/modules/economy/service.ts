@@ -24,6 +24,7 @@ export const PRODUCTS = {
   GIFT: "gift",
   AD_FEED: "ad_feed",
   PREMIUM_POOL: "premium_pool",
+  MEMBERSHIP: "membership",
 } as const;
 export type Product = (typeof PRODUCTS)[keyof typeof PRODUCTS];
 
@@ -39,7 +40,17 @@ const DEFAULT_POLICIES: { product: string; creatorBps: number; platformBps: numb
   { product: PRODUCTS.GIFT, creatorBps: 8000, platformBps: 2000, holdDays: 7, reserveBps: 0 },
   { product: PRODUCTS.AD_FEED, creatorBps: 5500, platformBps: 4500, holdDays: 14, reserveBps: 500 },
   { product: PRODUCTS.PREMIUM_POOL, creatorBps: 5500, platformBps: 4500, holdDays: 14, reserveBps: 0 },
+  { product: PRODUCTS.MEMBERSHIP, creatorBps: 9000, platformBps: 1000, holdDays: 7, reserveBps: 0 },
 ];
+
+/** Human wording for the earnings inbox line, per product. */
+const EARNING_PREVIEW: Record<string, string> = {
+  [PRODUCTS.TIP]: "You earned from a tip",
+  [PRODUCTS.GIFT]: "You earned from a gift",
+  [PRODUCTS.AD_FEED]: "You earned from the daily ad revenue pool",
+  [PRODUCTS.PREMIUM_POOL]: "You earned from the Premium pool",
+  [PRODUCTS.MEMBERSHIP]: "You earned from a supporter membership",
+};
 
 export async function seedPolicies(): Promise<void> {
   for (const p of DEFAULT_POLICIES) {
@@ -196,7 +207,7 @@ export async function qualifyAndPost(eventId: string, options?: { fundingAccount
       userId: event.creatorId!,
       kind: "EARNING",
       bundleKey: `EARNING:${new Date().toISOString().slice(0, 10)}`,
-      preview: `You earned from a ${product === "gift" ? "gift" : product}`,
+      preview: EARNING_PREVIEW[product] ?? `You have new earnings`,
     }).catch(() => undefined);
   }
 

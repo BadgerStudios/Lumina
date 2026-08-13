@@ -96,16 +96,45 @@ async function main() {
   }
 
   // ---------------------------------------------------------------- minors never touch money
+  const minor = await register(`qq_eco_m_${rand}`, 16, "UNDER_18");
   {
-    const minor = await register(`qq_eco_m_${rand}`, 16, "UNDER_18");
     for (const [label, path, method, body] of [
       ["the studio wallet", "/economy/creator/wallet", "GET", undefined],
       ["gift sending", "/economy/gifts/send", "POST", { giftKey: "spark", creatorId: bob.id }],
       ["tipping", "/economy/tips", "POST", { creatorId: bob.id, amountMinor: 500 }],
+      ["membership subscribing", "/economy/memberships/subscribe", "POST", { creatorId: bob.id }],
+      ["tier creation", "/economy/creator/tier", "PUT", { name: "Supporter", priceMinor: 500, active: true }],
     ]) {
       const res = await api(path, { method, token: minor.token, body });
       res.status === 403 ? ok(`a minor is refused ${label} (403)`) : bad(`minor reached ${label} (${res.status})`);
     }
+  }
+
+  // ---------------------------------------------------------------- memberships
+  {
+    const cheap = await api("/economy/creator/tier", { method: "PUT", token: alice.token, body: { name: "Supporter", priceMinor: 50, active: true } });
+    cheap.status === 400 ? ok("a 50-cent tier is refused (schema floor)") : bad(`50-cent tier answered ${cheap.status}`);
+
+    const save = await api("/economy/creator/tier", { method: "PUT", token: alice.token, body: { name: "Backstage", description: "Early access", priceMinor: 500, active: true } });
+    save.status === 200 ? ok("a creator can publish a $5/mo tier") : bad(`tier save failed (${save.status})`, save.text.slice(0, 100));
+
+    const view = await api(`/economy/creators/${alice.id}/tier`, { token: bob.token });
+    view.json?.tier?.priceMinor === 500 && view.json?.tier?.name === "Backstage"
+      ? ok("another adult sees the published tier")
+      : bad("tier not visible to a prospective supporter", view.text.slice(0, 100));
+
+    const selfSub = await api("/economy/memberships/subscribe", { method: "POST", token: alice.token, body: { creatorId: alice.id } });
+    selfSub.status === 400 ? ok("self-subscription is refused") : bad(`self-subscribe answered ${selfSub.status}`);
+
+    const noTier = await api("/economy/memberships/subscribe", { method: "POST", token: alice.token, body: { creatorId: bob.id } });
+    noTier.status === 404 ? ok("subscribing to a creator with no tier answers 404") : bad(`no-tier subscribe answered ${noTier.status}`);
+
+    const real = await api("/economy/memberships/subscribe", { method: "POST", token: bob.token, body: { creatorId: alice.id } });
+    if (real.status === 200 && real.json?.checkoutUrl?.startsWith("https://checkout.stripe.com")) {
+      ok("a real membership mints a Stripe subscription Checkout session");
+    } else if (real.status === 409) {
+      ok("memberships fail closed when billing is unconfigured (409)");
+    } else bad(`membership subscribe answered ${real.status}`, real.text.slice(0, 140));
   }
 
   // ---------------------------------------------------------------- inbox
@@ -160,6 +189,36 @@ async function main() {
     (aliceInbox.json ?? []).some((n) => n.kind === "REPLY")
       ? ok("a reply to your message lands in your inbox")
       : bad("no REPLY notification arrived");
+
+    // ---------------------------------------------------------------- scheduled events
+    // Bob is a plain member of Alice's server (joined above) — he must NOT be able to schedule.
+    const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const bobEvent = await api(`/servers/${server.id}/events`, { method: "POST", token: bob.token, body: { name: "Bob's takeover", startsAt: inAnHour } });
+    bobEvent.status === 403 ? ok("a plain member cannot schedule events (403)") : bad(`member scheduled an event (${bobEvent.status})`);
+
+    const past = await api(`/servers/${server.id}/events`, { method: "POST", token: alice.token, body: { name: "Yesterday", startsAt: new Date(Date.now() - 3600_000).toISOString() } });
+    past.status === 400 ? ok("an event cannot start in the past") : bad(`past event answered ${past.status}`);
+
+    const created = await api(`/servers/${server.id}/events`, {
+      method: "POST", token: alice.token,
+      body: { name: "Movie night", description: "bring popcorn", startsAt: inAnHour, location: "the big voice channel" },
+    });
+    created.status === 201 ? ok("the owner scheduled an event") : bad(`event create failed (${created.status})`, created.text.slice(0, 100));
+
+    if (created.status === 201) {
+      const rsvp = await api(`/servers/${server.id}/events/${created.json.id}/rsvp`, { method: "PUT", token: bob.token, body: { status: "GOING" } });
+      rsvp.status === 200 ? ok("a member can RSVP") : bad(`rsvp failed (${rsvp.status})`);
+
+      const list = await api(`/servers/${server.id}/events`, { token: bob.token });
+      const mine = (list.json ?? []).find((e) => e.id === created.json.id);
+      mine && mine.myRsvp === "GOING" && mine.goingCount === 2
+        ? ok("the event lists with both RSVPs (creator auto-going + member)")
+        : bad(`event list wrong (myRsvp=${mine?.myRsvp}, going=${mine?.goingCount})`);
+
+      await api(`/servers/${server.id}/events/${created.json.id}`, { method: "DELETE", token: alice.token });
+      const lateRsvp = await api(`/servers/${server.id}/events/${created.json.id}/rsvp`, { method: "PUT", token: bob.token, body: { status: "GOING" } });
+      lateRsvp.status === 400 ? ok("RSVPing a cancelled event is refused") : bad(`cancelled-event rsvp answered ${lateRsvp.status}`);
+    }
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

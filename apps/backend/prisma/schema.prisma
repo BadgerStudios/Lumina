@@ -246,6 +246,11 @@ model User {
   pollVotes              PollVote[]
   interactions           Interaction[]
   createdTemplates       ServerTemplate[]         @relation("TemplateCreator")
+  createdEvents          ServerEvent[]            @relation("EventCreator")
+  eventRsvps             ServerEventRsvp[]
+  creatorTier            CreatorTier?
+  supporters             CreatorMembership[]      @relation("MembershipCreator")
+  supporting             CreatorMembership[]      @relation("MembershipMember")
   threadMemberships ThreadMembership[]
   parentLinkAsChild  ParentLink?             @relation("ChildOfLink")
   parentLinksAsParent ParentLink[]           @relation("ParentOfLink")
@@ -428,6 +433,7 @@ model Server {
   templatesFrom         ServerTemplate[]       @relation("TemplateSource")
   memberXp     MemberXp[]
   levelRewards LevelReward[]
+  events       ServerEvent[]
 }
 
 model Membership {
@@ -496,6 +502,7 @@ model Channel {
   messages        Message[]
   webhooks        Webhook[]
   overwrites      ChannelPermissionOverwrite[]
+  events          ServerEvent[]
 
   // ---- thread fields (null/default on every non-THREAD channel)
   //
@@ -537,6 +544,101 @@ model ThreadMembership {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([channelId, userId])
+  @@index([userId])
+}
+
+enum EventRsvpStatus {
+  GOING
+  INTERESTED
+}
+
+/**
+ * A scheduled server event — the strongest planned-comeback trigger a community has. Either a
+ * `channelId` (it happens in a voice/stage channel here) or a free-text `location` (somewhere
+ * else: a game lobby, a URL, a street address); both null is legal and means "announced, place
+ * TBD".
+ */
+model ServerEvent {
+  id          String    @id @default(cuid())
+  serverId    String
+  creatorId   String?
+  name        String
+  description String?
+  channelId   String?
+  location    String?
+  startsAt    DateTime
+  endsAt      DateTime?
+  canceledAt  DateTime?
+  /// Set once the pre-start reminder sweep has notified RSVPs — the sweep's idempotency marker,
+  /// so a worker restart cannot re-remind the same event.
+  remindedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  server  Server            @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  creator User?             @relation("EventCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  channel Channel?          @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  rsvps   ServerEventRsvp[]
+
+  @@index([serverId, startsAt])
+  /// The reminder sweep: upcoming, not yet reminded.
+  @@index([startsAt])
+}
+
+enum CreatorMembershipStatus {
+  INCOMPLETE
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+/// A creator's monthly supporter tier — one per creator in v1. The price is captured onto each
+/// membership at subscribe time, so a later price change never silently rebills existing
+/// supporters at a number they didn't agree to.
+model CreatorTier {
+  creatorId   String   @id
+  name        String   @default("Supporter")
+  description String?
+  /// Monthly price in USD minor units. Bounded at the route ($1–$50).
+  priceMinor  Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+}
+
+/// One supporter's recurring membership to one creator. Money never moves from this row — each
+/// paid invoice flows through the revenue-event funnel like every other product; this row is the
+/// relationship (who supports whom, at what state).
+model CreatorMembership {
+  id                   String                  @id @default(cuid())
+  creatorId            String
+  memberId             String
+  status               CreatorMembershipStatus @default(INCOMPLETE)
+  priceMinor           Int
+  stripeSubscriptionId String?                 @unique
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  creator User @relation("MembershipCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  member  User @relation("MembershipMember", fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([creatorId, memberId])
+  @@index([memberId])
+}
+
+model ServerEventRsvp {
+  eventId   String
+  userId    String
+  status    EventRsvpStatus @default(GOING)
+  createdAt DateTime        @default(now())
+
+  event ServerEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, userId])
   @@index([userId])
 }
 
@@ -923,6 +1025,8 @@ model Video {
   derivatives Video[] @relation("VideoDerivatives")
 
   adCampaigns AdCampaign[] @relation("AdVideo")
+
+  viewDays VideoViewDay[]
 
   likes    VideoLike[]
   comments VideoComment[]
@@ -1544,6 +1648,47 @@ model AdCampaignDaily {
   @@index([day])
 }
 
+/// Per-day, per-video view rollup — the weight source for daily revenue-pool allocation. Written
+/// beside the global viewCount increment under the same Redis dedupe, so a "view" means the same
+/// thing to the counter a user sees and to the pool a creator is paid from.
+model VideoViewDay {
+  id      String   @id @default(cuid())
+  videoId BigInt
+  /// Midnight UTC of the day counted, matching AdCampaignDaily.day.
+  day     DateTime
+  views   Int      @default(0)
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, day])
+  @@index([day])
+}
+
+enum PoolRunStatus {
+  POSTED
+  EMPTY_POOL
+  NO_QUALIFIED_VIEWS
+}
+
+/// Completion marker + audit line for one daily pool allocation. The per-creator postings carry
+/// their own idempotency keys, so a crashed sweep re-runs safely; this row exists so a completed
+/// day is never allocated twice and "what did the pool pay on day D" is one lookup.
+model PoolRun {
+  id            String        @id @default(cuid())
+  product       String
+  day           DateTime
+  poolMinor     BigInt
+  currency      String        @default("usd") @db.VarChar(3)
+  status        PoolRunStatus
+  creatorCount  Int           @default(0)
+  /// Integer-division residue from allocation — units the pool could not hand out evenly.
+  /// Recorded rather than silently absorbed, per the visible-residual rule the ledger follows.
+  residualMinor BigInt        @default(0)
+  createdAt     DateTime      @default(now())
+
+  @@unique([product, day])
+}
+
 /// One single-use recovery code for an account with 2FA enabled.
 ///
 /// A row per code rather than an array column, so "mark this one used" is a single write that
@@ -2133,6 +2278,7 @@ enum NotificationKind {
   FRIEND_ACCEPT
   LEVEL_UP
   EARNING
+  EVENT_REMINDER
 }
 
 /**

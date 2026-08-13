@@ -17,6 +17,9 @@ export const ClientEvents = {
   VOICE_JOIN: "voice:join",
   VOICE_LEAVE: "voice:leave",
   VOICE_SIGNAL: "voice:signal",
+  // "I started/stopped broadcasting screen or camera" — state only, never media. The server
+  // stamps it onto the socket and re-broadcasts the roster so LIVE badges reach the whole server.
+  VOICE_STREAM_STATE: "voice:stream-state",
   // Soundboard trigger. Carries only a sound id: the server looks the clip up, checks the sender is
   // actually in the voice channel they claim, and relays. A client never gets to name the URL that
   // everyone else's browser will fetch and play.

@@ -20,6 +20,7 @@ export const Permissions = {
   ADMINISTRATOR: 1n << 15n,
   MANAGE_WEBHOOKS: 1n << 16n,
   MANAGE_EMOJI: 1n << 17n,
+  MANAGE_EVENTS: 1n << 18n,
 } as const;
 
 export type PermissionKey = keyof typeof Permissions;

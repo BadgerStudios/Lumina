@@ -1,6 +1,99 @@
-import { Wallet, Clock, Lock, CheckCircle2, Circle, BadgeDollarSign, Landmark } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Wallet, Clock, Lock, CheckCircle2, Circle, BadgeDollarSign, Landmark, Users } from "lucide-react";
 import { cn } from "../lib/cn";
-import { useCreatorStatus, useCreatorWallet, useCreatorEarnings } from "../queries/economy";
+import { UserAvatar } from "../components/common/UserAvatar";
+import { useCreatorStatus, useCreatorWallet, useCreatorEarnings, useMyTier, useSaveTier, useSupporters } from "../queries/economy";
+
+/** The supporter-tier editor + supporter roll. Form state resyncs when the server answer
+ * arrives — same stale-form lesson every entity-editing modal in this app has learned. */
+function MembershipSection() {
+  const { data: myTier } = useMyTier();
+  const { data: supporters } = useSupporters();
+  const saveTier = useSaveTier();
+  const [name, setName] = useState("Supporter");
+  const [priceDollars, setPriceDollars] = useState("5");
+  const [description, setDescription] = useState("");
+  const [active, setActive] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (myTier?.tier) {
+      setName(myTier.tier.name);
+      setPriceDollars((myTier.tier.priceMinor / 100).toFixed(2).replace(/\.00$/, ""));
+      setDescription(myTier.tier.description ?? "");
+      setActive(myTier.tier.active ?? false);
+    }
+  }, [myTier]);
+
+  const priceMinor = Math.round(Number(priceDollars) * 100);
+  const priceValid = Number.isFinite(priceMinor) && priceMinor >= 100 && priceMinor <= 5000;
+
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold uppercase text-signal-dim">
+        <Users size={13} /> Membership
+      </h2>
+      <div className="flex flex-col gap-3 rounded-xl bg-base-800 p-4 ring-1 ring-base-600">
+        <p className="text-xs text-signal-faint">
+          A monthly supporter tier your audience can join from your videos. You keep 90% of every
+          payment; existing supporters keep the price they joined at.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={name} onChange={(e) => setName(e.target.value)} maxLength={40} aria-label="Tier name"
+            className="w-40 rounded bg-base-900 px-2.5 py-1.5 text-sm text-signal ring-1 ring-base-600"
+          />
+          <div className="flex items-center gap-1 text-sm text-signal">
+            $
+            <input
+              value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)} inputMode="decimal"
+              aria-label="Monthly price in dollars"
+              className="w-16 rounded bg-base-900 px-2.5 py-1.5 text-sm text-signal ring-1 ring-base-600"
+            />
+            /mo
+          </div>
+          <label className="flex cursor-pointer items-center gap-1.5 text-sm text-signal">
+            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+            Open to new supporters
+          </label>
+        </div>
+        <input
+          value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300}
+          placeholder="What supporters make possible (optional)"
+          className="rounded bg-base-900 px-2.5 py-1.5 text-sm text-signal ring-1 ring-base-600"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              await saveTier.mutateAsync({ name, description: description || null, priceMinor, active });
+              setSaved(true);
+              setTimeout(() => setSaved(false), 2000);
+            }}
+            disabled={!priceValid || !name.trim() || saveTier.isPending}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {saved ? "Saved ✓" : "Save tier"}
+          </button>
+          {!priceValid && <span className="text-xs text-dnd">Price must be $1–$50</span>}
+          <span className="ml-auto text-xs text-signal-faint">
+            {myTier?.supporters ?? 0} active supporter{(myTier?.supporters ?? 0) === 1 ? "" : "s"}
+          </span>
+        </div>
+        {(supporters ?? []).length > 0 && (
+          <div className="flex flex-col gap-1 border-t border-base-600 pt-2">
+            {(supporters ?? []).map((s) => (
+              <div key={s.member.id} className="flex items-center gap-2 text-sm text-signal">
+                <UserAvatar avatarUrl={s.member.avatarUrl} name={s.member.displayName ?? s.member.username} size={22} />
+                <span className="min-w-0 flex-1 truncate">{s.member.displayName ?? s.member.username}</span>
+                <span className="shrink-0 text-xs text-signal-faint">${(s.priceMinor / 100).toFixed(2)}/mo</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 /**
  * Creator Studio — every number on this page is ledger-backed, read straight off the wallet read
@@ -62,6 +155,8 @@ export function StudioRoute() {
           </div>
         </section>
 
+        <MembershipSection />
+
         <section>
           <h2 className="mb-2 text-sm font-bold uppercase text-signal-dim">Eligibility</h2>
           <div className="flex flex-col gap-1.5">
@@ -85,7 +180,7 @@ export function StudioRoute() {
           <h2 className="mb-2 text-sm font-bold uppercase text-signal-dim">Earnings</h2>
           {!earnings?.length ? (
             <p className="rounded-xl bg-base-800 p-4 text-sm text-signal-faint ring-1 ring-base-600">
-              Nothing yet. Tips and gifts from your audience land here, itemised.
+              Nothing yet. Tips, gifts, memberships and your share of the daily ad pool land here, itemised.
             </p>
           ) : (
             <div className="flex flex-col gap-1">

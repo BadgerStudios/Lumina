@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Reply, SmilePlus, Heart, MessageCircle, UserCheck, TrendingUp, Coins, MessagesSquare } from "lucide-react";
+import { Bell, Reply, SmilePlus, Heart, MessageCircle, UserCheck, TrendingUp, Coins, MessagesSquare, CalendarDays } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { UserAvatar } from "../common/UserAvatar";
 import { useInbox, useMarkInboxRead, type InboxItemDTO } from "../../queries/inbox";
@@ -14,6 +14,7 @@ const KIND_META: Record<InboxItemDTO["kind"], { icon: typeof Bell; verb: string 
   FRIEND_ACCEPT: { icon: UserCheck, verb: "accepted your friend request" },
   LEVEL_UP: { icon: TrendingUp, verb: "" },
   EARNING: { icon: Coins, verb: "" },
+  EVENT_REMINDER: { icon: CalendarDays, verb: "" },
 };
 
 function actorLine(item: InboxItemDTO): string {

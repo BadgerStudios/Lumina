@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X, Coins, Loader2, HandCoins } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { useGiftCatalog, useSendGift, useSendTip } from "../../queries/economy";
+import { useGiftCatalog, useSendGift, useSendTip, useCreatorTier, useSubscribeMembership, useCancelMembership } from "../../queries/economy";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/apiClient";
 
@@ -24,6 +24,9 @@ export function GiftSheet({ creatorId, creatorName, contentRef, onClose }: {
   });
   const sendGift = useSendGift();
   const sendTip = useSendTip();
+  const { data: tierView } = useCreatorTier(creatorId);
+  const subscribe = useSubscribeMembership();
+  const cancelMembership = useCancelMembership();
   const [flash, setFlash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tipBusy, setTipBusy] = useState(false);
@@ -93,6 +96,36 @@ export function GiftSheet({ creatorId, creatorName, contentRef, onClose }: {
             {tipBusy ? <Loader2 size={15} className="animate-spin" /> : <HandCoins size={15} />}
             Tip $5 by card
           </button>
+
+          {tierView?.tier && !tierView.myMembership && (
+            <button
+              onClick={async () => {
+                setError(null);
+                try {
+                  const { checkoutUrl } = await subscribe.mutateAsync({ creatorId });
+                  window.location.href = checkoutUrl;
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Memberships aren't available right now.");
+                }
+              }}
+              disabled={subscribe.isPending}
+              className="mt-2 w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-accent ring-1 ring-accent hover:bg-accent/10 disabled:opacity-50"
+            >
+              Become a {tierView.tier.name} · ${(tierView.tier.priceMinor / 100).toFixed(2)}/mo
+            </button>
+          )}
+          {tierView?.myMembership?.status === "ACTIVE" && (
+            <p className="mt-2 text-center text-xs text-signal-dim">
+              You're a {tierView.tier?.name ?? "supporter"} ✓{" "}
+              <button
+                onClick={() => cancelMembership.mutate(creatorId)}
+                disabled={cancelMembership.isPending}
+                className="text-signal-faint underline hover:text-signal"
+              >
+                cancel
+              </button>
+            </p>
+          )}
           {error && <p className="mt-2 text-center text-xs text-dnd">{error}</p>}
         </>
       )}

@@ -5,6 +5,7 @@ import { RoleEditorModal } from "./RoleEditorModal";
 import { ServerSettingsModal } from "./ServerSettingsModal";
 import { ChannelSettingsModal } from "./ChannelSettingsModal";
 import { LeaderboardModal } from "./LeaderboardModal";
+import { EventsModal } from "./EventsModal";
 import { GroupDMSettingsModal } from "./GroupDMSettingsModal";
 import { NotificationSettingsModal } from "./NotificationSettingsModal";
 import { UserSettingsModal } from "./UserSettingsModal";
@@ -26,6 +27,7 @@ export function ModalRoot() {
       <ServerSettingsModal />
       <ChannelSettingsModal />
       <LeaderboardModal />
+      <EventsModal />
       <GroupDMSettingsModal />
       <NotificationSettingsModal />
       <UserSettingsModal />

@@ -23,6 +23,7 @@ const PERMISSION_LABELS: Record<PermissionKey, string> = {
   ADMINISTRATOR: "Administrator (grants everything)",
   MANAGE_WEBHOOKS: "Manage Webhooks",
   MANAGE_EMOJI: "Manage Emoji",
+  MANAGE_EVENTS: "Manage Events",
 };
 
 function colorToHex(color: number | null): string {

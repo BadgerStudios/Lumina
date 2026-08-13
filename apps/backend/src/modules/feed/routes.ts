@@ -222,6 +222,16 @@ export default async function feedRoutes(fastify: FastifyInstance) {
       const first = await redis.set(key, "1", "EX", VIEW_DEDUPE_TTL_SEC, "NX");
       if (first === "OK") {
         await prisma.video.update({ where: { id: videoId }, data: { viewCount: { increment: 1 } } });
+        // Same deduped view, rolled up per UTC day — the weight the daily ad pool pays on
+        // (economy/pools.ts). One dedupe deciding both keeps the paid number and the shown
+        // number the same fact.
+        const day = new Date();
+        day.setUTCHours(0, 0, 0, 0);
+        await prisma.videoViewDay.upsert({
+          where: { videoId_day: { videoId, day } },
+          create: { videoId, day, views: 1 },
+          update: { views: { increment: 1 } },
+        });
       }
     } catch {
       /* counting a view must never break playback */

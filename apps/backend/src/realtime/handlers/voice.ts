@@ -41,7 +41,14 @@ async function broadcastRoster(io: SocketIOServer, channelId: string): Promise<v
   for (const s of sockets) {
     const otherUserId = s.data.userId as string;
     const user = await prisma.user.findUnique({ where: { id: otherUserId } });
-    if (user) participants.push({ userId: otherUserId, socketId: s.id, user: serializeUser(user) });
+    if (user) {
+      participants.push({
+        userId: otherUserId,
+        socketId: s.id,
+        user: serializeUser(user),
+        streaming: (s.data.streaming as "screen" | "camera" | undefined) ?? null,
+      });
+    }
   }
   io.to(`server:${channel.serverId}`).emit(ServerEvents.VOICE_ROSTER_UPDATE, { channelId, participants });
 }
@@ -52,6 +59,7 @@ async function leaveVoice(io: SocketIOServer, socket: Socket): Promise<void> {
   const room = voiceRoom(channelId);
   await socket.leave(room);
   socket.data.voiceChannelId = undefined;
+  socket.data.streaming = undefined;
   io.to(room).emit(ServerEvents.VOICE_PARTICIPANT_LEFT, { userId: socket.data.userId as string, socketId: socket.id });
   void broadcastRoster(io, channelId);
 }
@@ -87,7 +95,14 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
         for (const s of existingSockets) {
           const otherUserId = s.data.userId as string;
           const user = await prisma.user.findUnique({ where: { id: otherUserId } });
-          if (user) participants.push({ userId: otherUserId, socketId: s.id, user: serializeUser(user) });
+          if (user) {
+            participants.push({
+              userId: otherUserId,
+              socketId: s.id,
+              user: serializeUser(user),
+              streaming: (s.data.streaming as "screen" | "camera" | undefined) ?? null,
+            });
+          }
         }
 
         await socket.join(room);
@@ -109,6 +124,20 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
 
   socket.on(ClientEvents.VOICE_LEAVE, () => {
     void leaveVoice(io, socket);
+  });
+
+  /**
+   * Go Live state. Pure bookkeeping — the media itself still travels peer-to-peer like every
+   * other track; this only stamps "what am I broadcasting" onto the socket and re-broadcasts
+   * the roster, which is how LIVE badges reach members who aren't in the call. Validated to the
+   * three legal values so a client can't smuggle arbitrary strings into everyone's roster.
+   */
+  socket.on(ClientEvents.VOICE_STREAM_STATE, (payload: { kind?: "screen" | "camera" | null }) => {
+    const channelId = socket.data.voiceChannelId as string | undefined;
+    if (!channelId) return;
+    const kind = payload?.kind === "screen" || payload?.kind === "camera" ? payload.kind : null;
+    socket.data.streaming = kind ?? undefined;
+    void broadcastRoster(io, channelId);
   });
 
   /**

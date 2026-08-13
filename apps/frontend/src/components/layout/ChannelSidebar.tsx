@@ -21,6 +21,7 @@ import {
   LogOut,
   Bell,
   MessagesSquare,
+  CalendarDays,
 } from "lucide-react";
 import { useState } from "react";
 import { useChannels, useReorderChannels } from "../../queries/channels";
@@ -170,10 +171,24 @@ function ChannelRow({
  * see queries/voice.ts). While you're actively connected, the richer `participants` state (with
  * live `speaking`/mute indicators from the real WebRTC signaling) is shown instead for anyone
  * also in the call, since it's more detailed than the roster snapshot. */
+/** LIVE pill for a screen broadcast, plain camera glyph for video — the roster carries which. */
+function StreamBadge({ kind }: { kind?: "screen" | "camera" | null }) {
+  if (kind === "screen") {
+    return (
+      <span className="ml-auto shrink-0 rounded bg-dnd px-1 py-px text-[9px] font-bold uppercase tracking-wide text-white">
+        Live
+      </span>
+    );
+  }
+  if (kind === "camera") return <Video size={11} className="ml-auto shrink-0 text-online" />;
+  return null;
+}
+
 function VoiceChannelRow({ channel, serverId }: { channel: ChannelDTO; serverId: string }) {
   const user = useAuthStore((s) => s.user);
   const voiceChannelId = useVoiceStore((s) => s.channelId);
   const connecting = useVoiceStore((s) => s.connecting);
+  const videoSource = useVoiceStore((s) => s.videoSource);
   const participants = useVoiceStore((s) => s.participants);
   const roster = useVoiceStore((s) => s.roster[channel.id]);
   const muted = useVoiceStore((s) => s.muted);
@@ -195,9 +210,14 @@ function VoiceChannelRow({ channel, serverId }: { channel: ChannelDTO; serverId:
         <Volume2 size={18} className="shrink-0" />
         <span className="truncate">{channel.name}</span>
         {connecting && isConnected ? <span className="ml-auto text-[10px] text-signal-faint">Connecting…</span> : null}
-        {!isConnected && roster && roster.length > 0 ? (
-          <span className="ml-auto text-[10px] text-signal-faint">{roster.length}</span>
-        ) : null}
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {roster?.some((p) => p.streaming === "screen") ? (
+            <span className="rounded bg-dnd px-1 py-px text-[9px] font-bold uppercase tracking-wide text-white">Live</span>
+          ) : null}
+          {!isConnected && roster && roster.length > 0 ? (
+            <span className="text-[10px] text-signal-faint">{roster.length}</span>
+          ) : null}
+        </span>
       </button>
       {isConnected && (
         <div className="ml-6 flex flex-col gap-1 py-1">
@@ -206,6 +226,7 @@ function VoiceChannelRow({ channel, serverId }: { channel: ChannelDTO; serverId:
               <UserAvatar avatarUrl={user.avatarUrl} name={user.displayName ?? user.username} size={20} />
               <span className="truncate">{user.displayName ?? user.username}</span>
               {muted ? <MicOff size={11} className="shrink-0 text-dnd" /> : null}
+              <StreamBadge kind={videoSource} />
             </div>
           )}
           {participantList.map((p) => (
@@ -215,6 +236,7 @@ function VoiceChannelRow({ channel, serverId }: { channel: ChannelDTO; serverId:
             >
               <UserAvatar avatarUrl={p.user.avatarUrl} name={p.user.displayName ?? p.user.username} size={20} />
               <span className="truncate">{p.user.displayName ?? p.user.username}</span>
+              <StreamBadge kind={roster?.find((r) => r.socketId === p.socketId)?.streaming} />
             </div>
           ))}
         </div>
@@ -225,6 +247,7 @@ function VoiceChannelRow({ channel, serverId }: { channel: ChannelDTO; serverId:
             <div key={p.socketId} className="flex items-center gap-1.5 text-xs text-signal-dim">
               <UserAvatar avatarUrl={p.user.avatarUrl} name={p.user.displayName ?? p.user.username} size={20} />
               <span className="truncate">{p.user.displayName ?? p.user.username}</span>
+              <StreamBadge kind={p.streaming} />
             </div>
           ))}
         </div>
@@ -363,6 +386,12 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
               className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600"
             >
               <Trophy size={15} /> Leaderboard
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => openModalWith("serverEvents", { serverId })}
+              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600"
+            >
+              <CalendarDays size={15} /> Events
             </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={() => openModalWith("notificationSettings", { serverId })}

@@ -514,6 +514,10 @@ export interface VoiceParticipantDTO {
   userId: string;
   socketId: string;
   user: UserDTO;
+  /** What this participant is broadcasting into the call right now — "screen" renders the red
+   * LIVE treatment, "camera" the plain video indicator. Carried on the server-wide roster so
+   * people OUTSIDE the call can see someone has gone live without joining first. */
+  streaming?: "screen" | "camera" | null;
 }
 
 /** One RefreshToken row, i.e. one logged-in device/browser (see UserSettingsModal.tsx's

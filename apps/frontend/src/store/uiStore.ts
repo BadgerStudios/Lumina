@@ -11,6 +11,7 @@ export type ModalType =
   | "groupDMSettings"
   | "notificationSettings"
   | "leaderboard"
+  | "serverEvents"
   | "userSettings"
   | null;
 
@@ -23,6 +24,7 @@ interface ModalPayloads {
   groupDMSettings: { conversationId: string };
   notificationSettings: { serverId: string };
   leaderboard: { serverId: string };
+  serverEvents: { serverId: string };
   userSettings: undefined;
   createServer: undefined;
 }

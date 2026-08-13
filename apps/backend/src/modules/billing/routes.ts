@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { handleTipCompleted } from "../economy/routes.js";
+import { syncMembershipFromSubscription, handleMembershipInvoicePaid } from "../economy/memberships.js";
 // Minors get no billing surface at all — see modules/parental/service.ts.
 import { requireAdult } from "../age/guard.js";
 import { primaryAppOrigin } from "../../lib/appOrigin.js";
@@ -232,6 +233,12 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const sub = event.data.object as Stripe.Subscription;
+      // Creator memberships ride the same subscription machinery as Premium but land on their
+      // own row — told apart by server-set metadata, exactly like tips vs coin top-ups above.
+      if (sub.metadata?.kind === "membership") {
+        await syncMembershipFromSubscription(sub);
+        break;
+      }
       const userId = sub.metadata?.userId;
       // Without a userId there is no account to attach this to. Logged and skipped rather than
       // guessed at — attaching a subscription to the wrong person is worse than missing one.
@@ -260,6 +267,10 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
 
     case "invoice.paid": {
       const invoice = event.data.object as Stripe.Invoice;
+      // If this invoice belongs to a creator membership, it ALSO becomes creator revenue through
+      // the standard funnel (idempotent on the invoice id). Premium invoices fall through — the
+      // membership handler answers only for subscriptions it recognizes.
+      await handleMembershipInvoicePaid(invoice);
       await recordTransaction({
         eventId: event.id,
         userId: await userIdForCustomer(invoice.customer),

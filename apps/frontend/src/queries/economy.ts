@@ -43,3 +43,63 @@ export function useSendTip() {
       api.post<{ checkoutUrl: string }>("/economy/tips", body),
   });
 }
+
+// ---------------------------------------------------------------- memberships
+
+export interface TierDTO { name: string; description: string | null; priceMinor: number; active?: boolean }
+export interface CreatorTierViewDTO {
+  tier: TierDTO | null;
+  myMembership: { status: "INCOMPLETE" | "ACTIVE" | "PAST_DUE"; currentPeriodEnd: string | null } | null;
+}
+
+export function useMyTier(enabled = true) {
+  return useQuery({
+    queryKey: ["membership", "myTier"],
+    queryFn: () => api.get<{ tier: TierDTO | null; supporters: number }>("/economy/creator/tier"),
+    enabled,
+  });
+}
+
+export function useSaveTier() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; description?: string | null; priceMinor: number; active: boolean }) =>
+      api.put("/economy/creator/tier", body),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["membership", "myTier"] }),
+  });
+}
+
+export function useCreatorTier(creatorId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["membership", "tier", creatorId],
+    queryFn: () => api.get<CreatorTierViewDTO>(`/economy/creators/${creatorId}/tier`),
+    enabled: enabled && !!creatorId,
+  });
+}
+
+export function useSubscribeMembership() {
+  return useMutation({
+    mutationFn: (body: { creatorId: string }) =>
+      api.post<{ checkoutUrl: string }>("/economy/memberships/subscribe", body),
+  });
+}
+
+export function useCancelMembership() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (creatorId: string) =>
+      api.post<{ ok: boolean; endsAt: string | null }>(`/economy/memberships/${creatorId}/cancel`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["membership"] }),
+  });
+}
+
+export function useSupporters(enabled = true) {
+  return useQuery({
+    queryKey: ["membership", "supporters"],
+    queryFn: () =>
+      api.get<{ member: { id: string; username: string; displayName: string | null; avatarUrl: string | null }; priceMinor: number; since: string }[]>(
+        "/economy/creator/supporters",
+      ),
+    enabled,
+  });
+}

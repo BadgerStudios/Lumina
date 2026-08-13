@@ -4,7 +4,7 @@ import type { UserDTO } from "@lumina/shared";
 
 export interface InboxItemDTO {
   id: string;
-  kind: "REPLY" | "REACTION" | "VIDEO_LIKE" | "VIDEO_COMMENT" | "THREAD" | "FRIEND_ACCEPT" | "LEVEL_UP" | "EARNING";
+  kind: "REPLY" | "REACTION" | "VIDEO_LIKE" | "VIDEO_COMMENT" | "THREAD" | "FRIEND_ACCEPT" | "LEVEL_UP" | "EARNING" | "EVENT_REMINDER";
   actor: Pick<UserDTO, "id" | "username" | "displayName" | "avatarUrl"> | null;
   actorCount: number;
   messageId: string | null;
