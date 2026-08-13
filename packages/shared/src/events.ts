@@ -46,6 +46,9 @@ export const ServerEvents = {
   CHANNEL_OVERWRITES_UPDATE: "channel:overwrites:update",
   THREAD_CREATE: "thread:create",
   THREAD_UPDATE: "thread:update",
+  /** Something landed in the recipient's Activity inbox. Carries nothing — the client refetches
+   * its own inbox, so the payload can't leak across a shared room. */
+  INBOX_NEW: "inbox:new",
   SERVER_UPDATE: "server:update",
   SERVER_DELETE: "server:delete",
   DM_CREATE: "dm:create",

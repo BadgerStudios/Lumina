@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { handleTipCompleted } from "../economy/routes.js";
 // Minors get no billing surface at all — see modules/parental/service.ts.
 import { requireAdult } from "../age/guard.js";
 import { primaryAppOrigin } from "../../lib/appOrigin.js";
@@ -200,6 +201,11 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
 
       // An ad campaign payment. Told apart by `metadata.kind`, which this server set when it
       // created the session — never inferred from the amount, which an advertiser can influence.
+      // A tip. Attribution rides server-set metadata; posting is idempotent on the session id.
+      if (session.metadata?.kind === "tip") {
+        await handleTipCompleted(session);
+        break;
+      }
       if (session.metadata?.kind === "ad_campaign") {
         await fundAdCampaign(event, session);
         return;

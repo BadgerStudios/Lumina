@@ -10,6 +10,7 @@ export type ModalType =
   | "channelSettings"
   | "groupDMSettings"
   | "notificationSettings"
+  | "leaderboard"
   | "userSettings"
   | null;
 
@@ -21,6 +22,7 @@ interface ModalPayloads {
   channelSettings: { serverId: string; channelId: string };
   groupDMSettings: { conversationId: string };
   notificationSettings: { serverId: string };
+  leaderboard: { serverId: string };
   userSettings: undefined;
   createServer: undefined;
 }
@@ -39,8 +41,8 @@ export const LIGHT_THEMES: Theme[] = ["light", "slate", "parchment"];
 export type AccentTheme = "aurora" | "crimson" | "forest" | "solar" | "ocean";
 export const ACCENT_THEMES: AccentTheme[] = ["aurora", "crimson", "forest", "solar", "ocean"];
 /** Which mobile overlay drawer (<768px, see components/layout/MobileBottomNav.tsx) is open.
- * "activity" has no backing feature yet (no mentions/notifications model in the backend) — it
- * renders an honest placeholder rather than faking data, see MobileBottomNav.tsx. */
+ * "activity" renders the unified inbox (mentions strip + replies/reactions/likes/level-ups) —
+ * see components/layout/ActivityFeed.tsx and components/inbox/InboxPanel.tsx. */
 export type MobileDrawer = "servers" | "channels" | "members" | "activity" | null;
 
 const DENSITY_KEY = "lumina-density";

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { pushInboxNotification } from "../inbox/service.js";
 import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
 import { isStaff } from "../../lib/platformRole.js";
@@ -135,6 +136,19 @@ export default async function videoSocialRoutes(fastify: FastifyInstance) {
       // Mentions notify, fire-and-forget — a comment must not wait on push delivery, and a push
       // failure must not fail the comment.
       void notifyMentions(comment.content, request.userId!, videoId);
+      void (async () => {
+        const video = await prisma.video.findUnique({ where: { id: videoId }, select: { authorId: true } });
+        if (video?.authorId) {
+          await pushInboxNotification({
+            userId: video.authorId,
+            kind: "VIDEO_COMMENT",
+            bundleKey: `VIDEO_COMMENT:${videoId}`,
+            actorId: request.userId!,
+            videoId: videoId.toString(),
+            preview: parsed.data.content.slice(0, 140),
+          });
+        }
+      })().catch(() => undefined);
 
       reply.code(201);
       return {

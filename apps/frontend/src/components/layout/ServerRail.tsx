@@ -1,6 +1,7 @@
 import { APP_HOME } from "../../lib/platform";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Plus, MessageSquare, Clapperboard,
+import {
+  BadgeDollarSign, Plus, MessageSquare, Clapperboard,
   Compass, ShieldCheck, Crown } from "lucide-react";
 import { useAuthStore } from "../../store/authStore";
 import { isStaff as checkStaff, isOwner as checkOwner } from "../../lib/platformRole";
@@ -65,6 +66,7 @@ export function ServerRail() {
   const canUseFeed = useAuthStore((s) => s.user?.ageVerified === true && s.user?.isMinor === false);
   const onFeed = pathname.startsWith("/foryou");
   const onDiscover = pathname.startsWith("/discover");
+  const onStudio = pathname.startsWith("/studio");
   const onStaff = pathname.startsWith("/staff");
   const onOwner = pathname.startsWith("/owner");
   const openModalWith = useUIStore((s) => s.openModalWith);
@@ -122,6 +124,20 @@ export function ServerRail() {
           )}
         >
           <Compass size={22} />
+        </Link>
+        )}
+
+        {canUseFeed && (
+        <Link
+          to="/studio"
+          title="Creator Studio"
+          onClick={closeMobileDrawer}
+          className={cn(
+            "flex h-12 w-12 shrink-0 items-center justify-center rounded-3xl bg-base-600 text-signal transition-all hover:rounded-2xl hover:bg-grad hover:text-white",
+            onStudio && "rounded-2xl bg-grad text-white",
+          )}
+        >
+          <BadgeDollarSign size={22} />
         </Link>
         )}
 

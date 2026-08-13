@@ -2,6 +2,7 @@ import { APP_HOME } from "../../lib/platform";
 import { useNavigate } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  Trophy,
   Hash,
   Volume2,
   ChevronDown,
@@ -356,6 +357,12 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
               className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-signal outline-none hover:bg-base-500"
             >
               <Settings size={16} /> Server Settings
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => openModalWith("leaderboard", { serverId })}
+              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600"
+            >
+              <Trophy size={15} /> Leaderboard
             </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={() => openModalWith("notificationSettings", { serverId })}

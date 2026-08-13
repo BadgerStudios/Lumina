@@ -14,6 +14,8 @@ import { assertPassesVerification } from "../servers/verification.js";
 import { scheduleLinkPreviews } from "../../lib/linkPreview.js";
 import { touchThreadActivity } from "../threads/service.js";
 import { assertNotLockedMinor } from "../parental/service.js";
+import { pushInboxNotification } from "../inbox/service.js";
+import { awardMessageXp } from "../xp/service.js";
 
 /**
  * Shared message service — imported by BOTH the REST routes
@@ -250,6 +252,29 @@ export async function createChannelMessage(params: {
   // message is stored would let anyone make their own send hang for as long as a remote host cares
   // to stall.
   scheduleLinkPreviews({ messageId: message.id, content: params.content, room: `channel:${params.channelId}` });
+  // Participation XP + the reply notification, both fire-and-forget: bookkeeping never sits
+  // between an author and their sent message.
+  void awardMessageXp(params.userId, channel.serverId, message.id).catch(() => undefined);
+  if (params.replyToId) {
+    void (async () => {
+      const parent = await prisma.message.findUnique({
+        where: { id: BigInt(params.replyToId!) },
+        select: { authorId: true },
+      });
+      if (parent?.authorId) {
+        await pushInboxNotification({
+          userId: parent.authorId,
+          kind: "REPLY",
+          bundleKey: `REPLY:${message.id}`,
+          actorId: params.userId,
+          messageId: message.id,
+          channelId: params.channelId,
+          serverId: channel.serverId,
+          preview: params.content.slice(0, 140),
+        });
+      }
+    })().catch(() => undefined);
+  }
   // Revives an archived thread and refreshes the auto-archive clock. A no-op for ordinary
   // channels, and fire-and-forget for the same reason link previews are: a bookkeeping write must
   // never sit between the author and their sent message.
@@ -446,6 +471,19 @@ export async function addReaction(params: { userId: string; messageId: string; e
 
   const room = message.channelId ? `channel:${message.channelId}` : `dm:${message.dmConversationId}`;
   getIO().to(room).emit(ServerEvents.REACTION_ADD, payload);
+  // "Someone reacted to your message" — bundled per message, so a pile-on is one inbox row.
+  if (message.authorId) {
+    void pushInboxNotification({
+      userId: message.authorId,
+      kind: "REACTION",
+      bundleKey: `REACTION:${message.id}`,
+      actorId: params.userId,
+      messageId: message.id,
+      channelId: message.channelId,
+      serverId: message.channel?.serverId ?? null,
+      preview: params.emoji,
+    }).catch(() => undefined);
+  }
   return payload;
 }
 

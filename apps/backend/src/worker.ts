@@ -10,6 +10,8 @@ import { processVideo } from "./modules/videos/transcode.js";
 import { LINK_PREVIEW_QUEUE, type LinkPreviewJobData } from "./modules/messages/previewQueue.js";
 import { fetchPreview, broadcastEmbeds } from "./lib/linkPreview.js";
 import { sweepArchivableThreads } from "./modules/threads/service.js";
+import { releaseMaturedEarnings } from "./modules/economy/service.js";
+import { runFinancialAssertions } from "./modules/economy/reconcile.js";
 
 /** How long a video may sit in PROCESSING before the sweep assumes its job was lost. Comfortably
  * longer than a real transcode (bounded at 10 minutes by ffmpeg's own timeout). */
@@ -150,6 +152,34 @@ async function main() {
   void sweepThreads();
   const threadSweepTimer = setInterval(() => void sweepThreads(), THREAD_SWEEP_INTERVAL_MS);
   threadSweepTimer.unref();
+
+  // Creator economy automation — §1.1's "no routine staff queues" made literal: the hold-window
+  // release and the financial invariants run on the clock, forever, with no approve button.
+  const economyTick = async () => {
+    try {
+      const released = await releaseMaturedEarnings();
+      // eslint-disable-next-line no-console
+      if (released > 0) console.log(`[worker] released ${released} matured earning(s) to available`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] earnings release failed:", err);
+    }
+    try {
+      const problems = await runFinancialAssertions();
+      if (problems.length > 0) {
+        // A failed invariant is a stop-the-world defect for money movement — logged at error and
+        // (deliberately) NOT self-healed: reconciliation never edits balances, per §33.
+        // eslint-disable-next-line no-console
+        console.error("[worker] FINANCIAL ASSERTION FAILURES:", problems);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] reconciliation failed:", err);
+    }
+  };
+  void economyTick();
+  const economyTimer = setInterval(() => void economyTick(), 5 * 60 * 1000);
+  economyTimer.unref();
 
   // Graceful shutdown so an in-flight transcode is allowed to finish (or be re-queued cleanly)
   // instead of being killed mid-write and leaving a half-written MP4 behind.

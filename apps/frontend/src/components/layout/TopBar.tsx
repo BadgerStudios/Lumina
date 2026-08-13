@@ -1,4 +1,6 @@
-import { Rocket, Hash, Users, Search, UserPlus, Rows3, AlignJustify, Sun, Moon, Menu, Pin } from "lucide-react";
+import { Bell, Rocket, Hash, Users, Search, UserPlus, Rows3, AlignJustify, Sun, Moon, Menu, Pin } from "lucide-react";
+import { InboxPanel } from "../inbox/InboxPanel";
+import { useInboxUnread } from "../../queries/inbox";
 import { useActivities } from "../../queries/game";
 import { useActiveSelectionStore } from "../../store/activeSelectionStore";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -96,6 +98,7 @@ export function TopBar({
           {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
         </button>
 
+        <InboxBell />
         {serverId ? <ActivityLauncher /> : null}
         {onTogglePins ? (
           <button onClick={onTogglePins} className="relative text-signal-dim hover:text-signal" title="Pinned messages">
@@ -159,6 +162,34 @@ function ActivityLauncher() {
               <span className="block truncate text-[11px] text-signal-faint">{a.appName ?? new URL(a.url).hostname}</span>
             </DropdownMenu.Item>
           ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
+
+/** The Activity bell — unread count from its own tiny endpoint, list on demand. */
+function InboxBell() {
+  const [open, setOpen] = useState(false);
+  const { data: unread } = useInboxUnread();
+  const count = unread?.count ?? 0;
+  return (
+    <DropdownMenu.Root open={open} onOpenChange={setOpen}>
+      <DropdownMenu.Trigger asChild>
+        <button className="relative text-signal-dim hover:text-signal" title="Activity">
+          <Bell size={18} />
+          {count > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-dnd px-1 text-[10px] font-bold text-white">
+              {count > 99 ? "99+" : count}
+            </span>
+          )}
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={6} className="z-50 w-96 max-w-[92vw] rounded-lg border border-base-500 bg-base-700 shadow-xl">
+          <p className="border-b border-base-600 px-3 py-2 text-[11px] font-bold uppercase text-signal-dim">Activity</p>
+          <InboxPanel onNavigate={() => setOpen(false)} />
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

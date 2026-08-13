@@ -64,6 +64,9 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   // Where Stripe Checkout returns the user afterwards.
   PUBLIC_APP_URL: z.string().default("https://lumina.luxffa.com"),
+  /// Real-money payout rail. OFF until the operator completes the one-time Stripe Connect setup —
+  /// the readiness gate the creator-economy autonomy contract requires (SETUP_ONCE.md).
+  STRIPE_CONNECT_ENABLED: z.coerce.boolean().default(false),
   // Bearer token for GET /metrics. Optional because a scrape from inside the Docker network is
   // already authorized by being there — this only matters for a Prometheus running somewhere else.
   // Unset means the endpoint answers 404 to anything off the private network.

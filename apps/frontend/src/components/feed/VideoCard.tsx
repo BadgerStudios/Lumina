@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { GiftSheet } from "./GiftSheet";
+import { useAuthStore } from "../../store/authStore";
 import {
+  Gift as GiftIcon,
   Heart,
   MessageCircle,
   Volume2,
@@ -50,6 +53,8 @@ export function VideoCard({
   const toggleMuted = useFeedStore((s) => s.toggleMuted);
   const toggleLike = useToggleLike();
   const [stalled, setStalled] = useState(false);
+  const [giftOpen, setGiftOpen] = useState(false);
+  const viewerId = useAuthStore((st) => st.user?.id);
   const [needsTap, setNeedsTap] = useState(false);
   const viewCounted = useRef(false);
 
@@ -231,6 +236,15 @@ export function VideoCard({
           )}
         </div>
 
+        {giftOpen && video.author && (
+          <GiftSheet
+            creatorId={video.author.id}
+            creatorName={video.author.displayName ?? video.author.username}
+            contentRef={`video:${video.id}`}
+            onClose={() => setGiftOpen(false)}
+          />
+        )}
+
         {/* Action rail, bottom-right — the standard short-video layout. */}
         <div className="absolute bottom-24 right-2 flex flex-col items-center gap-3">
           <ActionButton
@@ -265,6 +279,14 @@ export function VideoCard({
             onClick={toggleMuted}
             ariaLabel={muted ? "Unmute" : "Mute"}
           />
+          {video.author && video.author.id !== viewerId && (
+            <ActionButton
+              icon={<GiftIcon className="h-7 w-7 text-white" />}
+              label=""
+              onClick={() => setGiftOpen(true)}
+              ariaLabel="Send a gift"
+            />
+          )}
           {onRemix && (video.allowStitch || video.allowDuet) && (
             <ActionButton
               icon={<Shuffle className="h-7 w-7 text-white" />}

@@ -170,6 +170,10 @@ export function useSocketEvents(): void {
       void queryClient.invalidateQueries({ queryKey: ["channels"] });
     };
 
+    const onInboxNew = () => {
+      void queryClient.invalidateQueries({ queryKey: ["inbox"] });
+    };
+
     const onThreadChange = (thread: { id: string; parentId: string | null }) => {
       // Refetch rather than patch: thread lists are split by archived state and ordered by
       // activity, so an insert has no single correct position to patch into.
@@ -292,6 +296,7 @@ export function useSocketEvents(): void {
     socket.on(ServerEvents.CHANNEL_UPDATE, onChannelUpdate);
     socket.on(ServerEvents.CHANNEL_DELETE, onChannelDelete);
     socket.on(ServerEvents.CHANNEL_OVERWRITES_UPDATE, onChannelOverwritesUpdate);
+    socket.on(ServerEvents.INBOX_NEW, onInboxNew);
     socket.on(ServerEvents.THREAD_CREATE, onThreadChange);
     socket.on(ServerEvents.THREAD_UPDATE, onThreadChange);
     socket.on(ServerEvents.ROLE_CREATE, onRoleCreate);
@@ -331,6 +336,7 @@ export function useSocketEvents(): void {
       socket.off(ServerEvents.CHANNEL_UPDATE, onChannelUpdate);
       socket.off(ServerEvents.CHANNEL_DELETE, onChannelDelete);
       socket.off(ServerEvents.CHANNEL_OVERWRITES_UPDATE, onChannelOverwritesUpdate);
+      socket.off(ServerEvents.INBOX_NEW, onInboxNew);
       socket.off(ServerEvents.THREAD_CREATE, onThreadChange);
       socket.off(ServerEvents.THREAD_UPDATE, onThreadChange);
       socket.off(ServerEvents.ROLE_CREATE, onRoleCreate);

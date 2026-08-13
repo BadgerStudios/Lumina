@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { pushInboxNotification } from "../inbox/service.js";
 import { prisma } from "../../db/prisma.js";
 import { redis } from "../../db/redis.js";
 import { requireAuth } from "../../plugins/authenticate.js";
@@ -173,6 +174,20 @@ export default async function feedRoutes(fastify: FastifyInstance) {
     });
     if (created.count > 0) {
       await prisma.video.update({ where: { id: videoId }, data: { likeCount: { increment: 1 } } });
+      // "Someone liked your video" — the creator comeback trigger, bundled per video.
+      void (async () => {
+        const video = await prisma.video.findUnique({ where: { id: videoId }, select: { authorId: true, caption: true } });
+        if (video?.authorId) {
+          await pushInboxNotification({
+            userId: video.authorId,
+            kind: "VIDEO_LIKE",
+            bundleKey: `VIDEO_LIKE:${videoId}`,
+            actorId: userId,
+            videoId: videoId.toString(),
+            preview: video.caption?.slice(0, 140) ?? null,
+          });
+        }
+      })().catch(() => undefined);
     }
     const video = await prisma.video.findUnique({ where: { id: videoId }, select: { likeCount: true } });
     return { liked: true, likeCount: video?.likeCount ?? 0 };

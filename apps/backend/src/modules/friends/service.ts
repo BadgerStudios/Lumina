@@ -1,4 +1,5 @@
 import { ServerEvents } from "@lumina/shared";
+import { pushInboxNotification } from "../inbox/service.js";
 import type { FriendDTO, FriendRequestDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { canContact, checkContact } from "../age/service.js";
@@ -104,6 +105,13 @@ export async function sendFriendRequest(params: { requesterId: string; addressee
         data: { status: "ACCEPTED", respondedAt: new Date() },
         include: requestInclude,
       });
+    void pushInboxNotification({
+      userId: updated.requesterId,
+      kind: "FRIEND_ACCEPT",
+      bundleKey: `FRIEND_ACCEPT:${updated.id}`,
+      actorId: updated.addresseeId,
+      preview: "accepted your friend request",
+    }).catch(() => undefined);
       const dto = serializeFriendRequest(updated);
       notifyUpdated(dto);
       return dto;
@@ -160,6 +168,14 @@ export async function resolveFriendRequest(params: { userId: string; requestId: 
       include: requestInclude,
     });
     notifyUpdated(serializeFriendRequest(updated));
+    // The requester learns their request landed; the accepter already knows — they clicked it.
+    void pushInboxNotification({
+      userId: updated.requesterId,
+      kind: "FRIEND_ACCEPT",
+      bundleKey: `FRIEND_ACCEPT:${updated.id}`,
+      actorId: updated.addresseeId,
+      preview: "accepted your friend request",
+    }).catch(() => undefined);
   } else {
     if (request.addresseeId !== params.userId && request.requesterId !== params.userId) {
       throw new ForbiddenError("Not your friend request");

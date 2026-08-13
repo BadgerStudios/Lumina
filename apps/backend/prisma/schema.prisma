@@ -251,6 +251,16 @@ model User {
   parentLinksAsParent ParentLink[]           @relation("ParentOfLink")
   approvedForMinors  ParentApprovedContact[] @relation("ApprovedForMinor")
   gameLinks GameLink[]
+  notifications      Notification[] @relation("InboxOwner")
+  notificationActs   Notification[] @relation("InboxActor")
+  memberXp           MemberXp[]
+  creatorWallet   CreatorWallet?
+  earningItems    EarningItem[]
+  creatorProgram  CreatorProgram?
+  payoutAccount   PayoutAccount?
+  payouts         Payout[]
+  giftsSent       GiftSend[] @relation("GiftsSent")
+  giftsReceived   GiftSend[] @relation("GiftsReceived")
 }
 
 // A "dev portal" app a human user owns. Each Application has exactly one bot User (see
@@ -416,6 +426,8 @@ model Server {
   stickers              Sticker[]
   soundboardSounds      SoundboardSound[]
   templatesFrom         ServerTemplate[]       @relation("TemplateSource")
+  memberXp     MemberXp[]
+  levelRewards LevelReward[]
 }
 
 model Membership {
@@ -447,6 +459,7 @@ model Role {
   assignments RoleAssignment[]
 
   @@index([serverId])
+  levelRewards LevelReward[]
 }
 
 model RoleAssignment {
@@ -1642,6 +1655,7 @@ enum StoreItemKind {
 enum CoinReason {
   PURCHASE_BUNDLE
   SPEND_STORE
+  GIFT_SEND
   PROMO_GRANT
   ADMIN_ADJUST
   REFUND
@@ -2106,4 +2120,301 @@ model Activity {
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@index([applicationId])
+}
+
+// ================================================================ retention: inbox + XP
+
+enum NotificationKind {
+  REPLY
+  REACTION
+  VIDEO_LIKE
+  VIDEO_COMMENT
+  THREAD
+  FRIEND_ACCEPT
+  LEVEL_UP
+  EARNING
+}
+
+/**
+ * The unified Activity inbox. One row per (recipient, kind, target) — repeat actors on the same
+ * target BUNDLE into the row (actorCount, latest actor) rather than stacking twenty rows for
+ * twenty reactions, because an inbox that scrolls is read and an inbox that floods is muted.
+ */
+model Notification {
+  id         BigInt           @id @default(autoincrement())
+  userId     String
+  kind       NotificationKind
+  /// Bundling identity: kind + what it is about, e.g. "REACTION:msg:123".
+  bundleKey  String
+  actorId    String?
+  actorCount Int              @default(1)
+  messageId  BigInt?
+  channelId  String?
+  serverId   String?
+  videoId    String?
+  /// Short pre-rendered context (message snippet, video caption) so the inbox renders without a
+  /// join per row against content that may since be deleted.
+  preview    String?          @db.VarChar(140)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  user       User             @relation("InboxOwner", fields: [userId], references: [id], onDelete: Cascade)
+  actor      User?            @relation("InboxActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, bundleKey])
+  @@index([userId, readAt, updatedAt])
+}
+
+/**
+ * Per-server participation XP — the native version of what Discord's community ran Mee6 for.
+ * Earned by messages on a cooldown (so spam is worthless), never purchasable, never decaying:
+ * levels rank what someone DID, they are not a streak that punishes absence.
+ */
+model MemberXp {
+  userId      String
+  serverId    String
+  xp          Int      @default(0)
+  level       Int      @default(0)
+  lastAwardAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  server      Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@id([userId, serverId])
+  @@index([serverId, xp])
+}
+
+/// A role granted automatically at a level. The reward is real authority/cosmetics via the
+/// EXISTING role system — no parallel perk machinery.
+model LevelReward {
+  id       String @id @default(cuid())
+  serverId String
+  level    Int
+  roleId   String
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, level, roleId])
+}
+
+// ================================================================ creator economy
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum RevenueEventStatus {
+  RECEIVED
+  QUALIFIED
+  EXCLUDED
+  POSTED
+}
+
+enum EarningStatus {
+  PENDING
+  AVAILABLE
+  REVERSED
+  PAID
+}
+
+enum CreatorProgramState {
+  NOT_ELIGIBLE
+  LIMITED
+  CREATOR
+  SUSPENDED
+  PAYOUT_RESTRICTED
+}
+
+enum PayoutState {
+  NOT_READY
+  PENDING_KYC
+  AVAILABLE
+  SCHEDULED
+  SUBMITTED
+  PAID
+  FAILED
+  REVERSED
+}
+
+/**
+ * Double-entry ledger — the financial source of truth.
+ *
+ * Balances are never stored authoritatively anywhere else: CreatorWallet below is a READ MODEL
+ * maintained in the same transaction as the entries that change it, and reconciliation re-derives
+ * it from entries to prove it. History is append-only; there is no update path in code, and
+ * corrections are reversing transactions. Money is integer minor units + ISO currency, always.
+ *
+ * Per-creator positions live as entries against CONTROL accounts (CREATOR_PENDING,
+ * CREATOR_PAYABLE) tagged with subjectUserId — the standard control/subledger shape, which keeps
+ * the chart of accounts finite while every creator's balance stays derivable.
+ */
+model LedgerTransaction {
+  id             String        @id @default(cuid())
+  kind           String
+  /// The idempotency spine: replaying any upstream event reuses this key and posts nothing twice.
+  idempotencyKey String        @unique
+  externalRef    String?       @unique
+  occurredAt     DateTime
+  postedAt       DateTime      @default(now())
+  metadata       Json?
+  entries        LedgerEntry[]
+}
+
+model LedgerEntry {
+  id            BigInt            @id @default(autoincrement())
+  transactionId String
+  accountCode   String
+  direction     LedgerDirection
+  amountMinor   BigInt
+  currency      String            @db.VarChar(3)
+  /// Which creator/user this control-account entry belongs to, when the account is a subledger.
+  subjectUserId String?
+  contentRef    String?
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@index([accountCode, subjectUserId])
+  @@index([transactionId])
+}
+
+/// Normalized envelope every monetized thing flows through before it may touch the ledger.
+model RevenueEvent {
+  id             String             @id @default(cuid())
+  eventType      String
+  idempotencyKey String             @unique
+  source         String
+  status         RevenueEventStatus @default(RECEIVED)
+  occurredAt     DateTime
+  receivedAt     DateTime           @default(now())
+  currency       String             @db.VarChar(3)
+  grossMinor     BigInt
+  userId         String?
+  creatorId      String?
+  contentRef     String?
+  externalRef    String?
+  riskContext    Json?
+  excludedReason String?
+  ledgerTxId     String?
+  policyVersion  Int?
+
+  @@index([creatorId, occurredAt])
+  @@index([status])
+}
+
+/**
+ * Versioned, effective-dated split policy. Basis-points, never floats. Economics are DATA with
+ * history, not constants scattered through services — §1.3's "never self-modify financial policy"
+ * is enforced by these rows being written only through owner tooling and never by jobs.
+ */
+model RevenuePolicy {
+  id            String    @id @default(cuid())
+  product       String
+  version       Int
+  creatorBps    Int
+  platformBps   Int
+  holdDays      Int
+  reserveBps    Int       @default(0)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  notes         String?
+
+  @@unique([product, version])
+  @@index([product, effectiveFrom])
+}
+
+/// Read model over the ledger, per creator. Proven against entries by reconciliation.
+model CreatorWallet {
+  userId        String   @id
+  currency      String   @default("usd") @db.VarChar(3)
+  pendingMinor  BigInt   @default(0)
+  availableMinor BigInt  @default(0)
+  reservedMinor BigInt   @default(0)
+  paidMinor     BigInt   @default(0)
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// One creator-earning line a person can point at: which event, how much, when it unlocks.
+model EarningItem {
+  id             String        @id @default(cuid())
+  creatorId      String
+  revenueEventId String        @unique
+  product        String
+  amountMinor    BigInt
+  currency       String        @db.VarChar(3)
+  status         EarningStatus @default(PENDING)
+  availableAt    DateTime
+  policyVersion  Int
+  createdAt      DateTime      @default(now())
+  creator        User          @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, status])
+  @@index([status, availableAt])
+}
+
+model CreatorProgram {
+  userId       String              @id
+  state        CreatorProgramState @default(NOT_ELIGIBLE)
+  /// Machine-readable requirement snapshot from the last evaluation, rendered as the creator's
+  /// progress checklist — the same data decides and explains, so the two cannot disagree.
+  requirements Json?
+  evaluatedAt  DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([state])
+}
+
+model PayoutAccount {
+  userId          String   @id
+  provider        String   @default("stripe")
+  providerAccount String?  @unique
+  onboarded       Boolean  @default(false)
+  payoutsEnabled  Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Payout {
+  id             String      @id @default(cuid())
+  creatorId      String
+  amountMinor    BigInt
+  currency       String      @db.VarChar(3)
+  state          PayoutState @default(NOT_READY)
+  idempotencyKey String      @unique
+  externalRef    String?     @unique
+  failureReason  String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  creator        User        @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+
+  @@index([creatorId, state])
+}
+
+/// The gift catalogue — coins in, creator fiat earnings out, per policy.
+model Gift {
+  id         String  @id @default(cuid())
+  key        String  @unique
+  name       String
+  emoji      String
+  priceCoins Int
+  active     Boolean @default(true)
+  sortOrder  Int     @default(0)
+  sends      GiftSend[]
+}
+
+model GiftSend {
+  id             String   @id @default(cuid())
+  giftId         String
+  senderId       String
+  creatorId      String
+  contentRef     String?
+  priceCoins     Int
+  revenueEventId String?  @unique
+  createdAt      DateTime @default(now())
+  gift           Gift     @relation(fields: [giftId], references: [id], onDelete: Restrict)
+  sender         User     @relation("GiftsSent", fields: [senderId], references: [id], onDelete: Cascade)
+  creator        User     @relation("GiftsReceived", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, createdAt])
 }
