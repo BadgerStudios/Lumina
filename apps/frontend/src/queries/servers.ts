@@ -47,6 +47,7 @@ export function useUpdateServer(serverId: string) {
       description?: string | null;
       vanityCode?: string | null;
       discoverable?: boolean;
+      minecraftHost?: string | null;
       verificationLevel?: string;
       explicitContentFilter?: string;
       defaultNotificationLevel?: string;

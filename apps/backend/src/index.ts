@@ -30,6 +30,8 @@ import channelRoutes from "./modules/channels/channelRoutes.js";
 import threadRoutes from "./modules/threads/routes.js";
 import parentalRoutes from "./modules/parental/routes.js";
 import discoveryRoutes from "./modules/discovery/routes.js";
+import gameRoutes from "./modules/game/routes.js";
+import activityRoutes from "./modules/activities/routes.js";
 import serverRolesRoutes from "./modules/roles/serverRoutes.js";
 import autoModServerRoutes from "./modules/automod/serverRoutes.js";
 import roleRoutes from "./modules/roles/roleRoutes.js";
@@ -88,6 +90,7 @@ async function main() {
   await fs.mkdir(path.join(env.UPLOADS_DIR, "emojis"), { recursive: true });
   await fs.mkdir(path.join(env.UPLOADS_DIR, "stickers"), { recursive: true });
   await fs.mkdir(path.join(env.UPLOADS_DIR, "sounds"), { recursive: true });
+  await fs.mkdir(path.join(env.UPLOADS_DIR, "game-skins"), { recursive: true });
 
   const fastify = Fastify({
     logger: {
@@ -296,6 +299,16 @@ async function main() {
     },
   });
 
+  // Cached Minecraft skins (modules/game/minecraft.ts cacheSkin). Registered here AND in
+  // nginx.conf's static regex — the custom-emoji 404 was exactly one of those two being missed.
+  await fastify.register(fastifyStatic, {
+    root: path.resolve(path.join(env.UPLOADS_DIR, "game-skins")),
+    prefix: "/game-skins/",
+    decorateReply: false,
+    cacheControl: true,
+    ...IMMUTABLE_ASSET,
+  });
+
   fastify.get("/healthz", async () => ({ status: "ok" }));
   registerMetricsRoute(fastify);
 
@@ -314,6 +327,10 @@ async function main() {
   await fastify.register(threadRoutes, { prefix: "/api" });
   await fastify.register(parentalRoutes, { prefix: "/api/parental" });
   await fastify.register(discoveryRoutes, { prefix: "/api/discovery" });
+  await fastify.register(gameRoutes, { prefix: "/api/game" });
+  // /api prefix, not /api/activities: it owns routes under both /applications/:id/activities
+  // and /activities/:id, the same split threads already use.
+  await fastify.register(activityRoutes, { prefix: "/api" });
   await fastify.register(serverRolesRoutes, { prefix: "/api/servers" });
   await fastify.register(autoModServerRoutes, { prefix: "/api/servers" });
   await fastify.register(roleRoutes, { prefix: "/api/roles" });

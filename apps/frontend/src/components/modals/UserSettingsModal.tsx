@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
-import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users } from "lucide-react";
+import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket } from "lucide-react";
 import { MfaSetup } from "./MfaSetup";
 import {
   biometricAvailability,
@@ -47,11 +47,12 @@ import { isWebPushSupported, getPushSubscriptionStatus, subscribeToPush, unsubsc
 import { BillingSection } from "./BillingSection";
 import { AdvertisingSection } from "./AdvertisingSection";
 import { FamilySection } from "../parental/FamilySection";
+import { useGameLinks, useLinkMinecraft, useUnlinkMinecraft, useActivities, useCreateActivity, useDeleteActivity } from "../../queries/game";
 import { useMinorState } from "../../queries/parental";
 
 const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND"];
 
-type Section = "account" | "sessions" | "appearance" | "privacy" | "family" | "notifications" | "billing" | "advertising" | "developer" | "voice";
+type Section = "account" | "sessions" | "appearance" | "privacy" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "account", label: "My Account", icon: User },
@@ -59,6 +60,7 @@ const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "privacy", label: "Privacy & Safety", icon: ShieldCheck },
   { key: "family", label: "Family", icon: Users },
+  { key: "connections", label: "Connections", icon: Gamepad2 },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "billing", label: "Billing", icon: CreditCard },
   { key: "advertising", label: "Advertising", icon: Megaphone },
@@ -863,6 +865,62 @@ function OAuthSettings({ app }: { app: import("@lumina/shared").ApplicationDTO }
   );
 }
 
+
+/** Register embeddable activities on an application — the dev half of the launcher in TopBar. */
+function ActivitySettings({ app }: { app: import("@lumina/shared").ApplicationDTO }) {
+  const { data: activities } = useActivities();
+  const create = useCreateActivity(app.id);
+  const remove = useDeleteActivity();
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const mine = (activities ?? []).filter((a) => a.applicationId === app.id);
+
+  return (
+    <div className="mt-3 border-t border-base-700 pt-3">
+      <p className="flex items-center gap-1.5 text-xs font-bold uppercase text-signal-dim">
+        <Rocket size={12} /> Activities
+      </p>
+      <p className="mb-2 mt-1 text-xs text-signal-faint">
+        An https page Lumina embeds beside a channel. Listen for the{" "}
+        <code className="rounded bg-base-700 px-1 font-mono">lumina:context</code> postMessage for who's
+        there — see /api/docs.
+      </p>
+      {mine.map((a) => (
+        <div key={a.id} className="mb-1 flex items-center gap-2 rounded bg-base-900 px-2.5 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-sm text-signal">{a.name}</span>
+          <span className="truncate text-xs text-signal-faint">{new URL(a.url).hostname}</span>
+          <button onClick={() => remove.mutate(a.id)} className="shrink-0 rounded p-1 text-signal-faint hover:text-dnd" title="Remove activity">
+            <Trash2 size={13} />
+          </button>
+        </div>
+      ))}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Activity name"
+          className="flex-1 rounded bg-base-900 px-2.5 py-1.5 text-sm text-signal outline-none ring-1 ring-base-600 focus:ring-accent" />
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" aria-label="Activity URL"
+          className="flex-[2] rounded bg-base-900 px-2.5 py-1.5 text-sm text-signal outline-none ring-1 ring-base-600 focus:ring-accent" />
+        <button
+          onClick={async () => {
+            setError(null);
+            try {
+              await create.mutateAsync({ name: name.trim(), url: url.trim() });
+              setName(""); setUrl("");
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Could not add that activity.");
+            }
+          }}
+          disabled={create.isPending || !name.trim() || !url.trim()}
+          className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-xs text-dnd">{error}</p>}
+    </div>
+  );
+}
+
 function DeveloperPortalSection() {
   const { data: apps, isLoading } = useMyApplications(true);
   const createApp = useCreateApplication();
@@ -954,6 +1012,7 @@ function DeveloperPortalSection() {
               </div>
               {regeneratedToken?.id === app.id ? <RevealedToken label="New bot token" token={regeneratedToken.token} /> : null}
               <OAuthSettings app={app} />
+              <ActivitySettings app={app} />
             </div>
           ))
         ) : (
@@ -1337,6 +1396,105 @@ const MIC_MODES: { value: MicMode; label: string; hint: string }[] = [
   { value: "ptt", label: "Push to talk", hint: "Transmit only while a key is held." },
 ];
 
+
+/** The classic skin-atlas face crop: the head is the 8x8 block at (8,8) in the 64x64 texture.
+ * Background-position arithmetic beats shipping an image-processing dependency for one avatar. */
+function MinecraftFace({ skinUrl, size = 48 }: { skinUrl: string; size?: number }) {
+  const scale = size / 8;
+  return (
+    <div
+      aria-hidden
+      className="shrink-0 rounded"
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `url(${resolveAssetUrl(skinUrl)})`,
+        backgroundPosition: `-${8 * scale}px -${8 * scale}px`,
+        backgroundSize: `${64 * scale}px ${64 * scale}px`,
+        imageRendering: "pixelated",
+      }}
+    />
+  );
+}
+
+function ConnectionsSection() {
+  const { data: links } = useGameLinks();
+  const linkMc = useLinkMinecraft();
+  const unlinkMc = useUnlinkMinecraft();
+  const [username, setUsername] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const mc = links?.find((l) => l.provider === "MINECRAFT");
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div>
+        <span className="text-xs font-bold uppercase text-signal-dim">Minecraft</span>
+        <p className="mb-2 text-sm text-signal-faint">
+          Link your Minecraft account to show your character on your profile and use game features on
+          servers that run the Lumina plugin.
+        </p>
+
+        {mc ? (
+          <div className="flex items-center gap-3 rounded-xl bg-base-900 p-3">
+            {mc.skinUrl ? <MinecraftFace skinUrl={mc.skinUrl} /> : <Gamepad2 size={40} className="text-signal-faint" />}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-signal">{mc.externalName}</p>
+              <p className="text-xs text-signal-faint">
+                {mc.verified ? "Verified in-game" : "Not verified yet"}
+              </p>
+            </div>
+            <button onClick={() => unlinkMc.mutate()} className="shrink-0 text-xs text-dnd hover:underline">
+              Unlink
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Minecraft username"
+              aria-label="Minecraft username"
+              className="flex-1 rounded bg-base-900 px-3 py-2 text-sm text-signal outline-none ring-1 ring-base-500 focus:ring-2 focus:ring-accent"
+            />
+            <button
+              onClick={async () => {
+                setError(null);
+                try {
+                  await linkMc.mutateAsync(username.trim());
+                  setUsername("");
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Could not link that account.");
+                }
+              }}
+              disabled={linkMc.isPending || username.trim().length < 3}
+              className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              Link
+            </button>
+          </div>
+        )}
+        {error && <p className="mt-2 text-sm text-dnd">{error}</p>}
+
+        {mc && !mc.verified && mc.verifyCode && (
+          <div className="mt-3 rounded-lg bg-base-900 p-3 text-sm text-signal-dim">
+            <p className="font-medium text-signal">Prove it's you (optional)</p>
+            <p className="mt-1 text-xs">
+              On a Minecraft server running the Lumina plugin, run{" "}
+              <code className="rounded bg-base-700 px-1.5 py-0.5 font-mono text-signal">/lumina link {mc.verifyCode}</code>.
+              Anyone can type a username — verifying in-game proves the account is actually yours.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-signal-faint">
+        More games arrive as their platforms allow. Titles without a public API (Call of Duty among
+        them) can't be linked by anyone — not us, not Discord — until their publisher opens one.
+      </p>
+    </div>
+  );
+}
+
 function VoiceSection() {
   const micMode = useVoiceStore((s) => s.micMode);
   const setMicMode = useVoiceStore((s) => s.setMicMode);
@@ -1512,6 +1670,7 @@ export function UserSettingsModal() {
               {section === "advertising" && <AdvertisingSection />}
               {section === "developer" && <DeveloperPortalSection />}
               {section === "family" && <FamilySection />}
+              {section === "connections" && <ConnectionsSection />}
               {section === "voice" && <VoiceSection />}
             </div>
           </div>

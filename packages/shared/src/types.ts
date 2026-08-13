@@ -215,6 +215,7 @@ export interface ServerDTO {
   sysBoostMessages: boolean;
   rulesChannelId: string | null;
   discoverable: boolean;
+  minecraftHost: string | null;
 }
 
 export interface AttachmentDTO {

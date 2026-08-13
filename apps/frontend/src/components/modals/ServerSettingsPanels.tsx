@@ -138,8 +138,10 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
   // Local state so typing doesn't fire a request per keystroke; committed on blur.
   const [description, setDescription] = useState(server.description ?? "");
   const [vanity, setVanity] = useState(server.vanityCode ?? "");
+  const [mcHost, setMcHost] = useState(server.minecraftHost ?? "");
   useEffect(() => setDescription(server.description ?? ""), [server.description]);
   useEffect(() => setVanity(server.vanityCode ?? ""), [server.vanityCode]);
+  useEffect(() => setMcHost(server.minecraftHost ?? ""), [server.minecraftHost]);
 
   return (
     <div>
@@ -182,6 +184,22 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
             placeholder="my-server"
           />
         </div>
+      </Field>
+
+      <Field
+        label="Minecraft server"
+        hint="host or host:port. Members get a live player-count chip in the sidebar, refreshed about once a minute."
+      >
+        <input
+          value={mcHost}
+          onChange={(e) => setMcHost(e.target.value)}
+          onBlur={() => {
+            const next = mcHost.trim();
+            if (next !== (server.minecraftHost ?? "")) save({ minecraftHost: next || null });
+          }}
+          className="w-full rounded-lg border border-hairline bg-base-800 px-3 py-2 text-sm text-signal focus:border-accent focus:outline-none"
+          placeholder="play.example.com:25565"
+        />
       </Field>
 
       <Field

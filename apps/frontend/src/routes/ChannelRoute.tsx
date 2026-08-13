@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ChannelSidebar } from "../components/layout/ChannelSidebar";
 import { ChatPane } from "../components/layout/ChatPane";
 import { ThreadPanel } from "../components/chat/ThreadPanel";
+import { ActivityFrame } from "../components/game/ActivityFrame";
 import { MemberList } from "../components/layout/MemberList";
 import { useChannels } from "../queries/channels";
 import { useCreateThread } from "../queries/threads";
@@ -57,6 +58,8 @@ export function ChannelRoute() {
   // opens the same panel — see activeSelectionStore.
   const openThreadId = useActiveSelectionStore((s) => s.openThreadId);
   const setOpenThreadId = useActiveSelectionStore((s) => s.setOpenThread);
+  const openActivity = useActiveSelectionStore((s) => s.openActivity);
+  const setOpenActivity = useActiveSelectionStore((s) => s.setOpenActivity);
   const createThread = useCreateThread(validChannelId ?? "");
 
   const messagesQuery = useMessages(validChannelId);
@@ -124,7 +127,15 @@ export function ChannelRoute() {
           onClose={() => setOpenThreadId(null)}
         />
       )}
-      {!memberListCollapsed && !openThreadId && <MemberList serverId={serverId} />}
+      {openActivity && !openThreadId && (
+        <ActivityFrame
+          activity={openActivity}
+          channelId={validChannelId}
+          serverId={serverId}
+          onClose={() => setOpenActivity(null)}
+        />
+      )}
+      {!memberListCollapsed && !openThreadId && !openActivity && <MemberList serverId={serverId} />}
     </>
   );
 }

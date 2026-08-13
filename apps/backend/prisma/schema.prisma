@@ -250,6 +250,7 @@ model User {
   parentLinkAsChild  ParentLink?             @relation("ChildOfLink")
   parentLinksAsParent ParentLink[]           @relation("ParentOfLink")
   approvedForMinors  ParentApprovedContact[] @relation("ApprovedForMinor")
+  gameLinks GameLink[]
 }
 
 // A "dev portal" app a human user owns. Each Application has exactly one bot User (see
@@ -281,6 +282,7 @@ model Application {
   interactions     Interaction[]
 
   @@index([ownerId])
+  activities Activity[]
 }
 
 // Short-lived (5 min), single-use authorization code — the intermediate step between a user
@@ -396,6 +398,10 @@ model Server {
   /// listed. An unscoped directory would leak the name and existence of every private community —
   /// the same concern lookup/routes.ts documents for server search.
   discoverable          Boolean                @default(false)
+  /// "host" or "host:port" of the Minecraft server this community runs, if any. Powers the live
+  /// status chip. Stored as text and resolved+validated at ping time (modules/game/minecraft.ts)
+  /// because the DNS answer, not the string, is what decides whether it is safe to dial.
+  minecraftHost         String?
   owner                 User                   @relation("ServerOwner", fields: [ownerId], references: [id])
   memberships           Membership[]
   channels              Channel[]
@@ -2043,4 +2049,61 @@ model ParentApprovedContact {
 
   @@unique([parentLinkId, approvedUserId])
   @@index([approvedUserId])
+}
+
+enum GameProvider {
+  MINECRAFT
+}
+
+/**
+ * A game identity attached to a Lumina account.
+ *
+ * One row per (user, provider). `externalId` is the game's own stable id (Minecraft: the profile
+ * UUID) — usernames rename, UUIDs do not, so the UUID is the identity and the name is a cached
+ * display value refreshed on relink.
+ *
+ * `verified` distinguishes "claimed" from "proven". Anyone can type any Minecraft username; proof
+ * happens in-game: a server plugin (any owner's, via the documented bot-token API) submits the
+ * user's `verifyCode` together with the UUID it observed the player using. Claimed-but-unverified
+ * links still render — a skin on a profile is decoration — but anything that TRUSTS the identity
+ * must check `verified`.
+ */
+model GameLink {
+  id           String       @id @default(cuid())
+  userId       String
+  provider     GameProvider
+  externalId   String
+  externalName String
+  /// Local path under /game-skins — the upstream texture is cached to our own origin at link time
+  /// so profiles never hotlink a third party (CSP, availability, and privacy all say no).
+  skinPath     String?
+  verified     Boolean      @default(false)
+  verifyCode   String       @unique
+  createdAt    DateTime     @default(now())
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([provider, externalId])
+}
+
+/**
+ * An embeddable app a developer attaches to their dev-portal Application — Lumina's equivalent of
+ * Discord Activities. Launched docked beside a channel in a sandboxed iframe; the client hands it
+ * an origin-targeted identity handshake (see frontend ActivityFrame) and nothing else. It never
+ * receives a token it didn't obtain itself through the existing OAuth2 flow.
+ *
+ * `url` is https-only by validation: an activity is third-party code every launcher's browser will
+ * load, and a plaintext embed would be an injection point on every machine that opens it.
+ */
+model Activity {
+  id            String      @id @default(cuid())
+  applicationId String
+  name          String      @db.VarChar(80)
+  description   String?     @db.VarChar(300)
+  url           String      @db.VarChar(500)
+  iconUrl       String?
+  createdAt     DateTime    @default(now())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
 }

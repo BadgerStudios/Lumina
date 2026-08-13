@@ -36,6 +36,7 @@ import { UserAvatar } from "../common/UserAvatar";
 import { cn } from "../../lib/cn";
 import { SignalPanel } from "./SignalPanel";
 import { useThreads } from "../../queries/threads";
+import { useMinecraftStatus } from "../../queries/game";
 import { useActiveSelectionStore } from "../../store/activeSelectionStore";
 import type { ChannelDTO } from "@lumina/shared";
 
@@ -69,6 +70,23 @@ function ThreadList({ channelId }: { channelId: string }) {
           {t.messageCount > 0 && <span className="shrink-0 text-signal-faint">{t.messageCount}</span>}
         </button>
       ))}
+    </div>
+  );
+}
+
+
+/** Live "who's on the block server" chip. Renders nothing unless the community configured an
+ * address, so the other 99% of servers pay zero pings and zero pixels. */
+function MinecraftStatusChip({ serverId, configured }: { serverId: string; configured: boolean }) {
+  const { data } = useMinecraftStatus(serverId, configured);
+  if (!configured || !data?.configured) return null;
+  return (
+    <div className="mx-2 mb-1 flex items-center gap-1.5 rounded-lg bg-base-700/60 px-2 py-1 text-[11px]">
+      <span className={cn("size-1.5 shrink-0 rounded-full", data.online ? "bg-online" : "bg-signal-faint")} />
+      <span className="min-w-0 flex-1 truncate text-signal-dim">{data.host}</span>
+      <span className="shrink-0 text-signal-faint">
+        {data.online ? `${data.playersOnline ?? 0}/${data.playersMax ?? "?"} online` : "offline"}
+      </span>
     </div>
   );
 }
@@ -369,6 +387,8 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+
+      <MinecraftStatusChip serverId={serverId} configured={Boolean(server?.minecraftHost)} />
 
       <div className="flex-1 overflow-y-auto px-2 py-3">
         <SignalPanel serverId={serverId} />

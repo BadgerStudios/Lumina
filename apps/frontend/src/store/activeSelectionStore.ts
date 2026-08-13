@@ -9,6 +9,10 @@ interface ActiveSelectionState {
    * sidebar's thread list — and lifting it is what lets both drive the same panel. */
   openThreadId: string | null;
   setOpenThread: (threadId: string | null) => void;
+  /** The activity docked beside the channel, if any. Shares the aside slot with threads —
+   * opening either closes the other, because two docked panels on a laptop is no panels. */
+  openActivity: { id: string; name: string; url: string; applicationId: string; description: string | null; iconUrl: string | null; createdAt: string } | null;
+  setOpenActivity: (a: ActiveSelectionState["openActivity"]) => void;
   setActiveServer: (serverId: string | null) => void;
   setActiveChannel: (channelId: string | null) => void;
   setActiveDM: (conversationId: string | null) => void;
@@ -19,7 +23,9 @@ export const useActiveSelectionStore = create<ActiveSelectionState>((set) => ({
   activeChannelId: null,
   activeDMConversationId: null,
   openThreadId: null,
-  setOpenThread: (threadId) => set({ openThreadId: threadId }),
+  setOpenThread: (threadId) => set((s) => ({ openThreadId: threadId, openActivity: threadId ? null : s.openActivity })),
+  openActivity: null,
+  setOpenActivity: (openActivity) => set((s) => ({ openActivity, openThreadId: openActivity ? null : s.openThreadId })),
   setActiveServer: (serverId) => set({ activeServerId: serverId }),
   setActiveChannel: (channelId) =>
     // Closing the thread here rather than in an effect: a thread belongs to exactly one channel,

@@ -181,6 +181,7 @@ type ServerLike = {
   sysBoostMessages?: boolean;
   rulesChannelId?: string | null;
   discoverable?: boolean;
+  minecraftHost?: string | null;
 };
 
 export function serializeServer(server: ServerLike): ServerDTO {
@@ -208,6 +209,7 @@ export function serializeServer(server: ServerLike): ServerDTO {
     sysBoostMessages: server.sysBoostMessages ?? true,
     rulesChannelId: server.rulesChannelId ?? null,
     discoverable: server.discoverable ?? false,
+    minecraftHost: server.minecraftHost ?? null,
   };
 }
 

@@ -1,4 +1,7 @@
-import { Hash, Users, Search, UserPlus, Rows3, AlignJustify, Sun, Moon, Menu, Pin } from "lucide-react";
+import { Rocket, Hash, Users, Search, UserPlus, Rows3, AlignJustify, Sun, Moon, Menu, Pin } from "lucide-react";
+import { useActivities } from "../../queries/game";
+import { useActiveSelectionStore } from "../../store/activeSelectionStore";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useState } from "react";
 import { useUIStore } from "../../store/uiStore";
 import { cn } from "../../lib/cn";
@@ -93,6 +96,7 @@ export function TopBar({
           {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
         </button>
 
+        {serverId ? <ActivityLauncher /> : null}
         {onTogglePins ? (
           <button onClick={onTogglePins} className="relative text-signal-dim hover:text-signal" title="Pinned messages">
             <Pin size={18} />
@@ -120,5 +124,43 @@ export function TopBar({
         </button>
       </div>
     </div>
+  );
+}
+
+
+/** Rocket dropdown listing registered activities. Lives in the channel TopBar only — an activity
+ * needs a room to be "in", and DMs don't take part in v1. */
+function ActivityLauncher() {
+  const [open, setOpen] = useState(false);
+  const { data: activities } = useActivities(open);
+  const setOpenActivity = useActiveSelectionStore((s) => s.setOpenActivity);
+  return (
+    <DropdownMenu.Root open={open} onOpenChange={setOpen}>
+      <DropdownMenu.Trigger asChild>
+        <button className="text-signal-dim hover:text-signal" title="Activities">
+          <Rocket size={18} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={6} className="z-50 w-72 rounded-lg border border-base-500 bg-base-700 p-1.5 shadow-xl">
+          <p className="px-2 py-1 text-[11px] font-bold uppercase text-signal-dim">Activities</p>
+          {(activities ?? []).length === 0 && (
+            <p className="px-2 pb-2 text-xs text-signal-faint">
+              None registered yet. Developers can add one in Settings → Developer Portal.
+            </p>
+          )}
+          {(activities ?? []).map((a) => (
+            <DropdownMenu.Item
+              key={a.id}
+              onSelect={() => setOpenActivity(a)}
+              className="cursor-pointer rounded px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600"
+            >
+              <span className="block truncate font-medium">{a.name}</span>
+              <span className="block truncate text-[11px] text-signal-faint">{a.appName ?? new URL(a.url).hostname}</span>
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
