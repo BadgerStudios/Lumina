@@ -46,6 +46,11 @@ export function ChannelSettingsModal() {
   const [slowmodeSeconds, setSlowmodeSeconds] = useState(0);
   const [nsfw, setNsfw] = useState(false);
   const [tab, setTab] = useState<"overview" | "permissions">("overview");
+  const [parentId, setParentId] = useState<string | null>(null);
+
+  // Categories a channel can be filed under. A category cannot be nested inside another, and a
+  // channel obviously cannot be its own parent.
+  const categories = (channels ?? []).filter((c) => c.type === "CATEGORY" && c.id !== channelId);
 
   useEffect(() => {
     if (open && channel) {
@@ -54,9 +59,10 @@ export function ChannelSettingsModal() {
       setTopic(channel.topic ?? "");
       setSlowmodeSeconds(channel.slowmodeSeconds);
       setNsfw(channel.nsfw);
+      setParentId(channel.parentId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, channelId, channel?.name, channel?.topic, channel?.slowmodeSeconds, channel?.nsfw]);
+  }, [open, channelId, channel?.name, channel?.topic, channel?.slowmodeSeconds, channel?.nsfw, channel?.parentId]);
 
   async function handleSave() {
     if (!name.trim()) return;
@@ -65,6 +71,9 @@ export function ChannelSettingsModal() {
       name: name.trim(),
       topic: topic.trim() || null,
       slowmodeSeconds,
+      // Sent for every non-category channel, including when cleared back to null — omitting it
+      // when null would make "move out of a category" impossible to express.
+      ...(channel?.type !== "CATEGORY" ? { parentId } : {}),
       ...(channel?.type === "TEXT" ? { nsfw } : {}),
     });
     closeModal();
@@ -106,6 +115,28 @@ export function ChannelSettingsModal() {
             className="rounded bg-base-900 px-3 py-2 text-signal outline-none ring-1 ring-base-500 focus:ring-2 focus:ring-accent"
           />
         </label>
+
+        {channel?.type !== "CATEGORY" && categories.length > 0 && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-signal-dim">Category</span>
+            {/* Categories could be created and were rendered as sidebar groups, but nothing could
+                ever be put in one — the API took `parentId` and no screen offered it. A category
+                you cannot file anything under is just an empty heading. */}
+            <select
+              aria-label="Category"
+              value={parentId ?? ""}
+              onChange={(e) => setParentId(e.target.value || null)}
+              className="rounded bg-base-900 px-3 py-2 text-signal outline-none ring-1 ring-base-500 focus:ring-2 focus:ring-accent"
+            >
+              <option value="">No category</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {channel?.type === "TEXT" && (
           <>

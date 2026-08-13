@@ -3,8 +3,11 @@ import { ServerAddonsPanel } from "./ServerAddonsPanel";
 import { ServerAutoModPanel } from "./ServerAutoModPanel";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, Check, Trash2 } from "lucide-react";
-import { Modal } from "./Modal";
+import * as Dialog from "@radix-ui/react-dialog";
+import {
+  Copy, Check, Trash2, X, Settings as SettingsIcon, ShieldCheck, Users, Smile,
+  Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle,
+} from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
 import { useServer, useUpdateServer, useDeleteServer, useLeaveServer, useUploadServerIcon, useUploadServerBanner } from "../../queries/servers";
 import { resolveAssetUrl } from "../../lib/apiClient";
@@ -182,38 +185,67 @@ export function ServerSettingsModal() {
 
   const isOwner = server?.ownerId === currentUserId;
 
-  const tabs: Array<{ key: Tab; label: string }> = [
-    { key: "overview", label: "Overview" },
-    { key: "moderation", label: "Moderation" },
-    { key: "community", label: "Community" },
-    { key: "emoji", label: "Expressions" },
-    { key: "roles", label: "Roles" },
-    { key: "bans", label: "Bans" },
-    { key: "auditLog", label: "Audit Log" },
-    { key: "webhooks", label: "Webhooks" },
-    { key: "automod", label: "AutoMod" },
-    { key: "addons", label: "Addons" },
+  // Icons are not decoration here — they are the entire label on a phone, where the rail
+  // collapses to 64px. A tab without one would be a blank button.
+  const tabs: Array<{ key: Tab; label: string; icon: typeof SettingsIcon }> = [
+    { key: "overview", label: "Overview", icon: SettingsIcon },
+    { key: "moderation", label: "Moderation", icon: ShieldCheck },
+    { key: "community", label: "Community", icon: Users },
+    { key: "emoji", label: "Expressions", icon: Smile },
+    { key: "roles", label: "Roles", icon: Tags },
+    { key: "bans", label: "Bans", icon: Ban },
+    { key: "auditLog", label: "Audit Log", icon: ScrollText },
+    { key: "webhooks", label: "Webhooks", icon: Webhook },
+    { key: "automod", label: "AutoMod", icon: ShieldAlert },
+    { key: "addons", label: "Addons", icon: Puzzle },
   ];
 
   return (
-    <Modal open={open} onOpenChange={(o) => !o && closeModal()} title={`${server?.name ?? "Server"} Settings`} width="max-w-2xl">
-      <div className="flex gap-6">
-        <div className="flex w-40 shrink-0 flex-col gap-0.5">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={cn(
-                "rounded px-3 py-1.5 text-left text-sm font-medium",
-                tab === t.key ? "bg-base-500 text-signal" : "text-signal-dim hover:bg-base-700 hover:text-signal",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+    /**
+     * Full-viewport, matching UserSettingsModal — NOT the shared centred `Modal` box.
+     *
+     * It used to be that box at `max-w-2xl` with a hardcoded `w-40` tab column inside. On a 375px
+     * phone that left roughly 113px for the content, and every panel was clipped mid-word: the
+     * addon directory read "Nothing installed ye", the search field "Search publishe". Nothing
+     * overflowed in a way a scrollWidth check could see, because the container simply cut it off —
+     * which is why this survived a responsive pass that was looking for horizontal scroll.
+     */
+    <Dialog.Root open={open} onOpenChange={(o) => !o && closeModal()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
+        <Dialog.Content className="fixed inset-0 z-50 flex focus:outline-none">
+          <Dialog.Title className="sr-only">{server?.name ?? "Server"} Settings</Dialog.Title>
 
-        <div className="min-h-[300px] flex-1">
+          <div className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-900/60 bg-base-800 p-3 max-md:w-16">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                title={t.label}
+                className={cn(
+                  "flex items-center gap-2.5 rounded px-3 py-2 text-left text-sm font-medium max-md:justify-center max-md:px-0",
+                  tab === t.key ? "bg-base-500 text-signal" : "text-signal-dim hover:bg-base-700 hover:text-signal",
+                )}
+              >
+                <t.icon size={17} className="shrink-0" />
+                <span className="truncate max-md:hidden">{t.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex min-w-0 flex-1 flex-col bg-base-700">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-base-900/60 px-5 py-4">
+              <h1 className="min-w-0 truncate text-xl font-bold text-signal">
+                {tabs.find((t) => t.key === tab)?.label}
+              </h1>
+              <Dialog.Close asChild>
+                <button className="shrink-0 text-signal-dim hover:text-signal" aria-label="Close">
+                  <X size={22} />
+                </button>
+              </Dialog.Close>
+            </div>
+
+            <div className="min-w-0 flex-1 overflow-y-auto p-5">
           {tab === "overview" && (
             <div className="flex flex-col gap-4">
               <button
@@ -424,8 +456,10 @@ export function ServerSettingsModal() {
           )}
 
           {tab === "webhooks" && <WebhooksTab serverId={serverId} />}
-        </div>
-      </div>
-    </Modal>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
