@@ -239,13 +239,13 @@ else bad("slash-command list failed", `${commands.status} ${commands.text.slice(
 
 // A human token must not be able to register commands — that is something an application does for
 // itself, and the check is what stops one developer registering under another's application id.
-const register = await api("/interactions/commands", {
+const humanRegister = await api("/interactions/commands", {
   method: "PUT",
   token: aliceToken,
   body: [{ name: "hack", description: "should be refused" }],
 });
-if (register.status === 403) ok("a human token cannot register slash commands (403)");
-else bad("a human token registered slash commands", String(register.status));
+if (humanRegister.status === 403) ok("a human token cannot register slash commands (403)");
+else bad("a human token registered slash commands", String(humanRegister.status));
 
 const unknown = await api("/interactions/invoke", {
   method: "POST",
