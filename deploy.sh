@@ -124,17 +124,70 @@ echo "Android version bumped to build ${NEW_ANDROID_VERSION} (chat + owner)"
 # the version actually being published below.
 docker compose up -d backend
 
-npm run build:mobile --workspace=apps/frontend
-npx cap sync android --project apps/mobile 2>/dev/null || (cd apps/mobile && npx cap sync android)
-(
-  cd apps/mobile/android
-  export JAVA_HOME="$JDK21"
-  export ANDROID_HOME="$ANDROID_SDK"
-  export PATH="$JAVA_HOME/bin:$PATH"
-  ./gradlew assembleDebug --no-daemon
-)
+# The three native builds (chat APK, owner APK, desktop AppImage) are INDEPENDENT: their web
+# bundles go to distinct dirs (dist / dist-owner / dist-desktop) and their packagers touch
+# disjoint trees. Running them sequentially made every full deploy pay ~3x the wall time of the
+# slowest branch for no correctness gain — so they run concurrently, each logging to its own
+# file, and the deploy fails loudly if ANY branch fails. Gradle keeps its daemon + build cache
+# (two cold no-daemon JVM starts per deploy were pure waste; the daemon survives between deploys
+# and makes incremental APK builds dramatically cheaper).
+BUILD_LOGS="/tmp/lumina-native-build-logs"
+mkdir -p "$BUILD_LOGS"
 
-echo "== 4/5: publishing APK to /downloads/ =="
+build_chat_apk() {
+  npm run build:mobile --workspace=apps/frontend
+  npx cap sync android --project apps/mobile 2>/dev/null || (cd apps/mobile && npx cap sync android)
+  (
+    cd apps/mobile/android
+    export JAVA_HOME="$JDK21"
+    export ANDROID_HOME="$ANDROID_SDK"
+    export PATH="$JAVA_HOME/bin:$PATH"
+    ./gradlew assembleDebug --build-cache
+  )
+}
+
+build_owner_apk() {
+  npm run build:owner --workspace=apps/frontend
+  (cd apps/owner-mobile && npx cap sync android)
+  (
+    cd apps/owner-mobile/android
+    export JAVA_HOME="$JDK21"
+    export ANDROID_HOME="$ANDROID_SDK"
+    export PATH="$JAVA_HOME/bin:$PATH"
+    ./gradlew assembleDebug --build-cache
+  )
+}
+
+build_desktop() {
+  (cd apps/desktop && npm run package)
+}
+
+echo "== 3+4+5: building chat APK, owner APK and desktop AppImage IN PARALLEL =="
+DESKTOP_VERSION="1.0.${NEW_ANDROID_VERSION}"
+npm --prefix apps/desktop version "$DESKTOP_VERSION" --no-git-tag-version --allow-same-version >/dev/null
+echo "Desktop version set to ${DESKTOP_VERSION}"
+
+build_chat_apk  > "$BUILD_LOGS/chat-apk.log" 2>&1 &
+CHAT_PID=$!
+build_owner_apk > "$BUILD_LOGS/owner-apk.log" 2>&1 &
+OWNER_PID=$!
+build_desktop   > "$BUILD_LOGS/desktop.log" 2>&1 &
+DESKTOP_PID=$!
+
+FAILED=""
+wait "$CHAT_PID"    || FAILED="$FAILED chat-apk"
+wait "$OWNER_PID"   || FAILED="$FAILED owner-apk"
+wait "$DESKTOP_PID" || FAILED="$FAILED desktop"
+if [[ -n "$FAILED" ]]; then
+  for f in $FAILED; do
+    echo "==== FAILED BRANCH: $f (last 30 lines) ===="
+    tail -30 "$BUILD_LOGS/$f.log"
+  done
+  exit 1
+fi
+echo "All three native builds succeeded."
+
+echo "== publishing chat APK to /downloads/ =="
 cp apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk downloads/lumina.apk
 echo "Published: https://lumina.luxffa.com/downloads/lumina.apk"
 
@@ -142,32 +195,20 @@ echo "Published: https://lumina.luxffa.com/downloads/lumina.apk"
 # which contains only the owner dashboard and none of the chat app. Installs alongside the normal
 # app rather than replacing it. Grants nothing by itself: every route it calls is enforced by
 # requireOwner server-side, so on a non-owner account it is an inert login screen.
-echo "== 4b/5: building + publishing owner console APK =="
-npm run build:owner --workspace=apps/frontend
-(cd apps/owner-mobile && npx cap sync android)
-(
-  cd apps/owner-mobile/android
-  export JAVA_HOME="$JDK21"
-  export ANDROID_HOME="$ANDROID_SDK"
-  export PATH="$JAVA_HOME/bin:$PATH"
-  ./gradlew assembleDebug --no-daemon
-)
+echo "== publishing owner console APK =="
 cp apps/owner-mobile/android/app/build/outputs/apk/debug/app-debug.apk downloads/lumina-owner.apk
 echo "Published: https://lumina.luxffa.com/downloads/lumina-owner.apk"
 
-echo "== 5/5: building + publishing Linux desktop AppImage =="
+echo "== publishing Linux desktop AppImage =="
 # Only the Linux target actually builds/runs on this box — win/nsis and mac/dmg in
 # apps/desktop/electron-builder.yml are config-only until run on a Windows/Mac machine or CI.
 #
 # The version is bumped from the same counter as the APK rather than a second one of its own.
 # electron-updater compares semver against latest-linux.yml, so a build that ships with the same
 # version as the one already installed is invisible to it — a desktop version that never moved
-# would mean the auto-updater silently never fired.
-DESKTOP_VERSION="1.0.${NEW_ANDROID_VERSION}"
-npm --prefix apps/desktop version "$DESKTOP_VERSION" --no-git-tag-version --allow-same-version >/dev/null
-echo "Desktop version set to ${DESKTOP_VERSION}"
-(cd apps/desktop && npm run package)
-
+# would mean the auto-updater silently never fired. (Version is set BEFORE the parallel build
+# launch above; the AppImage was built there.)
+#
 # Two publishing paths, deliberately:
 #  - downloads/lumina-desktop.AppImage is the stable first-install link handed out on the site.
 #  - downloads/desktop/ is the update *feed* electron-updater reads. It needs the versioned
