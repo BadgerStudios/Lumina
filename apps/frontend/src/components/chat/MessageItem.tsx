@@ -7,7 +7,11 @@ import { OfficialBadge } from "../common/OfficialBadge";
 import type { MessageDTO } from "@lumina/shared";
 import { UserAvatar } from "../common/UserAvatar";
 import { UserProfileCard } from "../common/UserProfileCard";
-import { renderMarkdown } from "../../lib/markdown";
+import { MessageContent, SpoilerAttachment, stripSpoilerPrefix } from "./MessageContent";
+import { PollCard } from "./PollCard";
+import { LinkEmbeds } from "./LinkEmbeds";
+import { MessageComponents } from "./MessageComponents";
+import { resolveAssetUrl } from "../../lib/apiClient";
 import { useCustomEmojis } from "../../queries/emoji";
 import { useParams } from "react-router-dom";
 import { useMemo } from "react";
@@ -184,30 +188,51 @@ export function MessageItem({
         ) : (
           <>
             {message.content ? (
-              <div
+              <MessageContent
+                content={message.content}
+                emojiMap={emojiMap}
                 className="prose-invert break-words text-sm leading-relaxed text-signal [&_.mention]:rounded [&_.mention]:bg-accent/30 [&_.mention]:px-1 [&_.mention]:text-accent [&_.mention-everyone]:bg-idle/30 [&_.mention-everyone]:text-idle [&_a]:text-accent [&_a]:underline [&_code]:rounded [&_code]:bg-base-900 [&_code]:px-1 [&_code]:py-0.5"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content, emojiMap) }}
               />
             ) : null}
             {message.attachments.length > 0 && (
               <div className="mt-1 flex flex-col gap-2">
-                {message.attachments.map((a) =>
-                  a.mimeType.startsWith("image/") ? (
-                    <img key={a.id} src={attachmentUrl(a.url)} alt={a.fileName} className="max-h-80 max-w-sm rounded-lg border border-base-600" />
-                  ) : (
-                    <a
-                      key={a.id}
-                      href={attachmentUrl(a.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex w-fit items-center gap-2 rounded bg-base-600 px-3 py-2 text-sm text-accent underline"
-                    >
-                      {a.fileName}
-                    </a>
-                  ),
-                )}
+                {message.attachments.map((a) => (
+                  <SpoilerAttachment key={a.id} fileName={a.fileName}>
+                    {a.mimeType.startsWith("image/") ? (
+                      <img
+                        src={attachmentUrl(a.url)}
+                        alt={stripSpoilerPrefix(a.fileName)}
+                        className="max-h-80 max-w-sm rounded-lg border border-base-600"
+                      />
+                    ) : (
+                      <a
+                        href={attachmentUrl(a.url)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex w-fit items-center gap-2 rounded bg-base-600 px-3 py-2 text-sm text-accent underline"
+                      >
+                        {stripSpoilerPrefix(a.fileName)}
+                      </a>
+                    )}
+                  </SpoilerAttachment>
+                ))}
               </div>
             )}
+            {message.sticker ? (
+              <img
+                src={resolveAssetUrl(message.sticker.imageUrl)}
+                alt={message.sticker.name}
+                title={message.sticker.description ?? message.sticker.name}
+                // Fixed box rather than intrinsic size: stickers are normalised to 320px square on
+                // upload, and letting one render at its full size next to a line of text would make
+                // it the loudest thing in the channel.
+                className="mt-1 h-40 w-40 object-contain"
+                draggable={false}
+              />
+            ) : null}
+            {message.poll ? <PollCard poll={message.poll} currentUserId={currentUserId} /> : null}
+            <LinkEmbeds embeds={message.embeds} />
+            {message.components ? <MessageComponents messageId={message.id} rows={message.components} /> : null}
           </>
         )}
 

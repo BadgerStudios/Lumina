@@ -197,6 +197,144 @@ export interface MessageDTO {
   webhookId: string | null;
   webhookUsername: string | null;
   webhookAvatarUrl: string | null;
+  // A sticker or a poll IS the message body rather than something attached to it, which is why
+  // these are top-level and not entries in `attachments`. Both stay non-null on a message whose
+  // sticker/poll was later deleted only if the row still exists — the FKs are SetNull, so a deleted
+  // sticker leaves `sticker: null` with the message itself intact.
+  sticker: StickerDTO | null;
+  poll: PollDTO | null;
+  /** Unfurled links, in the order they appeared in the text. Empty until the worker fetches them. */
+  embeds: LinkPreviewDTO[];
+  /** Buttons/selects a bot attached to this message. Null for every human-sent message. */
+  components: ActionRowDTO[] | null;
+}
+
+export interface StickerDTO {
+  id: string;
+  serverId: string;
+  name: string;
+  description: string | null;
+  imageUrl: string;
+  animated: boolean;
+  createdAt: string;
+}
+
+export interface PollOptionDTO {
+  id: string;
+  label: string;
+  position: number;
+  votes: number;
+  /**
+   * Whether the *requesting* user picked this option. Necessarily false on the realtime broadcast,
+   * which is serialized once for the whole room — the client patches its own flag from the voterId
+   * on POLL_VOTE_UPDATE, exactly as it already does for reactions.
+   */
+  votedByMe: boolean;
+}
+
+export interface PollDTO {
+  id: string;
+  question: string;
+  allowMultiple: boolean;
+  expiresAt: string | null;
+  /** Derived server-side from expiresAt so a client with a wrong clock cannot vote in a shut poll. */
+  closed: boolean;
+  totalVotes: number;
+  options: PollOptionDTO[];
+}
+
+export interface LinkPreviewDTO {
+  url: string;
+  title: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  siteName: string | null;
+}
+
+export interface SoundboardSoundDTO {
+  id: string;
+  serverId: string;
+  name: string;
+  audioUrl: string;
+  emoji: string | null;
+  durationMs: number;
+  createdAt: string;
+}
+
+/**
+ * Interactive components, shaped like Discord's so a bot written against their docs is a small
+ * rewrite rather than a redesign. Rows exist because buttons lay out horizontally and a client
+ * needs to know where to wrap.
+ */
+export interface ActionRowDTO {
+  type: "row";
+  components: MessageComponentDTO[];
+}
+
+export type MessageComponentDTO = ButtonComponentDTO | SelectComponentDTO;
+
+export interface ButtonComponentDTO {
+  type: "button";
+  customId: string;
+  label: string;
+  style: "primary" | "secondary" | "success" | "danger";
+  disabled?: boolean;
+}
+
+export interface SelectComponentDTO {
+  type: "select";
+  customId: string;
+  placeholder?: string;
+  disabled?: boolean;
+  options: Array<{ value: string; label: string; description?: string }>;
+}
+
+export interface SlashCommandDTO {
+  id: string;
+  applicationId: string;
+  name: string;
+  description: string;
+  options: SlashCommandOptionDTO[];
+}
+
+export interface SlashCommandOptionDTO {
+  name: string;
+  description: string;
+  type: "string" | "integer" | "boolean" | "user" | "channel";
+  required?: boolean;
+  choices?: Array<{ name: string; value: string | number }>;
+}
+
+/** What a bot receives on ClientEvents-side INTERACTION_CREATE. */
+export interface InteractionDTO {
+  id: string;
+  type: "command" | "component";
+  token: string;
+  userId: string;
+  channelId: string | null;
+  dmConversationId: string | null;
+  serverId: string | null;
+  commandName: string | null;
+  options: Record<string, string | number | boolean> | null;
+  customId: string | null;
+  messageId: string | null;
+  createdAt: string;
+}
+
+export interface ServerTemplateDTO {
+  code: string;
+  name: string;
+  description: string | null;
+  creatorId: string | null;
+  uses: number;
+  createdAt: string;
+  /** Enough to render a preview without handing the whole snapshot to the client. */
+  summary: {
+    categories: number;
+    textChannels: number;
+    voiceChannels: number;
+    roles: number;
+  };
 }
 
 export interface InviteDTO {

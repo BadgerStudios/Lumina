@@ -7,7 +7,12 @@ import { useChannels } from "../queries/channels";
 import { useServer } from "../queries/servers";
 import { useMembers } from "../queries/members";
 import { useRoles } from "../queries/roles";
-import { useMessages, useSendChannelMessage, useSendChannelMessageWithAttachments } from "../queries/messages";
+import {
+  useMessages,
+  useSendChannelMessage,
+  useSendChannelMessageWithAttachments,
+  useSendChannelMessageRich,
+} from "../queries/messages";
 import { useMarkChannelRead } from "../queries/readState";
 import { useChannelRoom } from "../socket/useChannelRoom";
 import { useAuthStore } from "../store/authStore";
@@ -47,6 +52,7 @@ export function ChannelRoute() {
   const messagesQuery = useMessages(validChannelId);
   const sendMessage = useSendChannelMessage(validChannelId ?? "");
   const sendWithAttachments = useSendChannelMessageWithAttachments(validChannelId ?? "");
+  const sendRich = useSendChannelMessageRich(validChannelId ?? "");
 
   const me = members?.find((m) => m.userId === user?.id);
   const canManageMessages = can("MANAGE_MESSAGES", { userId: user?.id, server, member: me, roles });
@@ -81,6 +87,9 @@ export function ChannelRoute() {
         }}
         onSendWithAttachments={async (content, files, replyToId) => {
           await sendWithAttachments.mutateAsync({ content, files, replyToId });
+        }}
+        onSendRich={async (payload) => {
+          await sendRich.mutateAsync(payload);
         }}
         typingChannelId={validChannelId}
         serverId={serverId}

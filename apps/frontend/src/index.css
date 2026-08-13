@@ -484,3 +484,54 @@ body {
   vertical-align: -0.3em;
   margin: 0 0.05em;
 }
+
+/* `||spoiler||` (lib/markdown.ts + components/chat/MessageContent.tsx).
+   `color: transparent` rather than `visibility: hidden` or a blur, because the text has to keep
+   occupying exactly the space it will occupy once revealed — otherwise the message list reflows
+   under the reader's cursor at the moment they click, which is how you mis-click a spoiler.
+   Selection is disabled for the obvious reason: a spoiler you can drag-select and read from the
+   highlight is not hiding anything. */
+.spoiler {
+  background-color: var(--spoiler-bg, rgba(20, 20, 26, 0.92));
+  border-radius: 0.25rem;
+  color: transparent !important;
+  cursor: pointer;
+  padding: 0 0.15em;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.spoiler:hover {
+  background-color: var(--spoiler-bg-hover, rgba(20, 20, 26, 0.78));
+}
+
+.spoiler:focus-visible {
+  outline: 2px solid var(--accent, #2f6fed);
+  outline-offset: 1px;
+}
+
+/* Anything nested inside — links, custom emoji, bold — has to be hidden too, or the spoiler leaks
+   its contents through whatever colour the child element paints itself.
+
+   Scoped with :not(.revealed) rather than overridden again once revealed. Undoing a
+   `color: transparent !important` on descendants means either `revert` (which drops a link all the
+   way back to the user-agent blue, losing the accent colour the message body sets) or restating
+   every descendant rule here. Not applying the override in the first place leaves the original
+   styling untouched, which is the only version that cannot drift from it. */
+.spoiler:not(.revealed) * {
+  color: transparent !important;
+}
+
+.spoiler:not(.revealed) .custom-emoji,
+.spoiler:not(.revealed) img {
+  visibility: hidden;
+}
+
+.spoiler.revealed {
+  background-color: var(--spoiler-bg-revealed, rgba(120, 120, 140, 0.18));
+  color: inherit !important;
+  cursor: auto;
+  user-select: auto;
+}

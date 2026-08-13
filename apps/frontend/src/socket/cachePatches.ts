@@ -6,7 +6,7 @@
 // cache shape stays correct whether a change arrives via REST response or socket broadcast,
 // and it's exactly what apps/frontend/scripts/verify-realtime.mjs unit-tests directly
 // against real payloads captured from the live backend, without mounting any React tree.
-import type { ChannelDTO, MemberDTO, MessageDTO, ReactionSummaryDTO, RoleDTO } from "@lumina/shared";
+import type { ChannelDTO, LinkPreviewDTO, MemberDTO, MessageDTO, PollDTO, ReactionSummaryDTO, RoleDTO } from "@lumina/shared";
 
 export interface InfinitePages<T> {
   pages: T[][];
@@ -127,4 +127,61 @@ export function upsertChannel(list: ChannelDTO[] | undefined, channel: ChannelDT
 
 export function upsertRole(list: RoleDTO[] | undefined, role: RoleDTO): RoleDTO[] {
   return upsertById(list, role).sort((a, b) => a.position - b.position);
+}
+
+export interface PollVotePayload {
+  messageId: string;
+  voterId: string;
+  poll: PollDTO;
+}
+
+/**
+ * poll:vote-update — replaces the poll on one message.
+ *
+ * The broadcast is serialized once for a whole room, so every option in it comes back with
+ * `votedByMe: false`. Recomputing that flag here from `voterId` is what makes the payload usable:
+ * the person who voted sets their own ticks from the event, everyone else keeps whatever they
+ * already had. The alternative — trusting the payload — would silently clear every viewer's own
+ * ticks each time anyone else voted.
+ */
+export function patchPollVote(data: MessagePages, payload: PollVotePayload, currentUserId: string | undefined): MessagePages {
+  if (!data) return data;
+  const isMine = !!currentUserId && payload.voterId === currentUserId;
+  return {
+    ...data,
+    pages: data.pages.map((page) =>
+      page.map((m) => {
+        if (m.id !== payload.messageId || !m.poll) return m;
+        const previous = new Map(m.poll.options.map((o) => [o.id, o.votedByMe]));
+        return {
+          ...m,
+          poll: {
+            ...payload.poll,
+            options: payload.poll.options.map((o) => ({
+              ...o,
+              // The voter's own flags come from the fresh payload's vote counts via the option the
+              // event says they touched; everyone else keeps their existing flag untouched.
+              votedByMe: isMine ? o.votedByMe : (previous.get(o.id) ?? false),
+            })),
+          },
+        };
+      }),
+    ),
+  };
+}
+
+export interface EmbedsPayload {
+  messageId: string;
+  embeds: LinkPreviewDTO[];
+}
+
+/** message:embeds-update — link unfurls, which land a second or two after the message did. */
+export function patchMessageEmbeds(data: MessagePages, payload: EmbedsPayload): MessagePages {
+  if (!data) return data;
+  return {
+    ...data,
+    pages: data.pages.map((page) =>
+      page.map((m) => (m.id === payload.messageId ? { ...m, embeds: payload.embeds } : m)),
+    ),
+  };
 }

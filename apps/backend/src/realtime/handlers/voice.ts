@@ -111,6 +111,58 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
     void leaveVoice(io, socket);
   });
 
+  /**
+   * Soundboard.
+   *
+   * Signaling only, exactly like the rest of this file: the server relays "play sound X" and every
+   * client fetches and plays the clip locally. Mixing the audio into the call would mean decoding
+   * and re-encoding media server-side, which is the line between a signaling relay and an SFU.
+   *
+   * Three things are checked, and each closes a real hole:
+   *
+   * - The sender is actually in a voice channel. Otherwise anyone with a socket could broadcast
+   *   into any call on the instance by naming a channel id.
+   * - The sound belongs to the server that owns that channel. Otherwise sound ids leak across
+   *   servers, the same way unchecked sticker ids would.
+   * - The payload carries an id, never a URL. A client-supplied URL would be a way to make
+   *   everyone else's browser fetch and play an arbitrary file — small, but it is someone else's
+   *   audio device and someone else's IP address being handed to a stranger's host.
+   *
+   * Rate limiting is per-socket and in-memory: this is the one event in the app a bored user can
+   * trigger dozens of times a second, and the failure mode is everyone else's speakers.
+   */
+  const soundHistory: number[] = [];
+  socket.on(ClientEvents.SOUNDBOARD_PLAY, (payload: { soundId: string }) => {
+    void (async () => {
+      const channelId = socket.data.voiceChannelId as string | undefined;
+      if (!channelId || !payload?.soundId) return;
+
+      const now = Date.now();
+      while (soundHistory.length > 0 && now - soundHistory[0] > 10_000) soundHistory.shift();
+      if (soundHistory.length >= 5) return;
+      soundHistory.push(now);
+
+      const channel = await prisma.channel.findUnique({
+        where: { id: channelId },
+        select: { serverId: true },
+      });
+      if (!channel) return;
+
+      const sound = await prisma.soundboardSound.findUnique({ where: { id: payload.soundId } });
+      if (!sound || sound.serverId !== channel.serverId) return;
+
+      // Includes the presser: every client starts the clip off the same event, so they hear it
+      // together rather than the presser hearing it a round-trip early.
+      io.to(voiceRoom(channelId)).emit(ServerEvents.SOUNDBOARD_PLAY, {
+        channelId,
+        userId,
+        soundId: sound.id,
+        name: sound.name,
+        audioUrl: sound.audioUrl,
+      });
+    })();
+  });
+
   // Opaque relay — `data` is whatever shape the frontend's WebRTC layer wants (SDP offer/answer,
   // ICE candidate); the server doesn't parse or validate it, just forwards to one specific
   // socket by id (never a broadcast — signaling is always addressed to exactly one peer).

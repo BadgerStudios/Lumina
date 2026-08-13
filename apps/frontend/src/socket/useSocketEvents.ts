@@ -26,6 +26,10 @@ import { useVoiceStore } from "../store/voiceStore";
 import {
   patchMessageDelete,
   patchMessageUpdate,
+  patchPollVote,
+  patchMessageEmbeds,
+  type PollVotePayload,
+  type EmbedsPayload,
   patchReaction,
   removeById,
   upsertById,
@@ -103,6 +107,20 @@ export function useSocketEvents(): void {
         // to catch it too, not just the actor's own optimistic update.
         queryClient.invalidateQueries({ queryKey: [...queryKeys.messages(message.channelId), "pins"] });
       }
+    };
+
+    // Live poll tallies. Uses the same findMessageQueryKey walk as reactions: the payload names a
+    // message, not a channel, and the message may be in either a channel or a DM cache.
+    const onPollVote = (payload: PollVotePayload) => {
+      const key = findMessageQueryKey(queryClient, payload.messageId);
+      if (key) queryClient.setQueryData<MessagePages>(key, (old) => patchPollVote(old, payload, currentUserId));
+    };
+
+    // Link unfurls, which arrive after the message did — the fetch happens out-of-band on the
+    // worker. Without this the card only appears on a reload, which reads as "previews don't work".
+    const onMessageEmbeds = (payload: EmbedsPayload) => {
+      const key = findMessageQueryKey(queryClient, payload.messageId);
+      if (key) queryClient.setQueryData<MessagePages>(key, (old) => patchMessageEmbeds(old, payload));
     };
 
     const onMessageDelete = (payload: { id: string }) => {
@@ -244,6 +262,8 @@ export function useSocketEvents(): void {
     socket.on(ServerEvents.MESSAGE_CREATE, onMessageCreate);
     socket.on(ServerEvents.MESSAGE_UPDATE, onMessageUpdate);
     socket.on(ServerEvents.MESSAGE_DELETE, onMessageDelete);
+    socket.on(ServerEvents.POLL_VOTE_UPDATE, onPollVote);
+    socket.on(ServerEvents.MESSAGE_EMBEDS_UPDATE, onMessageEmbeds);
     socket.on(ServerEvents.REACTION_ADD, onReaction(true));
     socket.on(ServerEvents.REACTION_REMOVE, onReaction(false));
     socket.on(ServerEvents.TYPING_UPDATE, onTypingUpdate);
@@ -278,6 +298,8 @@ export function useSocketEvents(): void {
       socket.off(ServerEvents.MESSAGE_CREATE, onMessageCreate);
       socket.off(ServerEvents.MESSAGE_UPDATE, onMessageUpdate);
       socket.off(ServerEvents.MESSAGE_DELETE, onMessageDelete);
+      socket.off(ServerEvents.POLL_VOTE_UPDATE, onPollVote);
+      socket.off(ServerEvents.MESSAGE_EMBEDS_UPDATE, onMessageEmbeds);
       socket.off(ServerEvents.REACTION_ADD);
       socket.off(ServerEvents.REACTION_REMOVE);
       socket.off(ServerEvents.TYPING_UPDATE, onTypingUpdate);

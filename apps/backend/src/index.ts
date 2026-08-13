@@ -65,6 +65,12 @@ import masterRoutes from "./modules/master/routes.js";
 import lookupRoutes from "./modules/lookup/routes.js";
 import ageRoutes from "./modules/age/routes.js";
 import siteRoutes from "./modules/site/routes.js";
+import stickerRoutes from "./modules/stickers/routes.js";
+import soundboardRoutes from "./modules/soundboard/routes.js";
+import pollRoutes from "./modules/polls/routes.js";
+import interactionRoutes from "./modules/interactions/routes.js";
+import templateRoutes from "./modules/templates/routes.js";
+import { registerMetricsHooks, registerMetricsRoute } from "./modules/metrics/prometheus.js";
 
 async function main() {
   await fs.mkdir(env.UPLOADS_DIR, { recursive: true });
@@ -73,6 +79,12 @@ async function main() {
   await fs.mkdir(path.join(env.UPLOADS_DIR, "server-icons"), { recursive: true });
   await fs.mkdir(path.join(env.UPLOADS_DIR, "server-banners"), { recursive: true });
   await fs.mkdir(path.join(env.UPLOADS_DIR, "attachments"), { recursive: true });
+  // `emojis` was missing here AND from the static registrations below, which meant every custom
+  // emoji uploaded since that feature shipped resolved to the SPA's index.html instead of an image.
+  // The upload succeeded, the row was written, and the picture was simply broken everywhere.
+  await fs.mkdir(path.join(env.UPLOADS_DIR, "emojis"), { recursive: true });
+  await fs.mkdir(path.join(env.UPLOADS_DIR, "stickers"), { recursive: true });
+  await fs.mkdir(path.join(env.UPLOADS_DIR, "sounds"), { recursive: true });
 
   const fastify = Fastify({
     logger: {
@@ -151,6 +163,8 @@ async function main() {
     reply.code(statusCode).send({ error: statusCode === 500 ? "Internal server error" : error.message });
   });
 
+  registerMetricsHooks(fastify);
+
   await fastify.register(sensiblePlugin);
   await fastify.register(helmetPlugin);
   await fastify.register(corsPlugin);
@@ -186,7 +200,7 @@ async function main() {
    * which privileged endpoints exist and when they appear. Nothing is gained by publishing it,
    * since the only people who may call these already have the source.
    */
-  const PRIVATE_PREFIXES = ["/api/master", "/api/owner", "/api/ops", "/api/staff", "/api/billing"];
+  const PRIVATE_PREFIXES = ["/api/master", "/api/owner", "/api/ops", "/api/staff", "/api/billing", "/metrics"];
 
   await fastify.register(fastifySwagger, {
     transform: (data) => {
@@ -250,7 +264,37 @@ async function main() {
     ...IMMUTABLE_ASSET,
   });
 
+  await fastify.register(fastifyStatic, {
+    root: path.resolve(path.join(env.UPLOADS_DIR, "emojis")),
+    prefix: "/emojis/",
+    decorateReply: false,
+    cacheControl: true,
+    ...IMMUTABLE_ASSET,
+  });
+  await fastify.register(fastifyStatic, {
+    root: path.resolve(path.join(env.UPLOADS_DIR, "stickers")),
+    prefix: "/stickers/",
+    decorateReply: false,
+    cacheControl: true,
+    ...IMMUTABLE_ASSET,
+  });
+  // Sound files are stored as `<uuid>.<ext>` with the extension derived from the probed container
+  // (see modules/soundboard/routes.ts), NOT from the uploaded filename, so fastify-static's own
+  // mime lookup produces the right Content-Type. Stating one type here instead would have served
+  // an Ogg or WAV clip as audio/mpeg, which browsers refuse to decode.
+  await fastify.register(fastifyStatic, {
+    root: path.resolve(path.join(env.UPLOADS_DIR, "sounds")),
+    prefix: "/sounds/",
+    decorateReply: false,
+    cacheControl: true,
+    ...IMMUTABLE_ASSET,
+    setHeaders: (res) => {
+      res.setHeader("x-content-type-options", "nosniff");
+    },
+  });
+
   fastify.get("/healthz", async () => ({ status: "ok" }));
+  registerMetricsRoute(fastify);
 
   await fastify.register(authRoutes, { prefix: "/api/auth" });
   await fastify.register(usersRoutes, { prefix: "/api/users" });
@@ -300,6 +344,11 @@ async function main() {
   await fastify.register(lookupRoutes, { prefix: "/api/lookup" });
   await fastify.register(ageRoutes, { prefix: "/api/age" });
   await fastify.register(siteRoutes, { prefix: "/api/site" });
+  await fastify.register(stickerRoutes, { prefix: "/api/servers" });
+  await fastify.register(soundboardRoutes, { prefix: "/api/servers" });
+  await fastify.register(pollRoutes, { prefix: "/api/polls" });
+  await fastify.register(interactionRoutes, { prefix: "/api/interactions" });
+  await fastify.register(templateRoutes, { prefix: "/api/templates" });
 
   await fastify.ready();
 

@@ -10,7 +10,10 @@ marked.use({
 });
 
 const ALLOWED_TAGS = ["b", "strong", "i", "em", "del", "s", "code", "pre", "a", "blockquote", "br", "p", "span"];
-const ALLOWED_ATTR = ["href", "target", "rel", "class"];
+// `tabindex`/`role`/`aria-*` are here for spoilers (see markSpoilers) — a reveal control that only
+// answers to a mouse is not a control. Someone typing these attributes by hand into chat can at
+// worst make a normal word focusable, which is why widening the list this far is safe.
+const ALLOWED_ATTR = ["href", "target", "rel", "class", "tabindex", "role", "aria-label", "aria-expanded"];
 
 // The backend independently parses/persists real mentions (modules/messages/mentions.ts) for
 // notification/@everyone-permission purposes, but doesn't annotate MessageDTO.content with
@@ -24,6 +27,35 @@ function highlightMentions(text: string): string {
     const cls = mention === "@everyone" ? "mention mention-everyone" : "mention";
     return `${pre}<span class="${cls}">${mention}</span>`;
   });
+}
+
+/**
+ * `||spoiler||`, Discord's own syntax.
+ *
+ * ## Why this runs BEFORE marked rather than after sanitizing
+ *
+ * The opposite of substituteEmoji below, and for the opposite reason. Emoji substitution has to
+ * happen last because it emits an `<img>`, a tag the untrusted path must never be able to produce.
+ * A spoiler emits a `<span class="spoiler">`, which is a tag and attribute the untrusted path is
+ * *already* allowed to produce — so there is nothing to protect here, and running first means the
+ * text inside a spoiler still gets its bold, links and emoji like any other text. Hiding a
+ * formatted sentence is the normal case; hiding a raw one is the exception.
+ *
+ * Non-greedy and bounded: `||a|| and ||b||` is two spoilers, not one spanning the middle. It does
+ * cross newlines, because a hidden block of several lines (a plot summary, a puzzle answer) is
+ * exactly what people reach for this for.
+ *
+ * The known cost is the same one substituteEmoji documents: `||` inside a code block is treated as
+ * a spoiler too. Worth it to keep the untrusted-input path narrow.
+ */
+const SPOILER_RE = /\|\|([\s\S]{1,4000}?)\|\|/g;
+
+function markSpoilers(text: string): string {
+  return text.replace(
+    SPOILER_RE,
+    (_match, inner: string) =>
+      `<span class="spoiler" role="button" tabindex="0" aria-expanded="false" aria-label="Hidden text, activate to reveal">${inner}</span>`,
+  );
 }
 
 /** `:name:` — same character class the server enforces on upload. */
@@ -56,7 +88,7 @@ function substituteEmoji(html: string, emojis: Map<string, string>): string {
 }
 
 export function renderMarkdown(raw: string, emojis?: Map<string, string>): string {
-  const withMentions = highlightMentions(raw);
+  const withMentions = markSpoilers(highlightMentions(raw));
   const html = marked.parse(withMentions, { async: false }) as string;
   const clean = DOMPurify.sanitize(html, {
     ALLOWED_TAGS,

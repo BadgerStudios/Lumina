@@ -10,6 +10,12 @@ import { serializeDMConversation } from "../../lib/serialize.js";
 import { BadRequestError, BlockedError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
 import { isBlockedEitherWay, areFriends } from "../friends/service.js";
+// Imported rather than redeclared: this used to be a local copy of
+// `{ author, attachments, reactions }`, which silently stopped being the full set the moment
+// messages gained stickers, polls and link embeds. A hand-written include that drifts does not
+// fail — it serializes the missing relations as "this message has none", and a MESSAGE_UPDATE
+// built from it wipes a live poll off every client that receives it.
+import { messageInclude } from "../messages/service.js";
 
 const createDMSchema = z.object({
   participantIds: z.array(z.string()).min(1),
@@ -29,7 +35,6 @@ const conversationInclude = {
   participants: { include: { user: true } },
 } as const;
 
-const messageInclude = { author: true, attachments: true, reactions: true } as const;
 
 async function loadLastMessage(conversationId: string) {
   return prisma.message.findFirst({

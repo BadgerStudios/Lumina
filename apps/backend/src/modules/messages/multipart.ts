@@ -13,11 +13,23 @@ import type { CreateMessageAttachmentInput } from "./service.js";
  * attachments were missing entirely until this was added — the multipart branch simply didn't
  * exist on the DM route).
  */
-export async function parseMessageMultipart(
-  request: FastifyRequest,
-): Promise<{ content: string; replyToId: string | null; attachments: CreateMessageAttachmentInput[] }> {
+export interface ParsedMessageBody {
+  content: string;
+  replyToId: string | null;
+  attachments: CreateMessageAttachmentInput[];
+  stickerId: string | null;
+  /**
+   * Poll definition, as sent by the composer. Not a Poll id — the poll is created inside the same
+   * request that creates its message, because an orphan poll with no message is unreachable.
+   */
+  poll: { question: string; options: string[]; allowMultiple?: boolean; durationHours?: number | null } | null;
+}
+
+export async function parseMessageMultipart(request: FastifyRequest): Promise<ParsedMessageBody> {
   let content = "";
   let replyToId: string | null = null;
+  let stickerId: string | null = null;
+  let poll: ParsedMessageBody["poll"] = null;
   const attachments: CreateMessageAttachmentInput[] = [];
 
   if (request.isMultipart()) {
@@ -43,13 +55,28 @@ export async function parseMessageMultipart(
         content = String(part.value ?? "");
       } else if (part.fieldname === "replyToId") {
         replyToId = String(part.value ?? "") || null;
+      } else if (part.fieldname === "stickerId") {
+        stickerId = String(part.value ?? "") || null;
+      } else if (part.fieldname === "poll") {
+        // A multipart field is a string, so the poll definition rides as JSON. Malformed JSON is
+        // treated as "no poll" rather than throwing: the alternative is a 500 on a field the
+        // sender may not even have meant to include.
+        try {
+          poll = JSON.parse(String(part.value ?? "")) as ParsedMessageBody["poll"];
+        } catch {
+          poll = null;
+        }
       }
     }
   } else {
-    const body = request.body as { content?: string; replyToId?: string | null } | undefined;
+    const body = request.body as
+      | { content?: string; replyToId?: string | null; stickerId?: string | null; poll?: ParsedMessageBody["poll"] }
+      | undefined;
     content = body?.content ?? "";
     replyToId = body?.replyToId ?? null;
+    stickerId = body?.stickerId ?? null;
+    poll = body?.poll ?? null;
   }
 
-  return { content, replyToId, attachments };
+  return { content, replyToId, attachments, stickerId, poll };
 }

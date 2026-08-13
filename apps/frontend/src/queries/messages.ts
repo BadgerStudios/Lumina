@@ -127,6 +127,56 @@ export function useSendDMMessageWithAttachments(conversationId: string) {
   });
 }
 
+/**
+ * A send that carries something other than text or files — a sticker, or a poll.
+ *
+ * Separate from the two existing send hooks rather than folded into them, because the socket fast
+ * path cannot carry either: a poll has to be *created* server-side inside the same request that
+ * creates its message (see modules/messages/channelMessagesRoutes.ts), so this is REST-only by
+ * construction. Keeping it apart means the plain-text path stays on the socket, which is where the
+ * latency actually matters.
+ */
+export interface RichSendPayload {
+  content: string;
+  replyToId?: string | null;
+  stickerId?: string | null;
+  poll?: { question: string; options: string[]; allowMultiple?: boolean; durationHours?: number | null } | null;
+}
+
+function richForm(payload: RichSendPayload): FormData {
+  const form = new FormData();
+  form.set("content", payload.content);
+  if (payload.replyToId) form.set("replyToId", payload.replyToId);
+  if (payload.stickerId) form.set("stickerId", payload.stickerId);
+  // JSON in a multipart field: a form field is a string, and the poll definition is a tree.
+  if (payload.poll) form.set("poll", JSON.stringify(payload.poll));
+  return form;
+}
+
+export function useSendChannelMessageRich(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: RichSendPayload) =>
+      api.postForm<MessageDTO>(`/channels/${channelId}/messages`, richForm(payload)),
+    onSuccess: (message) => {
+      queryClient.setQueryData<MessagePages>(queryKeys.messages(channelId), (old) => upsertMessageCreate(old, message));
+    },
+  });
+}
+
+export function useSendDMMessageRich(conversationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: RichSendPayload) =>
+      api.postForm<MessageDTO>(`/dm/${conversationId}/messages`, richForm(payload)),
+    onSuccess: (message) => {
+      queryClient.setQueryData<MessagePages>(queryKeys.dmMessages(conversationId), (old) =>
+        upsertMessageCreate(old, message),
+      );
+    },
+  });
+}
+
 function messageQueryKeyFor(message: MessageDTO): readonly unknown[] {
   return message.channelId ? queryKeys.messages(message.channelId) : queryKeys.dmMessages(message.dmConversationId!);
 }

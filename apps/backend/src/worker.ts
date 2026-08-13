@@ -7,6 +7,8 @@ import {
   type TranscodeJobData,
 } from "./modules/videos/queue.js";
 import { processVideo } from "./modules/videos/transcode.js";
+import { LINK_PREVIEW_QUEUE, type LinkPreviewJobData } from "./modules/messages/previewQueue.js";
+import { fetchPreview, broadcastEmbeds } from "./lib/linkPreview.js";
 
 /** How long a video may sit in PROCESSING before the sweep assumes its job was lost. Comfortably
  * longer than a real transcode (bounded at 10 minutes by ffmpeg's own timeout). */
@@ -79,6 +81,33 @@ async function main() {
     },
   );
 
+  /**
+   * Link unfurling, on its own worker rather than sharing the transcode one.
+   *
+   * They have opposite shapes: a transcode is CPU-bound and must run strictly one at a time, an
+   * unfurl is almost entirely waiting on a remote host. Sharing a worker would mean one slow page
+   * fetch sitting in front of every queued transcode, and concurrency 1 on something that is 99%
+   * network wait is simply wasted. Four at a time is enough to keep a busy channel current without
+   * this host looking like it is scanning anyone.
+   */
+  const previewWorker = new Worker<LinkPreviewJobData>(
+    LINK_PREVIEW_QUEUE,
+    async (job) => {
+      await fetchPreview(job.data.previewId);
+      await broadcastEmbeds(BigInt(job.data.messageId), job.data.room);
+    },
+    { connection: createQueueConnection(), concurrency: 4, stalledInterval: 60_000, maxStalledCount: 2 },
+  );
+
+  previewWorker.on("failed", (job, err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[worker] link preview ${job?.id} failed:`, err?.message ?? err);
+  });
+  previewWorker.on("error", (err) => {
+    // eslint-disable-next-line no-console
+    console.error("[worker] link preview worker error:", err);
+  });
+
   worker.on("failed", (job, err) => {
     // eslint-disable-next-line no-console
     console.error(`[worker] job ${job?.id} failed:`, err?.message ?? err);
@@ -99,6 +128,7 @@ async function main() {
     // eslint-disable-next-line no-console
     console.log(`[worker] received ${signal}, closing`);
     await worker.close();
+    await previewWorker.close();
     await prisma.$disconnect();
     process.exit(0);
   };

@@ -3,7 +3,12 @@ import { useParams } from "react-router-dom";
 import { DMSidebar } from "../components/layout/DMSidebar";
 import { ChatPane } from "../components/layout/ChatPane";
 import { useDMs, useMarkDMRead } from "../queries/dms";
-import { useDMMessages, useSendDMMessage, useSendDMMessageWithAttachments } from "../queries/messages";
+import {
+  useDMMessages,
+  useSendDMMessage,
+  useSendDMMessageWithAttachments,
+  useSendDMMessageRich,
+} from "../queries/messages";
 import { useAuthStore } from "../store/authStore";
 
 export function DMRoute() {
@@ -15,6 +20,7 @@ export function DMRoute() {
   const messagesQuery = useDMMessages(conversationId);
   const sendMessage = useSendDMMessage(conversationId ?? "");
   const sendWithAttachments = useSendDMMessageWithAttachments(conversationId ?? "");
+  const sendRich = useSendDMMessageRich(conversationId ?? "");
   const markRead = useMarkDMRead(conversationId ?? "");
 
   // Marks read whenever the conversation is open and its last message changes (a new message
@@ -51,6 +57,9 @@ export function DMRoute() {
         }}
         onSendWithAttachments={async (content, files, replyToId) => {
           await sendWithAttachments.mutateAsync({ content, files, replyToId });
+        }}
+        onSendRich={async (payload) => {
+          await sendRich.mutateAsync(payload);
         }}
         target={{ dmConversationId: conversationId }}
         canManageMessages={false}

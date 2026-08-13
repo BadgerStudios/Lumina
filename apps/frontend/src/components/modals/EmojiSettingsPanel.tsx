@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { resolveAssetUrl } from "../../lib/apiClient";
 import {
   useCustomEmojis,
   useDeleteEmoji,
@@ -123,7 +124,9 @@ export function EmojiSettingsPanel({ serverId }: { serverId: string }) {
               key={e.id}
               className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-base-700/50"
             >
-              <img src={e.imageUrl} alt="" className="h-8 w-8 shrink-0 object-contain" />
+              {/* resolveAssetUrl, not the raw path: on mobile/desktop the WebView's origin shares
+                  nothing with the API's, so a root-relative path resolves against the wrong host. */}
+              <img src={resolveAssetUrl(e.imageUrl)} alt="" className="h-8 w-8 shrink-0 object-contain" />
               <input
                 defaultValue={e.name}
                 onBlur={(ev) => {

@@ -15,7 +15,8 @@ import { useServerWebhooks, useCreateWebhook, useDeleteWebhook } from "../../que
 import { useAuthStore } from "../../store/authStore";
 import { cn } from "../../lib/cn";
 import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
-import { EmojiSettingsPanel } from "./EmojiSettingsPanel";
+import { ExpressionsSettingsPanel } from "./ExpressionsSettingsPanel";
+import { ServerTemplateSection } from "./ServerTemplateSection";
 
 type Tab = "overview" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons";
 
@@ -185,7 +186,7 @@ export function ServerSettingsModal() {
     { key: "overview", label: "Overview" },
     { key: "moderation", label: "Moderation" },
     { key: "community", label: "Community" },
-    { key: "emoji", label: "Emoji" },
+    { key: "emoji", label: "Expressions" },
     { key: "roles", label: "Roles" },
     { key: "bans", label: "Bans" },
     { key: "auditLog", label: "Audit Log" },
@@ -345,6 +346,8 @@ export function ServerSettingsModal() {
                   </button>
                 )}
               </div>
+
+              <ServerTemplateSection serverId={serverId} serverName={server?.name ?? "Server"} />
             </div>
           )}
 
@@ -400,7 +403,7 @@ export function ServerSettingsModal() {
             <CommunityPanel server={server} serverId={serverId} />
           )}
 
-          {tab === "emoji" && <EmojiSettingsPanel serverId={serverId} />}
+          {tab === "emoji" && <ExpressionsSettingsPanel serverId={serverId} />}
 
           {tab === "auditLog" && (
             <div className="flex flex-col gap-2">

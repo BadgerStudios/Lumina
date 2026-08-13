@@ -13,7 +13,7 @@ import { fitImage, type ImagePreset } from "./imageFit.js";
  * never-cleaned-up-old-file leak ended up in four places at once.
  */
 
-export type ProfileImageDir = "avatars" | "banners" | "server-icons" | "server-banners" | "emojis";
+export type ProfileImageDir = "avatars" | "banners" | "server-icons" | "server-banners" | "emojis" | "stickers";
 
 interface UploadedPart {
   filename: string;
@@ -61,7 +61,7 @@ export async function saveProfileImage(
  */
 export async function deleteProfileImage(previousUrl: string | null | undefined): Promise<void> {
   if (!previousUrl) return;
-  const match = /^\/(avatars|banners|server-icons|server-banners|emojis)\/([^/]+)$/.exec(previousUrl);
+  const match = /^\/(avatars|banners|server-icons|server-banners|emojis|stickers)\/([^/]+)$/.exec(previousUrl);
   if (!match) return; // externally-hosted or hand-set URL: not ours to delete
 
   const [, dir, name] = match;

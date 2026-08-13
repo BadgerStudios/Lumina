@@ -7,6 +7,9 @@ name: CI
 # supplies them. Everything here runs on a clean checkout, so the moment a remote exists this is
 # already working.
 #
+# Until a remote exists this workflow cannot run at all, which is why the same checks are also
+# enforced locally by .githooks/pre-push (see scripts/install-hooks.sh). Both call scripts/ci.sh.
+#
 # What it does NOT cover: the verify-*.mjs suites. Those exercise a real running deployment with a
 # database, Redis and a live domain — they are the other tier, and pretending a CI runner can stand
 # that up would produce a workflow that fails for environmental reasons and gets ignored.
@@ -29,25 +32,10 @@ jobs:
 
       - run: npm ci
 
-      # Prisma's generated client is imported by the backend's types, so nothing typechecks without
-      # it. No database connection is needed to generate.
-      - run: npx prisma generate
-        working-directory: apps/backend
-
-      - name: Typecheck backend
-        run: npx tsc --noEmit
-        working-directory: apps/backend
-
-      - name: Typecheck frontend
-        run: npx tsc -p . --noEmit
-        working-directory: apps/frontend
-
-      - name: Unit tests
-        run: npx vitest run
-        working-directory: apps/backend
-
-      - name: Production build
-        run: npm run build --workspace=apps/frontend
+      # One script, shared with .githooks/pre-push, so what CI runs and what a developer can run
+      # here cannot drift apart. Prisma generation is inside it.
+      - name: CI checks
+        run: ./scripts/ci.sh
 
   swift:
     # LuminaKit is deliberately Foundation-only so it builds and tests off an Apple platform — this

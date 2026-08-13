@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# Runs the CI checks before a push is allowed.
+#
+# This exists because .github/workflows/ci.yml has never run — there is no remote, so there is no
+# forge to run it, so nothing has ever verified a commit except by hand. The hook closes that today
+# rather than when a remote appears.
+#
+# --quick: typecheck and unit tests only. The production build and the Swift job stay in the
+# workflow, because a hook people wait thirty seconds for is a hook people disable.
+#
+# Enabled by `git config core.hooksPath .githooks` (see scripts/install-hooks.sh). Bypassable with
+# `git push --no-verify`, deliberately — a hook you cannot get past when you genuinely need to is
+# one that gets uninstalled.
+
+exec "$(git rev-parse --show-toplevel)/scripts/ci.sh" --quick

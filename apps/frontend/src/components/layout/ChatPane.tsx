@@ -15,6 +15,7 @@ import {
   useRemoveReaction,
   useTogglePinMessage,
   usePinnedMessages,
+  type RichSendPayload,
 } from "../../queries/messages";
 
 export function ChatPane({
@@ -27,6 +28,7 @@ export function ChatPane({
   fetchNextPage,
   onSend,
   onSendWithAttachments,
+  onSendRich,
   typingChannelId,
   serverId,
   target,
@@ -44,6 +46,7 @@ export function ChatPane({
   fetchNextPage: () => void;
   onSend: (content: string, replyToId: string | null) => Promise<void>;
   onSendWithAttachments?: (content: string, files: File[], replyToId: string | null) => Promise<void>;
+  onSendRich?: (payload: RichSendPayload) => Promise<void>;
   typingChannelId?: string;
   serverId?: string;
   target: { channelId?: string; dmConversationId?: string };
@@ -116,7 +119,10 @@ export function ChatPane({
         placeholder={`Message ${title}`}
         onSend={onSend}
         onSendWithAttachments={onSendWithAttachments}
+        onSendRich={onSendRich}
         typingChannelId={typingChannelId}
+        serverId={serverId}
+        dmConversationId={target.dmConversationId}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
       />

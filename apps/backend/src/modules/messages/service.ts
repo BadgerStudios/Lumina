@@ -11,6 +11,7 @@ import { sendPushToUser } from "../../lib/push.js";
 import { runMessageAutomations } from "../addons/runtime.js";
 import { assertPassesAutoMod } from "../automod/service.js";
 import { assertPassesVerification } from "../servers/verification.js";
+import { scheduleLinkPreviews } from "../../lib/linkPreview.js";
 
 /**
  * Shared message service — imported by BOTH the REST routes
@@ -19,10 +20,21 @@ import { assertPassesVerification } from "../servers/verification.js";
  * broadcast happen in exactly one place regardless of transport.
  */
 
-const messageInclude = {
+/**
+ * Everything serializeMessage needs, in one place so no caller can accidentally load a message
+ * without its poll or its embeds and serialize it as though it had none.
+ *
+ * The poll's votes are pulled as bare userIds rather than counted with an aggregate: a tally needs
+ * both the totals and "did *I* vote", and a `_count` gives only the first, so the second would cost
+ * a second query per poll per message.
+ */
+export const messageInclude = {
   author: true,
   attachments: true,
   reactions: true,
+  sticker: true,
+  poll: { include: { options: { include: { votes: { select: { userId: true } } } } } },
+  embeds: { include: { preview: true } },
 } as const;
 
 export interface CreateMessageAttachmentInput {
@@ -45,9 +57,31 @@ async function assertNotMuted(userId: string, serverId: string): Promise<void> {
   }
 }
 
-function assertHasContent(content: string, attachments?: CreateMessageAttachmentInput[]): void {
+function assertHasContent(
+  content: string,
+  attachments?: CreateMessageAttachmentInput[],
+  extras?: { stickerId?: string | null; pollId?: string | null },
+): void {
+  // A sticker or a poll is a message body in its own right — requiring text alongside one would
+  // make "send a sticker" impossible, which is the entire feature.
+  if (extras?.stickerId || extras?.pollId) return;
   if (!content.trim() && (!attachments || attachments.length === 0)) {
     throw new BadRequestError("Message must have content or at least one attachment");
+  }
+}
+
+/**
+ * A sticker may only be sent in the server that owns it.
+ *
+ * Without this check, `stickerId` is an arbitrary client-supplied id: anyone who could see a
+ * sticker's id in one server could post it in another, which quietly turns every server's sticker
+ * set into a global one and leaks the existence of stickers in servers the sender is not in.
+ */
+async function assertStickerUsable(stickerId: string, serverId: string | null): Promise<void> {
+  const sticker = await prisma.sticker.findUnique({ where: { id: stickerId }, select: { serverId: true } });
+  if (!sticker) throw new NotFoundError("Sticker not found");
+  if (sticker.serverId !== serverId) {
+    throw new ForbiddenError("That sticker belongs to a different server");
   }
 }
 
@@ -137,6 +171,8 @@ export async function createChannelMessage(params: {
   content: string;
   replyToId?: string | null;
   attachments?: CreateMessageAttachmentInput[];
+  stickerId?: string | null;
+  pollId?: string | null;
 }): Promise<MessageDTO> {
   const channel = await prisma.channel.findUnique({ where: { id: params.channelId } });
   if (!channel) throw new NotFoundError("Channel not found");
@@ -147,7 +183,8 @@ export async function createChannelMessage(params: {
   // over "verify your email", which is the more useful error) and before anything is written.
   await assertPassesVerification(params.userId, channel.serverId);
   await assertSlowmodeOk(params.userId, params.channelId, channel.serverId, channel.slowmodeSeconds);
-  assertHasContent(params.content, params.attachments);
+  assertHasContent(params.content, params.attachments, params);
+  if (params.stickerId) await assertStickerUsable(params.stickerId, channel.serverId);
 
   // AutoMod, at the same point as slowmode: after permission and content checks, before anything is
   // written. A rule that blocks a message must block it, not delete it a moment later — the
@@ -179,6 +216,8 @@ export async function createChannelMessage(params: {
       authorId: params.userId,
       content: params.content,
       replyToId: params.replyToId ? BigInt(params.replyToId) : null,
+      stickerId: params.stickerId ?? null,
+      pollId: params.pollId ?? null,
       attachments: params.attachments?.length
         ? {
             create: params.attachments.map((a) => ({
@@ -198,6 +237,11 @@ export async function createChannelMessage(params: {
 
   const dto = serializeMessage(message, null);
   getIO().to(`channel:${params.channelId}`).emit(ServerEvents.MESSAGE_CREATE, dto);
+  // Out-of-band, never awaited, and never in the send path — see lib/linkPreview.ts. Unfurling a
+  // link means this server makes an outbound request to a URL a user chose; doing that before the
+  // message is stored would let anyone make their own send hang for as long as a remote host cares
+  // to stall.
+  scheduleLinkPreviews({ messageId: message.id, content: params.content, room: `channel:${params.channelId}` });
   await syncMessageMentions({
     messageId: message.id,
     serverId: channel.serverId,
@@ -233,12 +277,17 @@ export async function createDMMessage(params: {
   content: string;
   replyToId?: string | null;
   attachments?: CreateMessageAttachmentInput[];
+  stickerId?: string | null;
+  pollId?: string | null;
 }): Promise<MessageDTO> {
   const participant = await prisma.dMParticipant.findUnique({
     where: { conversationId_userId: { conversationId: params.conversationId, userId: params.userId } },
   });
   if (!participant) throw new ForbiddenError("Not a participant in this conversation");
-  assertHasContent(params.content, params.attachments);
+  assertHasContent(params.content, params.attachments, params);
+  // Stickers are server-scoped, and a DM has no server to scope against — the same reason a
+  // `:name:` custom emoji cannot resolve in a DM. Rejected explicitly so the error says why.
+  if (params.stickerId) throw new BadRequestError("Stickers can only be sent in a server");
 
   const message = await prisma.message.create({
     data: {
@@ -246,6 +295,7 @@ export async function createDMMessage(params: {
       authorId: params.userId,
       content: params.content,
       replyToId: params.replyToId ? BigInt(params.replyToId) : null,
+      pollId: params.pollId ?? null,
       attachments: params.attachments?.length
         ? {
             create: params.attachments.map((a) => ({
@@ -265,6 +315,7 @@ export async function createDMMessage(params: {
 
   const dto = serializeMessage(message, null);
   getIO().to(`dm:${params.conversationId}`).emit(ServerEvents.MESSAGE_CREATE, dto);
+  scheduleLinkPreviews({ messageId: message.id, content: params.content, room: `dm:${params.conversationId}` });
 
   const otherParticipants = await prisma.dMParticipant.findMany({
     where: { conversationId: params.conversationId, userId: { not: params.userId } },

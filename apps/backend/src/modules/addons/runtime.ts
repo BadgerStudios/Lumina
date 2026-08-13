@@ -3,6 +3,12 @@ import { prisma } from "../../db/prisma.js";
 import { redis } from "../../db/redis.js";
 import { getIO } from "../../realtime/io.js";
 import { serializeMessage } from "../../lib/serialize.js";
+// Imported rather than redeclared: this used to be a local copy of
+// `{ author, attachments, reactions }`, which silently stopped being the full set the moment
+// messages gained stickers, polls and link embeds. A hand-written include that drifts does not
+// fail — it serializes the missing relations as "this message has none", and a MESSAGE_UPDATE
+// built from it wipes a live poll off every client that receives it.
+import { messageInclude } from "../messages/service.js";
 import type { AddonManifest, AddonAutomation } from "./manifest.js";
 
 /**
@@ -132,7 +138,7 @@ async function perform(
       const updated = await prisma.message.update({
         where: { id: ctx.messageId },
         data: { pinned: true },
-        include: { author: true, attachments: true, reactions: true },
+        include: messageInclude,
       });
       emit(ctx, ServerEvents.MESSAGE_UPDATE, serializeMessage(updated, null));
       return;

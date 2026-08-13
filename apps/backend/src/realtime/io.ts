@@ -9,6 +9,8 @@ import { registerTypingHandlers } from "./handlers/typing.js";
 import { registerPresenceHandlers, handlePresenceDisconnect } from "./handlers/presence.js";
 import { registerChannelRoomHandlers } from "./handlers/channelRoom.js";
 import { registerVoiceHandlers, handleVoiceDisconnect } from "./handlers/voice.js";
+import { subscribeEmitBridge } from "./emitBridge.js";
+import { setSocketConnections } from "../modules/metrics/prometheus.js";
 
 let io: SocketIOServer | undefined;
 
@@ -31,10 +33,20 @@ export async function initIO(httpServer: HTTPServer): Promise<SocketIOServer> {
   const subClient = createRedisDuplicate();
   io.adapter(createAdapter(pubClient, subClient));
 
+  // Lets the worker container reach clients (link previews landing, a transcode finishing) even
+  // though it has no Socket.IO server of its own. See realtime/emitBridge.ts.
+  subscribeEmitBridge((room, event, payload) => {
+    io?.to(room).emit(event, payload);
+  });
+
   io.use(authenticateSocket);
 
   io.on("connection", (socket) => {
     void joinInitialRooms(socket);
+    // `sockets.size` is this process's own count, which is exactly what a per-instance gauge should
+    // report — Prometheus sums across instances, and a global count read from the adapter would be
+    // double-counted the moment there is more than one.
+    setSocketConnections(io!.sockets.sockets.size);
 
     registerChannelRoomHandlers(io!, socket);
     registerMessageHandlers(io!, socket);
@@ -45,6 +57,7 @@ export async function initIO(httpServer: HTTPServer): Promise<SocketIOServer> {
     socket.on("disconnect", () => {
       void handlePresenceDisconnect(io!, socket);
       void handleVoiceDisconnect(io!, socket);
+      setSocketConnections(io!.sockets.sockets.size);
     });
   });
 

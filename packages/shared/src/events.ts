@@ -17,6 +17,10 @@ export const ClientEvents = {
   VOICE_JOIN: "voice:join",
   VOICE_LEAVE: "voice:leave",
   VOICE_SIGNAL: "voice:signal",
+  // Soundboard trigger. Carries only a sound id: the server looks the clip up, checks the sender is
+  // actually in the voice channel they claim, and relays. A client never gets to name the URL that
+  // everyone else's browser will fetch and play.
+  SOUNDBOARD_PLAY: "soundboard:play",
 } as const;
 
 export const ServerEvents = {
@@ -90,4 +94,20 @@ export const ServerEvents = {
   // check now", so a client that cannot be updated (or is already current) simply finds nothing,
   // and no client has to trust a number the server asserted about a platform it isn't running on.
   APP_UPDATE_AVAILABLE: "app:update-available",
+  // Live poll tallies, broadcast to the message's channel/DM room. Carries the whole re-serialized
+  // PollDTO plus the voterId, because "votedByMe" cannot be baked into a payload that one
+  // serialization has to serve to a whole room — the recipient sets its own flag by comparing
+  // voterId to itself, exactly the pattern REACTION_ADD already uses.
+  POLL_VOTE_UPDATE: "poll:vote-update",
+  // Link unfurls, which arrive after the message did (the fetch happens out-of-band on the worker,
+  // never in the send path). Carries the messageId and the finished embeds so a client can patch
+  // the message it already rendered.
+  MESSAGE_EMBEDS_UPDATE: "message:embeds-update",
+  // Relayed soundboard trigger, sent to everyone in the voice room INCLUDING the presser, so all
+  // clients start the clip from the same event rather than the presser starting it locally and
+  // everyone else a round-trip later.
+  SOUNDBOARD_PLAY: "soundboard:play",
+  // A slash-command invocation or component click awaiting this bot's answer. Pushed to the bot's
+  // own `user:${botUserId}` room — bots hold a normal authenticated socket like any other client.
+  INTERACTION_CREATE: "interaction:create",
 } as const;

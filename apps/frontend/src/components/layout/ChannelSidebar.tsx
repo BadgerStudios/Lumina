@@ -28,6 +28,7 @@ import { useRoles } from "../../queries/roles";
 import { useUIStore } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import { useVoiceStore } from "../../store/voiceStore";
+import { SoundboardButton } from "../voice/SoundboardButton";
 import { useVoiceRoster } from "../../queries/voice";
 import { can } from "../../lib/permissions";
 import { UserAvatar } from "../common/UserAvatar";
@@ -375,6 +376,7 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
           >
             {videoSource === "screen" ? <ScreenShare size={15} /> : <ScreenShareOff size={15} />}
           </button>
+          <SoundboardButton serverId={serverId} />
           <button onClick={() => leaveVoice()} className="shrink-0 text-signal-dim hover:text-dnd" title="Disconnect">
             <PhoneOff size={15} />
           </button>

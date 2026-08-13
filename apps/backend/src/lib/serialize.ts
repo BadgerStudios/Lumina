@@ -14,6 +14,12 @@ import type {
   ServerDTO,
   SessionDTO,
   UserDTO,
+  ActionRowDTO,
+  LinkPreviewDTO,
+  MessageComponentDTO,
+  PollDTO,
+  SoundboardSoundDTO,
+  StickerDTO,
 } from "@lumina/shared";
 
 type UserLike = {
@@ -238,6 +244,173 @@ export function summarizeReactions(reactions: ReactionLike[], currentUserId: str
   return Array.from(byEmoji.entries()).map(([emoji, v]) => ({ emoji, count: v.count, reactedByMe: v.reactedByMe }));
 }
 
+type StickerLike = {
+  id: string;
+  serverId: string;
+  name: string;
+  description: string | null;
+  imageUrl: string;
+  animated: boolean;
+  createdAt: Date;
+};
+
+export function serializeSticker(sticker: StickerLike): StickerDTO {
+  return {
+    id: sticker.id,
+    serverId: sticker.serverId,
+    name: sticker.name,
+    description: sticker.description,
+    imageUrl: sticker.imageUrl,
+    animated: sticker.animated,
+    createdAt: sticker.createdAt.toISOString(),
+  };
+}
+
+type SoundLike = {
+  id: string;
+  serverId: string;
+  name: string;
+  audioUrl: string;
+  emoji: string | null;
+  durationMs: number;
+  createdAt: Date;
+};
+
+export function serializeSound(sound: SoundLike): SoundboardSoundDTO {
+  return {
+    id: sound.id,
+    serverId: sound.serverId,
+    name: sound.name,
+    audioUrl: sound.audioUrl,
+    emoji: sound.emoji,
+    durationMs: sound.durationMs,
+    createdAt: sound.createdAt.toISOString(),
+  };
+}
+
+type PollLike = {
+  id: string;
+  question: string;
+  allowMultiple: boolean;
+  expiresAt: Date | null;
+  options: Array<{ id: string; label: string; position: number; votes: Array<{ userId: string }> }>;
+};
+
+/**
+ * `closed` is computed here rather than sent as a raw expiry for the client to compare against its
+ * own clock. A device with a slow clock would otherwise let someone vote in a poll that shut hours
+ * ago — the vote route rejects it, but only after the UI has told them it worked.
+ */
+export function serializePoll(poll: PollLike, currentUserId: string | null): PollDTO {
+  let totalVotes = 0;
+  const options = poll.options
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((o) => {
+      totalVotes += o.votes.length;
+      return {
+        id: o.id,
+        label: o.label,
+        position: o.position,
+        votes: o.votes.length,
+        votedByMe: currentUserId ? o.votes.some((v) => v.userId === currentUserId) : false,
+      };
+    });
+
+  return {
+    id: poll.id,
+    question: poll.question,
+    allowMultiple: poll.allowMultiple,
+    expiresAt: poll.expiresAt ? poll.expiresAt.toISOString() : null,
+    closed: poll.expiresAt !== null && poll.expiresAt.getTime() <= Date.now(),
+    totalVotes,
+    options,
+  };
+}
+
+type EmbedLike = {
+  position: number;
+  preview: {
+    url: string;
+    status: string;
+    title: string | null;
+    description: string | null;
+    imageUrl: string | null;
+    siteName: string | null;
+  };
+};
+
+/**
+ * Only OK previews are serialized. A PENDING one has not been fetched yet, and EMPTY/BLOCKED/FAILED
+ * are cached negatives — none of them has anything to draw, and sending an embed with every field
+ * null would make clients render an empty card.
+ */
+function serializeEmbeds(embeds: EmbedLike[]): LinkPreviewDTO[] {
+  return embeds
+    .filter((e) => e.preview.status === "OK")
+    .sort((a, b) => a.position - b.position)
+    .map((e) => ({
+      url: e.preview.url,
+      title: e.preview.title,
+      description: e.preview.description,
+      imageUrl: e.preview.imageUrl,
+      siteName: e.preview.siteName,
+    }));
+}
+
+/**
+ * Components are stored as bot-supplied JSON, so this is the boundary where that JSON stops being
+ * arbitrary. A malformed tree renders as no components rather than throwing — a bot with a broken
+ * component definition must not be able to make a message unreadable for everyone in the channel.
+ */
+export function parseComponents(raw: unknown): ActionRowDTO[] | null {
+  if (!Array.isArray(raw)) return null;
+  const rows: ActionRowDTO[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const components = (row as { components?: unknown }).components;
+    if (!Array.isArray(components)) continue;
+    const parsed: MessageComponentDTO[] = [];
+    for (const c of components) {
+      if (!c || typeof c !== "object") continue;
+      const comp = c as Record<string, unknown>;
+      if (comp.type === "button" && typeof comp.customId === "string" && typeof comp.label === "string") {
+        const style = comp.style;
+        parsed.push({
+          type: "button",
+          customId: comp.customId,
+          label: comp.label,
+          style:
+            style === "primary" || style === "secondary" || style === "success" || style === "danger"
+              ? style
+              : "secondary",
+          disabled: comp.disabled === true,
+        });
+      } else if (comp.type === "select" && typeof comp.customId === "string" && Array.isArray(comp.options)) {
+        const options = comp.options
+          .filter(
+            (o): o is { value: string; label: string; description?: string } =>
+              !!o &&
+              typeof o === "object" &&
+              typeof (o as { value?: unknown }).value === "string" &&
+              typeof (o as { label?: unknown }).label === "string",
+          )
+          .map((o) => ({ value: o.value, label: o.label, description: o.description }));
+        if (options.length === 0) continue;
+        parsed.push({
+          type: "select",
+          customId: comp.customId,
+          placeholder: typeof comp.placeholder === "string" ? comp.placeholder : undefined,
+          disabled: comp.disabled === true,
+          options,
+        });
+      }
+    }
+    if (parsed.length > 0) rows.push({ type: "row", components: parsed });
+  }
+  return rows.length > 0 ? rows : null;
+}
+
 type MessageLike = {
   id: bigint;
   channelId: string | null;
@@ -254,6 +427,13 @@ type MessageLike = {
   webhookId: string | null;
   overrideUsername: string | null;
   overrideAvatarUrl: string | null;
+  // All four optional so every existing caller that builds a MessageLike by hand (webhooks, the
+  // search index, the data export) keeps compiling without having to include relations it does not
+  // load. A message that did not load them serializes as "has none", which is correct.
+  sticker?: StickerLike | null;
+  poll?: PollLike | null;
+  embeds?: EmbedLike[];
+  componentsJson?: unknown;
 };
 
 export function serializeMessage(message: MessageLike, currentUserId: string | null = null): MessageDTO {
@@ -273,6 +453,10 @@ export function serializeMessage(message: MessageLike, currentUserId: string | n
     webhookId: message.webhookId,
     webhookUsername: message.overrideUsername,
     webhookAvatarUrl: message.overrideAvatarUrl,
+    sticker: message.sticker ? serializeSticker(message.sticker) : null,
+    poll: message.poll ? serializePoll(message.poll, currentUserId) : null,
+    embeds: message.embeds ? serializeEmbeds(message.embeds) : [],
+    components: parseComponents(message.componentsJson),
   };
 }
 

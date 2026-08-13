@@ -128,3 +128,27 @@ The fix is to turn Web Analytics off for this zone, not to weaken the policy: al
   decrypted, loaded into a scratch database with row counts matching production.
 - **Email** — sending over the BadgerOS submission relay with DKIM and pinned TLS.
 - **Security headers** — HSTS, CSP, nosniff, frame-deny and referrer policy on every page.
+
+---
+
+## 8. Two things worth knowing about the newest features
+
+Added 13 August 2026 alongside stickers, polls, soundboard, link previews, slash commands and
+server templates. Neither is a blocker; both are decisions you may want to revisit.
+
+**Link previews make this server fetch URLs that your users choose.** That is unavoidable for the
+feature — an unfurl is, definitionally, an outbound request to somewhere a stranger named. The
+defence is in `apps/backend/src/lib/safeFetch.ts`: the address is validated at connect time rather
+than before it (so DNS rebinding cannot slip between the check and the socket), every redirect hop
+is re-validated, private/loopback/link-local/metadata ranges are refused, and the response is capped
+and timed out. There are 12 unit tests on the address predicate alone, and `verify-expressions.mjs`
+confirms live that `169.254.169.254`, `127.0.0.1` and `postgres:5432` produce no preview while a
+public URL does. If you would rather this instance never made outbound requests at all, say so and
+I will gate it behind an env flag that defaults to off.
+
+**Bots can now hold a realtime socket.** Slash commands need it — a bot has three seconds to answer
+an interaction, which polling cannot meet without hammering the API. A bot connects with its
+existing bot token and gets a socket whose identity is its own User row, so it is treated exactly
+like any other member, with no separate permission path. That is the same property the HTTP side
+already had, but it does mean a leaked bot token is now also a live connection rather than only an
+API key.
