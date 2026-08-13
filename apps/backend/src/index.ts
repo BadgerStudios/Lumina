@@ -29,6 +29,7 @@ import serverChannelsRoutes from "./modules/channels/serverRoutes.js";
 import channelRoutes from "./modules/channels/channelRoutes.js";
 import threadRoutes from "./modules/threads/routes.js";
 import parentalRoutes from "./modules/parental/routes.js";
+import discoveryRoutes from "./modules/discovery/routes.js";
 import serverRolesRoutes from "./modules/roles/serverRoutes.js";
 import autoModServerRoutes from "./modules/automod/serverRoutes.js";
 import roleRoutes from "./modules/roles/roleRoutes.js";
@@ -312,6 +313,7 @@ async function main() {
   // and /threads/:id, and splitting it in two would put one thread concept in two files.
   await fastify.register(threadRoutes, { prefix: "/api" });
   await fastify.register(parentalRoutes, { prefix: "/api/parental" });
+  await fastify.register(discoveryRoutes, { prefix: "/api/discovery" });
   await fastify.register(serverRolesRoutes, { prefix: "/api/servers" });
   await fastify.register(autoModServerRoutes, { prefix: "/api/servers" });
   await fastify.register(roleRoutes, { prefix: "/api/roles" });

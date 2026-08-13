@@ -112,7 +112,7 @@ function ChannelRow({
       </button>
       {canManageChannels && (onMoveUp || onMoveDown) && (
         // Revealed on hover with the settings cog, so an ordinary member's sidebar is unchanged.
-        <span className="mr-0.5 flex shrink-0 flex-col opacity-0 group-hover:opacity-100">
+        <span className="mr-0.5 flex shrink-0 flex-col opacity-0 group-hover:opacity-100 max-md:opacity-100">
           <button
             onClick={onMoveUp}
             disabled={!onMoveUp}
@@ -137,7 +137,7 @@ function ChannelRow({
         <button
           onClick={() => openModalWith("channelSettings", { serverId, channelId: channel.id })}
           title="Channel settings"
-          className="mr-1 shrink-0 rounded p-1 text-signal-faint opacity-0 hover:bg-base-500 hover:text-signal group-hover:opacity-100"
+          className="mr-1 shrink-0 rounded p-1 text-signal-faint opacity-0 hover:bg-base-500 hover:text-signal group-hover:opacity-100 max-md:opacity-100"
         >
           <Settings size={13} />
         </button>

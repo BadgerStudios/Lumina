@@ -5,7 +5,7 @@ import { Permissions, DEFAULT_EVERYONE_PERMISSIONS } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeMember, serializeServer } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
-import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { saveProfileImage, deleteProfileImage } from "../../lib/profileImage.js";
 
@@ -42,6 +42,8 @@ const updateServerSchema = z.object({
   sysLeaveMessages: z.boolean().optional(),
   sysBoostMessages: z.boolean().optional(),
   rulesChannelId: z.string().nullable().optional(),
+  /// Opt in to the public Discover surface. MANAGE_SERVER-gated like everything else here.
+  discoverable: z.boolean().optional(),
 });
 
 const updateMemberSchema = z.object({
@@ -139,6 +141,21 @@ export default async function serversRoutes(fastify: FastifyInstance) {
     },
     async (request) => {
       const body = request.body as z.infer<typeof updateServerSchema>;
+
+      // A vanity code shares one namespace with generated invite codes (/invite/<x> resolves
+      // either), so claiming one must be refused if an Invite already owns the string.
+      const vanity = body.vanityCode !== undefined ? (body.vanityCode?.toLowerCase() ?? null) : undefined;
+      if (vanity) {
+        const collision = await prisma.invite.findUnique({ where: { code: vanity }, select: { code: true } });
+        if (collision) throw new ConflictError("That vanity code is already in use");
+      }
+
+      // Every field the schema accepts is persisted. This spread used to stop at five fields while
+      // the schema accepted sixteen — description, vanity, verification level, content filter, AFK,
+      // system messages and rules channel were all validated, echoed into the audit log below, and
+      // then silently dropped. The Moderation and Community settings tabs were no-ops that looked
+      // like they saved. A live PATCH-then-read-back proved it before this fix; the same check now
+      // lives in verify-discovery.mjs so the two lists cannot drift apart unnoticed again.
       const server = await prisma.server.update({
         where: { id: request.serverId! },
         data: {
@@ -147,6 +164,20 @@ export default async function serversRoutes(fastify: FastifyInstance) {
           ...(body.bannerUrl !== undefined ? { bannerUrl: body.bannerUrl } : {}),
           ...(body.accentColor !== undefined ? { accentColor: body.accentColor } : {}),
           ...(body.systemChannelId !== undefined ? { systemChannelId: body.systemChannelId } : {}),
+          ...(body.description !== undefined ? { description: body.description } : {}),
+          ...(vanity !== undefined ? { vanityCode: vanity } : {}),
+          ...(body.verificationLevel !== undefined ? { verificationLevel: body.verificationLevel } : {}),
+          ...(body.explicitContentFilter !== undefined ? { explicitContentFilter: body.explicitContentFilter } : {}),
+          ...(body.defaultNotificationLevel !== undefined
+            ? { defaultNotificationLevel: body.defaultNotificationLevel }
+            : {}),
+          ...(body.afkChannelId !== undefined ? { afkChannelId: body.afkChannelId } : {}),
+          ...(body.afkTimeoutSec !== undefined ? { afkTimeoutSec: body.afkTimeoutSec } : {}),
+          ...(body.sysJoinMessages !== undefined ? { sysJoinMessages: body.sysJoinMessages } : {}),
+          ...(body.sysLeaveMessages !== undefined ? { sysLeaveMessages: body.sysLeaveMessages } : {}),
+          ...(body.sysBoostMessages !== undefined ? { sysBoostMessages: body.sysBoostMessages } : {}),
+          ...(body.rulesChannelId !== undefined ? { rulesChannelId: body.rulesChannelId } : {}),
+          ...(body.discoverable !== undefined ? { discoverable: body.discoverable } : {}),
         },
       });
       await recordAuditLog({

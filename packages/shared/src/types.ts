@@ -214,6 +214,7 @@ export interface ServerDTO {
   sysLeaveMessages: boolean;
   sysBoostMessages: boolean;
   rulesChannelId: string | null;
+  discoverable: boolean;
 }
 
 export interface AttachmentDTO {

@@ -46,6 +46,7 @@ export function useUpdateServer(serverId: string) {
       systemChannelId?: string | null;
       description?: string | null;
       vanityCode?: string | null;
+      discoverable?: boolean;
       verificationLevel?: string;
       explicitContentFilter?: string;
       defaultNotificationLevel?: string;

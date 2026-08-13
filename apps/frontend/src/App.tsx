@@ -15,6 +15,7 @@ import { FriendsRoute } from "./routes/FriendsRoute";
 import { InviteRoute } from "./routes/InviteRoute";
 import { OAuthAuthorizeRoute } from "./routes/OAuthAuthorizeRoute";
 import { FeedRoute } from "./routes/FeedRoute";
+import { DiscoverRoute } from "./routes/DiscoverRoute";
 import StoreRoute from "./routes/StoreRoute";
 import { StaffLayout } from "./routes/staff/StaffLayout";
 import { StaffVideosRoute } from "./routes/StaffVideosRoute";
@@ -104,6 +105,7 @@ export function App() {
             <Route path="/dm/:conversationId" element={<DMRoute />} />
             <Route path="/friends" element={<FriendsRoute />} />
             <Route path="/foryou" element={<FeedRoute />} />
+            <Route path="/discover" element={<DiscoverRoute />} />
               <Route path="/store" element={<StoreRoute />} />
             {/* The staff suite: one shell, one role gate, four sections. Nested rather than four
                 sibling routes so the sub-nav and its pending badges persist across them — and so a

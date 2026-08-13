@@ -143,6 +143,13 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
 
   return (
     <div>
+      <Toggle
+        label="Show in Discover"
+        hint="List this server on the public Discover page, where any adult on Lumina can find and join it without an invite. Off by default — nobody is listed without choosing to be."
+        checked={server.discoverable}
+        onChange={(v) => save({ discoverable: v })}
+      />
+
       <Field label="Description" hint="Shown on the invite page before someone joins.">
         <textarea
           rows={3}

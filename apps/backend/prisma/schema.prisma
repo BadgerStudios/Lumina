@@ -391,6 +391,11 @@ model Server {
   /// instance because it shares a namespace with generated invite codes — see the check in
   /// invites/serverRoutes.ts, which must reject a vanity that collides with an existing Invite.
   vanityCode            String?                @unique
+  /// Opt-IN to the public Discover surface. Default false, and that default is the security
+  /// property: every server on this instance predates discovery, and none of them chose to be
+  /// listed. An unscoped directory would leak the name and existence of every private community —
+  /// the same concern lookup/routes.ts documents for server search.
+  discoverable          Boolean                @default(false)
   owner                 User                   @relation("ServerOwner", fields: [ownerId], references: [id])
   memberships           Membership[]
   channels              Channel[]

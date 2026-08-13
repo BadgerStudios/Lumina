@@ -180,6 +180,7 @@ type ServerLike = {
   sysLeaveMessages?: boolean;
   sysBoostMessages?: boolean;
   rulesChannelId?: string | null;
+  discoverable?: boolean;
 };
 
 export function serializeServer(server: ServerLike): ServerDTO {
@@ -206,6 +207,7 @@ export function serializeServer(server: ServerLike): ServerDTO {
     sysLeaveMessages: server.sysLeaveMessages ?? false,
     sysBoostMessages: server.sysBoostMessages ?? true,
     rulesChannelId: server.rulesChannelId ?? null,
+    discoverable: server.discoverable ?? false,
   };
 }
 
