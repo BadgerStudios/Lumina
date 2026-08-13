@@ -19,6 +19,7 @@ import {
   UserPlus,
   LogOut,
   Bell,
+  MessagesSquare,
 } from "lucide-react";
 import { useState } from "react";
 import { useChannels, useReorderChannels } from "../../queries/channels";
@@ -34,7 +35,43 @@ import { can } from "../../lib/permissions";
 import { UserAvatar } from "../common/UserAvatar";
 import { cn } from "../../lib/cn";
 import { SignalPanel } from "./SignalPanel";
+import { useThreads } from "../../queries/threads";
+import { useActiveSelectionStore } from "../../store/activeSelectionStore";
 import type { ChannelDTO } from "@lumina/shared";
+
+/**
+ * Active threads under the channel you are currently in.
+ *
+ * Only for the active channel, and only when there are any — a permanent list under every channel
+ * would double the sidebar's height on a busy server for something most people are not looking at.
+ * This exists because the alternative discovery path (scroll the channel until you find the
+ * message a thread hangs off) is not a discovery path at all.
+ */
+function ThreadList({ channelId }: { channelId: string }) {
+  const { data: threads } = useThreads(channelId, false);
+  const openThreadId = useActiveSelectionStore((s) => s.openThreadId);
+  const setOpenThread = useActiveSelectionStore((s) => s.setOpenThread);
+  if (!threads?.length) return null;
+
+  return (
+    <div className="mb-1 ml-5 flex flex-col gap-px border-l border-base-600 pl-2">
+      {threads.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => setOpenThread(t.id)}
+          className={cn(
+            "flex items-center gap-1.5 rounded-lg px-2 py-1 text-left text-xs",
+            openThreadId === t.id ? "bg-accent/15 font-semibold text-signal" : "text-signal-dim hover:bg-base-700/60 hover:text-signal",
+          )}
+        >
+          <MessagesSquare size={12} className="shrink-0 text-signal-faint" />
+          <span className="min-w-0 flex-1 truncate">{t.name}</span>
+          {t.messageCount > 0 && <span className="shrink-0 text-signal-faint">{t.messageCount}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function ChannelRow({
   channel,
@@ -256,15 +293,17 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
     return c.type === "VOICE" ? (
       <VoiceChannelRow key={c.id} channel={c} serverId={serverId} />
     ) : (
-      <ChannelRow
-        key={c.id}
-        channel={c}
-        active={c.id === activeChannelId}
-        serverId={serverId}
-        canManageChannels={canManageChannels}
-        onMoveUp={index > 0 ? () => moveChannel(c, -1) : undefined}
-        onMoveDown={index < list.length - 1 ? () => moveChannel(c, 1) : undefined}
-      />
+      <div key={c.id}>
+        <ChannelRow
+          channel={c}
+          active={c.id === activeChannelId}
+          serverId={serverId}
+          canManageChannels={canManageChannels}
+          onMoveUp={index > 0 ? () => moveChannel(c, -1) : undefined}
+          onMoveDown={index < list.length - 1 ? () => moveChannel(c, 1) : undefined}
+        />
+        {c.id === activeChannelId && c.type === "TEXT" && <ThreadList channelId={c.id} />}
+      </div>
     );
   }
 

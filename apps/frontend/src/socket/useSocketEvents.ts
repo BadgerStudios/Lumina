@@ -170,6 +170,15 @@ export function useSocketEvents(): void {
       void queryClient.invalidateQueries({ queryKey: ["channels"] });
     };
 
+    const onThreadChange = (thread: { id: string; parentId: string | null }) => {
+      // Refetch rather than patch: thread lists are split by archived state and ordered by
+      // activity, so an insert has no single correct position to patch into.
+      void queryClient.invalidateQueries({ queryKey: ["threads"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.thread(thread.id) });
+      // The origin message renders the "N replies" affordance from its own cache entry.
+      if (thread.parentId) void queryClient.invalidateQueries({ queryKey: queryKeys.messages(thread.parentId) });
+    };
+
     const onRoleCreate = (role: RoleDTO) => {
       queryClient.setQueryData<RoleDTO[]>(queryKeys.roles(role.serverId), (old) => upsertRole(old, role));
     };
@@ -283,6 +292,8 @@ export function useSocketEvents(): void {
     socket.on(ServerEvents.CHANNEL_UPDATE, onChannelUpdate);
     socket.on(ServerEvents.CHANNEL_DELETE, onChannelDelete);
     socket.on(ServerEvents.CHANNEL_OVERWRITES_UPDATE, onChannelOverwritesUpdate);
+    socket.on(ServerEvents.THREAD_CREATE, onThreadChange);
+    socket.on(ServerEvents.THREAD_UPDATE, onThreadChange);
     socket.on(ServerEvents.ROLE_CREATE, onRoleCreate);
     socket.on(ServerEvents.ROLE_UPDATE, onRoleUpdate);
     socket.on(ServerEvents.ROLE_DELETE, onRoleDelete);
@@ -320,6 +331,8 @@ export function useSocketEvents(): void {
       socket.off(ServerEvents.CHANNEL_UPDATE, onChannelUpdate);
       socket.off(ServerEvents.CHANNEL_DELETE, onChannelDelete);
       socket.off(ServerEvents.CHANNEL_OVERWRITES_UPDATE, onChannelOverwritesUpdate);
+      socket.off(ServerEvents.THREAD_CREATE, onThreadChange);
+      socket.off(ServerEvents.THREAD_UPDATE, onThreadChange);
       socket.off(ServerEvents.ROLE_CREATE, onRoleCreate);
       socket.off(ServerEvents.ROLE_UPDATE, onRoleUpdate);
       socket.off(ServerEvents.ROLE_DELETE, onRoleDelete);

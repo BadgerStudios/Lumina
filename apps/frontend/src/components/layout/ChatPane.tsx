@@ -36,6 +36,8 @@ export function ChatPane({
   onSearch,
   dmReadStates,
   dmParticipants,
+  onOpenThread,
+  onStartThread,
 }: {
   title: string;
   topic?: string | null;
@@ -54,6 +56,9 @@ export function ChatPane({
   onSearch?: (q: string) => void;
   dmReadStates?: DMConversationDTO["readStates"];
   dmParticipants?: DMConversationDTO["participants"];
+  /** Both absent in DMs — threads exist only inside server channels. */
+  onOpenThread?: (threadId: string) => void;
+  onStartThread?: (message: MessageDTO) => void;
 }) {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const editMessage = useEditMessage();
@@ -111,6 +116,8 @@ export function ChatPane({
         onReact={(messageId, emoji) => addReaction.mutate({ messageId, emoji })}
         onUnreact={(messageId, emoji) => removeReaction.mutate({ messageId, emoji })}
         onTogglePin={(messageId, pinned) => togglePin.mutate({ messageId, pinned })}
+        onOpenThread={onOpenThread}
+        onStartThread={onStartThread}
         dmReadStates={dmReadStates}
         dmParticipants={dmParticipants}
       />

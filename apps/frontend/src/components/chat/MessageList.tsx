@@ -22,6 +22,8 @@ export function MessageList({
   onTogglePin,
   dmReadStates,
   dmParticipants,
+  onOpenThread,
+  onStartThread,
 }: {
   data: InfiniteData<MessageDTO[]> | undefined;
   isLoading: boolean;
@@ -39,6 +41,8 @@ export function MessageList({
   // DM-only — see DMRoute.tsx. Undefined in channel context, where read receipts don't exist.
   dmReadStates?: DMConversationDTO["readStates"];
   dmParticipants?: DMConversationDTO["participants"];
+  onOpenThread?: (threadId: string) => void;
+  onStartThread?: (message: MessageDTO) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -103,6 +107,8 @@ export function MessageList({
                 onReact={onReact}
                 onUnreact={onUnreact}
                 onTogglePin={onTogglePin}
+                onOpenThread={onOpenThread}
+                onStartThread={onStartThread}
               />
             );
           })}

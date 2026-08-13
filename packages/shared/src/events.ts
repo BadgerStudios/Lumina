@@ -44,6 +44,8 @@ export const ServerEvents = {
    * different effective permissions from each other, so there is no single payload that is
    * correct for the whole room — each client refetches and gets its own answer. */
   CHANNEL_OVERWRITES_UPDATE: "channel:overwrites:update",
+  THREAD_CREATE: "thread:create",
+  THREAD_UPDATE: "thread:update",
   SERVER_UPDATE: "server:update",
   SERVER_DELETE: "server:delete",
   DM_CREATE: "dm:create",

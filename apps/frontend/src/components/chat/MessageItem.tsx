@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare } from "lucide-react";
 import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
 import type { MessageDTO } from "@lumina/shared";
@@ -41,6 +41,8 @@ export function MessageItem({
   onReact,
   onUnreact,
   onTogglePin,
+  onOpenThread,
+  onStartThread,
 }: {
   message: MessageDTO;
   showHeader: boolean;
@@ -52,6 +54,9 @@ export function MessageItem({
   onReact: (messageId: string, emoji: string) => void;
   onUnreact: (messageId: string, emoji: string) => void;
   onTogglePin?: (messageId: string, pinned: boolean) => void;
+  /** Both absent in DMs — threads only exist inside server channels. */
+  onOpenThread?: (threadId: string) => void;
+  onStartThread?: (message: MessageDTO) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -253,6 +258,20 @@ export function MessageItem({
             ))}
           </div>
         )}
+
+        {message.thread && (
+          <button
+            onClick={() => onOpenThread?.(message.thread!.id)}
+            className="mt-1.5 flex items-center gap-2 rounded-md border border-base-500 bg-base-800/60 px-2.5 py-1.5 text-left text-xs hover:border-accent"
+          >
+            <MessagesSquare size={13} className="shrink-0 text-accent" />
+            <span className="min-w-0 truncate font-medium text-signal">{message.thread.name}</span>
+            <span className="shrink-0 text-signal-faint">
+              {message.thread.messageCount === 1 ? "1 reply" : `${message.thread.messageCount} replies`}
+              {message.thread.archived ? " · archived" : ""}
+            </span>
+          </button>
+        )}
       </div>
 
       {!editing && (
@@ -261,6 +280,15 @@ export function MessageItem({
           <button onClick={() => onReply(message)} className="rounded p-1 text-signal-dim hover:bg-base-500 hover:text-signal" title="Reply">
             <Reply size={16} />
           </button>
+          {onStartThread && message.channelId && (
+            <button
+              onClick={() => (message.thread ? onOpenThread?.(message.thread.id) : onStartThread(message))}
+              className="rounded p-1 text-signal-dim hover:bg-base-500 hover:text-signal"
+              title={message.thread ? "Open thread" : "Start a thread"}
+            >
+              <MessagesSquare size={16} />
+            </button>
+          )}
           {onTogglePin && canManage && message.channelId && (
             <button
               onClick={() => onTogglePin(message.id, !message.pinned)}

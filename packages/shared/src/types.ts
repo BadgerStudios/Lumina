@@ -10,7 +10,10 @@ export type PlatformRole = "USER" | "STAFF" | "OWNER" | "MASTER";
 
 /** Coarse age bands collected at signup. Only the minor/adult distinction is acted on. */
 export type AgeBracket = "UNDER_18" | "AGE_18_24" | "AGE_25_34" | "AGE_35_49" | "AGE_50_PLUS";
-export type ChannelType = "TEXT" | "CATEGORY" | "VOICE";
+/** THREAD exists in the enum because a thread IS a Channel row, but it never appears in a
+ * ChannelDTO the client receives — the channel-list route filters it out (threads are fetched
+ * through their parent, as ThreadDTO). It is here so serializeChannel's type stays honest. */
+export type ChannelType = "TEXT" | "CATEGORY" | "VOICE" | "THREAD";
 
 export interface UserDTO {
   id: string;
@@ -135,6 +138,31 @@ export interface ChannelDTO {
   nsfw: boolean;
 }
 
+/**
+ * A thread, as the client sees it.
+ *
+ * Deliberately NOT a ChannelDTO even though a thread is a Channel row server-side. The two are
+ * used in different places for different things — a thread carries an archive state, a member
+ * count and a joined flag, and carries none of a channel's topic/slowmode/nsfw/position — and
+ * widening ChannelDTO with six always-null fields would push "is this actually a thread?" checks
+ * into every component that renders a channel.
+ */
+export interface ThreadDTO {
+  id: string;
+  serverId: string;
+  name: string;
+  parentId: string | null;
+  originMessageId: string | null;
+  archived: boolean;
+  archivedAt: string | null;
+  autoArchiveMinutes: number;
+  lastActivityAt: string | null;
+  createdAt: string;
+  messageCount: number;
+  memberCount: number;
+  joined: boolean;
+}
+
 export type VerificationLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 export type ExplicitContentFilter = "DISABLED" | "MEMBERS_WITHOUT_ROLES" | "ALL_MEMBERS";
 export type NotificationLevel = "ALL" | "MENTIONS" | "NONE";
@@ -207,6 +235,10 @@ export interface MessageDTO {
   embeds: LinkPreviewDTO[];
   /** Buttons/selects a bot attached to this message. Null for every human-sent message. */
   components: ActionRowDTO[] | null;
+  /** Set when this message has spawned a thread. Minimal on purpose — enough to render the
+   * "N replies" affordance without a second request, and nothing more; opening the thread fetches
+   * the full ThreadDTO. */
+  thread: { id: string; name: string; messageCount: number; archived: boolean } | null;
 }
 
 export interface StickerDTO {

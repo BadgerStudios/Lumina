@@ -12,6 +12,7 @@ import { runMessageAutomations } from "../addons/runtime.js";
 import { assertPassesAutoMod } from "../automod/service.js";
 import { assertPassesVerification } from "../servers/verification.js";
 import { scheduleLinkPreviews } from "../../lib/linkPreview.js";
+import { touchThreadActivity } from "../threads/service.js";
 
 /**
  * Shared message service — imported by BOTH the REST routes
@@ -35,6 +36,9 @@ export const messageInclude = {
   sticker: true,
   poll: { include: { options: { include: { votes: { select: { userId: true } } } } } },
   embeds: { include: { preview: true } },
+  // 1:1 optional relation, so this is a cheap join rather than a per-message query — and without
+  // it the origin message cannot show that a thread exists at all.
+  thread: { select: { id: true, name: true, archived: true, _count: { select: { messages: true } } } },
 } as const;
 
 export interface CreateMessageAttachmentInput {
@@ -242,6 +246,10 @@ export async function createChannelMessage(params: {
   // message is stored would let anyone make their own send hang for as long as a remote host cares
   // to stall.
   scheduleLinkPreviews({ messageId: message.id, content: params.content, room: `channel:${params.channelId}` });
+  // Revives an archived thread and refreshes the auto-archive clock. A no-op for ordinary
+  // channels, and fire-and-forget for the same reason link previews are: a bookkeeping write must
+  // never sit between the author and their sent message.
+  void touchThreadActivity(params.channelId).catch(() => undefined);
   await syncMessageMentions({
     messageId: message.id,
     serverId: channel.serverId,

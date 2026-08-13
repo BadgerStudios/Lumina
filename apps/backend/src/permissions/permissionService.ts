@@ -138,8 +138,28 @@ export async function computeEffectiveChannelPermissions(
   const ctx = await loadMemberChannelContext(userId, serverId);
   if (ctx.bypass) return ~0n;
 
-  const rows = await prisma.channelPermissionOverwrite.findMany({ where: { channelId } });
+  const rows = await prisma.channelPermissionOverwrite.findMany({
+    where: { channelId: await permissionSourceChannelId(channelId) },
+  });
   return applyChannelOverwrites(toOverwrites(rows), ctx);
+}
+
+/**
+ * Which channel's overwrites govern this one.
+ *
+ * A thread has no overwrites of its own — it inherits its parent channel's, wholesale. This is
+ * not a convenience: a thread inside a private channel that resolved against its own (empty)
+ * overwrite set would be *public*, so every private channel would leak the moment anyone started
+ * a thread in it. Resolving through the parent means a thread cannot be more permissive than the
+ * channel it lives in, by construction rather than by remembering to copy rows on creation.
+ */
+async function permissionSourceChannelId(channelId: string): Promise<string> {
+  const channel = await prisma.channel.findUnique({
+    where: { id: channelId },
+    select: { type: true, parentId: true },
+  });
+  if (channel?.type === "THREAD" && channel.parentId) return channel.parentId;
+  return channelId;
 }
 
 /**
@@ -175,18 +195,28 @@ export async function filterVisibleChannels<T extends { id: string }>(
   const ctx = await loadMemberChannelContext(userId, serverId);
   if (ctx.bypass) return channels;
 
-  const rows = await prisma.channelPermissionOverwrite.findMany({
-    where: { channelId: { in: channels.map((c) => c.id) } },
+  // Threads resolve against their parent (see permissionSourceChannelId). Resolved in one query
+  // for the whole batch rather than per channel, so a sidebar with many threads is still two
+  // queries total.
+  const rows = await prisma.channel.findMany({
+    where: { id: { in: channels.map((c) => c.id) } },
+    select: { id: true, type: true, parentId: true },
+  });
+  const sourceOf = new Map<string, string>();
+  for (const c of rows) sourceOf.set(c.id, c.type === "THREAD" && c.parentId ? c.parentId : c.id);
+
+  const overwrites = await prisma.channelPermissionOverwrite.findMany({
+    where: { channelId: { in: [...new Set(sourceOf.values())] } },
   });
   const byChannel = new Map<string, Overwrite[]>();
-  for (const r of rows) {
+  for (const r of overwrites) {
     const list = byChannel.get(r.channelId) ?? [];
     list.push(...toOverwrites([r]));
     byChannel.set(r.channelId, list);
   }
 
   return channels.filter((c) => {
-    const effective = applyChannelOverwrites(byChannel.get(c.id) ?? [], ctx);
+    const effective = applyChannelOverwrites(byChannel.get(sourceOf.get(c.id) ?? c.id) ?? [], ctx);
     return (effective & Permissions.VIEW_CHANNELS) !== 0n;
   });
 }

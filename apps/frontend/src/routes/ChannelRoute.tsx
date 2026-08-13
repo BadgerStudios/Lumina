@@ -2,8 +2,10 @@ import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChannelSidebar } from "../components/layout/ChannelSidebar";
 import { ChatPane } from "../components/layout/ChatPane";
+import { ThreadPanel } from "../components/chat/ThreadPanel";
 import { MemberList } from "../components/layout/MemberList";
 import { useChannels } from "../queries/channels";
+import { useCreateThread } from "../queries/threads";
 import { useServer } from "../queries/servers";
 import { useMembers } from "../queries/members";
 import { useRoles } from "../queries/roles";
@@ -48,6 +50,14 @@ export function ChannelRoute() {
     return () => setActiveChannel(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validChannelId]);
+
+  // Panel state, not URL state: a thread is docked beside the channel rather than somewhere you
+  // navigate to, so putting it in the URL would make the back button close a side panel instead of
+  // leaving the channel. In the store rather than local state because the sidebar's thread list
+  // opens the same panel — see activeSelectionStore.
+  const openThreadId = useActiveSelectionStore((s) => s.openThreadId);
+  const setOpenThreadId = useActiveSelectionStore((s) => s.setOpenThread);
+  const createThread = useCreateThread(validChannelId ?? "");
 
   const messagesQuery = useMessages(validChannelId);
   const sendMessage = useSendChannelMessage(validChannelId ?? "");
@@ -95,8 +105,26 @@ export function ChannelRoute() {
         serverId={serverId}
         target={{ channelId: validChannelId }}
         canManageMessages={canManageMessages}
+        onOpenThread={(threadId) => setOpenThreadId(threadId)}
+        onStartThread={async (message) => {
+          // Seeded from the message being threaded so the prompt is answerable without retyping —
+          // and trimmed to the same 100 characters the API accepts, so a long message cannot
+          // produce a name the server will reject.
+          const suggested = message.content.trim().slice(0, 100) || "New thread";
+          const name = window.prompt("Thread name", suggested);
+          if (!name?.trim()) return;
+          const thread = await createThread.mutateAsync({ name: name.trim(), originMessageId: message.id });
+          setOpenThreadId(thread.id);
+        }}
       />
-      {!memberListCollapsed && <MemberList serverId={serverId} />}
+      {openThreadId && (
+        <ThreadPanel
+          threadId={openThreadId}
+          canManageMessages={canManageMessages}
+          onClose={() => setOpenThreadId(null)}
+        />
+      )}
+      {!memberListCollapsed && !openThreadId && <MemberList serverId={serverId} />}
     </>
   );
 }

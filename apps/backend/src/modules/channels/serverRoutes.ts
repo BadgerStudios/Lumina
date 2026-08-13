@@ -74,7 +74,10 @@ export default async function serverChannelsRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAuth, requireMembership(resolveServerId.fromParam("id"))] },
     async (request) => {
       const channels = await prisma.channel.findMany({
-        where: { serverId: request.serverId! },
+        // Threads are Channel rows but are NOT sidebar entries — they belong to their parent
+        // channel's thread list and are fetched from there. Without this exclusion every thread
+        // ever created would show up as a top-level channel.
+        where: { serverId: request.serverId!, type: { not: "THREAD" } },
         orderBy: { position: "asc" },
       });
       // The single most important application of channel overwrites: a channel the member cannot
@@ -139,7 +142,10 @@ export default async function serverChannelsRoutes(fastify: FastifyInstance) {
       );
 
       const channels = await prisma.channel.findMany({
-        where: { serverId: request.serverId! },
+        // Threads are Channel rows but are NOT sidebar entries — they belong to their parent
+        // channel's thread list and are fetched from there. Without this exclusion every thread
+        // ever created would show up as a top-level channel.
+        where: { serverId: request.serverId!, type: { not: "THREAD" } },
         orderBy: { position: "asc" },
       });
 

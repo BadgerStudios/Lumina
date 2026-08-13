@@ -27,6 +27,7 @@ import serversRoutes from "./modules/servers/routes.js";
 import moderationRoutes from "./modules/moderation/routes.js";
 import serverChannelsRoutes from "./modules/channels/serverRoutes.js";
 import channelRoutes from "./modules/channels/channelRoutes.js";
+import threadRoutes from "./modules/threads/routes.js";
 import serverRolesRoutes from "./modules/roles/serverRoutes.js";
 import autoModServerRoutes from "./modules/automod/serverRoutes.js";
 import roleRoutes from "./modules/roles/roleRoutes.js";
@@ -306,6 +307,9 @@ async function main() {
   await fastify.register(moderationRoutes, { prefix: "/api/servers" });
   await fastify.register(serverChannelsRoutes, { prefix: "/api/servers" });
   await fastify.register(channelRoutes, { prefix: "/api/channels" });
+  // Prefix is /api, not /api/threads: this module owns routes under BOTH /channels/:id/threads
+  // and /threads/:id, and splitting it in two would put one thread concept in two files.
+  await fastify.register(threadRoutes, { prefix: "/api" });
   await fastify.register(serverRolesRoutes, { prefix: "/api/servers" });
   await fastify.register(autoModServerRoutes, { prefix: "/api/servers" });
   await fastify.register(roleRoutes, { prefix: "/api/roles" });

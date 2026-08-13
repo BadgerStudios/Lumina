@@ -21,6 +21,12 @@ enum ChannelType {
   // handled over Socket.IO (realtime/handlers/voice.ts), never persisted. A VOICE channel row
   // is just an addressable place to join, same as TEXT is just an addressable place to post.
   VOICE
+  // A thread is a real Channel, not a parallel Thread/ThreadMessage pair. Every piece of message
+  // infrastructure already built — send, edit, delete, reactions, pins, search, @mentions,
+  // slowmode, attachments, the channel:<id> realtime room, read state — is keyed on channelId and
+  // therefore works inside a thread with no duplication whatsoever. The alternative would have
+  // meant reimplementing all of it against a second id column.
+  THREAD
 }
 
 enum FriendStatus {
@@ -240,6 +246,7 @@ model User {
   pollVotes              PollVote[]
   interactions           Interaction[]
   createdTemplates       ServerTemplate[]         @relation("TemplateCreator")
+  threadMemberships ThreadMembership[]
 }
 
 // A "dev portal" app a human user owns. Each Application has exactly one bot User (see
@@ -463,7 +470,47 @@ model Channel {
   webhooks        Webhook[]
   overwrites      ChannelPermissionOverwrite[]
 
+  // ---- thread fields (null/default on every non-THREAD channel)
+  //
+  // The message this thread was started from, if any. Unique because a message can spawn at most
+  // one thread — the second "create thread" on the same message must open the existing one, and a
+  // unique index is what makes that a database guarantee rather than a race between two clicks.
+  // Cascade: if the origin message is deleted the thread goes with it, matching the fact that the
+  // thread is rendered as part of that message.
+  threadOriginMessageId BigInt?  @unique
+  threadOrigin          Message? @relation("MessageThread", fields: [threadOriginMessageId], references: [id], onDelete: Cascade)
+  // Archived threads stay readable and keep their messages; they are hidden from the active list
+  // and re-open on the next post. Discord's model, and it avoids a destructive sweep.
+  archived              Boolean  @default(false)
+  archivedAt            DateTime?
+  autoArchiveMinutes    Int      @default(4320)
+  /// Last message time, denormalised. The auto-archive sweep runs over every active thread on a
+  /// schedule; deriving this with a correlated MAX(Message.createdAt) per thread would make that
+  /// sweep's cost grow with total message volume rather than with thread count.
+  lastActivityAt        DateTime?
+  threadMembers         ThreadMembership[]
+
   @@index([serverId])
+  /// Backs both the active-thread list for one parent channel and the auto-archive sweep.
+  @@index([parentId, archived])
+}
+
+/**
+ * Who has explicitly joined a thread, for notification purposes.
+ *
+ * Not inferred from message history: "has posted here" and "wants to hear about this" are
+ * different questions. Someone who read a thread and never replied still wants replies, and
+ * someone who posted once and left does not — neither is answerable from Message alone.
+ */
+model ThreadMembership {
+  channelId String
+  userId    String
+  joinedAt  DateTime @default(now())
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, userId])
+  @@index([userId])
 }
 
 enum OverwriteTargetType {
@@ -539,6 +586,7 @@ model Message {
   // whole to draw a UI and never queried into.
   componentsJson    Json?
   embeds            MessageEmbed[]
+  thread            Channel?                 @relation("MessageThread")
   // Managed by the hand-written message_search_and_checks migration (raw SQL
   // trigger keeps this in sync with `content`); Unsupported so Prisma is
   // aware of it (no drift-detection prompts) without trying to manage it.

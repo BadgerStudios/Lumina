@@ -9,11 +9,36 @@ import {
 import { processVideo } from "./modules/videos/transcode.js";
 import { LINK_PREVIEW_QUEUE, type LinkPreviewJobData } from "./modules/messages/previewQueue.js";
 import { fetchPreview, broadcastEmbeds } from "./lib/linkPreview.js";
+import { sweepArchivableThreads } from "./modules/threads/service.js";
 
 /** How long a video may sit in PROCESSING before the sweep assumes its job was lost. Comfortably
  * longer than a real transcode (bounded at 10 minutes by ffmpeg's own timeout). */
 const STRANDED_AFTER_MS = 15 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+/** Threads idle past their own autoArchiveMinutes. Checked far less often than the video sweep —
+ * the shortest auto-archive option is an hour, so minute-level precision buys nothing. */
+const THREAD_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * Archives threads that have gone quiet.
+ *
+ * Deliberately a plain interval rather than a BullMQ repeatable job: it is one idempotent UPDATE
+ * with no payload, no retry semantics worth having, and nothing to report back. Running it twice
+ * concurrently would be harmless. A queue would add a Redis dependency and a failure mode to
+ * something that is already safe to simply re-run.
+ */
+async function sweepThreads(): Promise<void> {
+  try {
+    const archived = await sweepArchivableThreads();
+    if (archived > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[worker] auto-archived ${archived} idle thread(s)`);
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[worker] thread sweep failed:", err);
+  }
+}
 
 /**
  * Re-enqueues videos stuck in PROCESSING with no live job behind them.
@@ -121,6 +146,10 @@ async function main() {
   void sweepStranded();
   const sweepTimer = setInterval(() => void sweepStranded(), SWEEP_INTERVAL_MS);
   sweepTimer.unref();
+
+  void sweepThreads();
+  const threadSweepTimer = setInterval(() => void sweepThreads(), THREAD_SWEEP_INTERVAL_MS);
+  threadSweepTimer.unref();
 
   // Graceful shutdown so an in-flight transcode is allowed to finish (or be re-queued cleanly)
   // instead of being killed mid-write and leaving a half-written MP4 behind.

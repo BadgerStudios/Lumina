@@ -434,6 +434,7 @@ type MessageLike = {
   poll?: PollLike | null;
   embeds?: EmbedLike[];
   componentsJson?: unknown;
+  thread?: { id: string; name: string; archived: boolean; _count?: { messages: number } } | null;
 };
 
 export function serializeMessage(message: MessageLike, currentUserId: string | null = null): MessageDTO {
@@ -457,6 +458,14 @@ export function serializeMessage(message: MessageLike, currentUserId: string | n
     poll: message.poll ? serializePoll(message.poll, currentUserId) : null,
     embeds: message.embeds ? serializeEmbeds(message.embeds) : [],
     components: parseComponents(message.componentsJson),
+    thread: message.thread
+      ? {
+          id: message.thread.id,
+          name: message.thread.name,
+          archived: message.thread.archived,
+          messageCount: message.thread._count?.messages ?? 0,
+        }
+      : null,
   };
 }
 
