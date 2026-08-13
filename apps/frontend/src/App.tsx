@@ -31,6 +31,7 @@ import { PrivacyRoute } from "./routes/PrivacyRoute";
 import { TermsRoute } from "./routes/TermsRoute";
 import { FeaturesRoute } from "./routes/FeaturesRoute";
 import { InstallRoute } from "./routes/InstallRoute";
+import { DevPortalRoute } from "./routes/dev/DevPortalRoute";
 import { VerifyEmailRoute } from "./routes/VerifyEmailRoute";
 import { LandingRoute } from "./routes/LandingRoute";
 import { CLIENT_TYPE } from "./lib/platform";
@@ -92,6 +93,9 @@ export function App() {
         <Route path="/terms" element={<TermsRoute />} />
         <Route path="/features" element={<FeaturesRoute />} />
         <Route path="/install" element={<InstallRoute />} />
+        {/* Docs are public by design — a developer evaluating the platform has no account yet. */}
+        <Route path="/developers" element={<DevPortalRoute />} />
+        <Route path="/developers/:pageId" element={<DevPortalRoute />} />
         {/* Signed-out on purpose: the link is often opened on a different device from the one that
             signed up, and requiring a session would fail exactly where it matters. */}
         <Route path="/verify-email" element={<VerifyEmailRoute />} />

@@ -13,7 +13,11 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   bundle: true,
-  // @prisma/client ships native query-engine binaries that must not be bundled.
-  external: ["@prisma/client"],
+  // @prisma/client ships native query-engine binaries that must not be bundled. ws and
+  // socket.io-client are CommonJS with dynamic require()s ("events", "fs") that esbuild cannot
+  // rewrite into an ESM bundle — inlining either crash-loops the container at boot (learned in
+  // production, twice, one transitive layer apart). They're declared runtime dependencies, so
+  // the image resolves them from node_modules like @prisma/client.
+  external: ["@prisma/client", "ws", "socket.io-client"],
   noExternal: [/^@lumina\//],
 });

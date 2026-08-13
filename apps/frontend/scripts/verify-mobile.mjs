@@ -18,6 +18,38 @@ function bad(m, e) { console.log("FAIL: " + m + (e ? " -- " + e : "")); fail++; 
 // isn't — and shouldn't be added there just to make a local script pass. Bypassing CORS here
 // only removes that origin-matching artifact from *this test*; it doesn't touch the server
 // config, so a passing run still means "the mobile auth code path works," not "CORS is open."
+// The WebView stand-in: an origin that serves the MOBILE-MODE bundle but is not the API's
+// origin, reproducing capacitor://localhost's no-shared-cookie-jar situation. Originally this
+// required starting a dev server by hand; now the suite is self-sufficient for the production
+// battery — if nothing is listening it builds the mobile bundle itself and serves it statically.
+import { execSync } from "node:child_process";
+import http from "node:http";
+import { readFileSync, existsSync } from "node:fs";
+import { join, extname } from "node:path";
+
+let standInServer = null;
+const appUp = await fetch(APP_ORIGIN, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
+if (!appUp) {
+  const outDir = "dist-verify-mobile";
+  console.log("(building the mobile-mode bundle for the stand-in origin — one-off, ~a minute)");
+  execSync(`npx vite build --mode mobile --outDir ${outDir} --logLevel error`, { stdio: "inherit" });
+  const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".webmanifest": "application/manifest+json", ".ico": "image/x-icon", ".woff2": "font/woff2" };
+  standInServer = http.createServer((req, res) => {
+    const path = req.url.split("?")[0];
+    let file = join(outDir, path === "/" ? "index.html" : path.slice(1));
+    if (!existsSync(file)) file = join(outDir, "index.html"); // SPA fallback
+    try {
+      const body = readFileSync(file);
+      res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+      res.end(body);
+    } catch {
+      res.writeHead(404); res.end();
+    }
+  });
+  await new Promise((resolve) => standInServer.listen(5175, "127.0.0.1", resolve));
+  console.log(`(stand-in serving ${outDir} at ${APP_ORIGIN})`);
+}
+
 const browser = await chromium.launch({ headless: true, args: ["--disable-web-security"] });
 const context = await browser.newContext();
 const page = await context.newPage();
@@ -103,4 +135,5 @@ try {
 
 console.log(`\n==== MOBILE BUNDLE VERIFICATION: ${pass} PASS, ${fail} FAIL ====`);
 await browser.close();
+standInServer?.close();
 process.exit(fail > 0 ? 1 : 0);

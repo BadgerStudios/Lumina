@@ -8,6 +8,8 @@ import { requireAuth, requireMembership, requirePermission, resolveServerId } fr
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { saveProfileImage, deleteProfileImage } from "../../lib/profileImage.js";
+import { getIO } from "../../realtime/io.js";
+import { ServerEvents } from "@lumina/shared";
 
 const createServerSchema = z.object({
   name: z.string().min(1).max(100),
@@ -192,7 +194,12 @@ export default async function serversRoutes(fastify: FastifyInstance) {
         targetType: "server",
         metadata: body,
       });
-      return serializeServer(server);
+      // Live-propagate the change — the frontend has carried a SERVER_UPDATE handler since the
+      // realtime layer was built, but nothing ever emitted it (found by the emitted/handled
+      // cross-reference sweep). Same DTO the GET returns, so caches update coherently.
+      const dto = serializeServer(server);
+      getIO().to(`server:${server.id}`).emit(ServerEvents.SERVER_UPDATE, dto);
+      return dto;
     },
   );
 
@@ -265,6 +272,9 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       if (server.ownerId !== request.userId) {
         throw new ForbiddenError("Only the server owner can delete the server");
       }
+      // Notify BEFORE the row goes: members' clients drop the server from their list live
+      // instead of 404ing on their next interaction with it.
+      getIO().to(`server:${server.id}`).emit(ServerEvents.SERVER_DELETE, { id: server.id });
       await prisma.server.delete({ where: { id: request.serverId! } });
       reply.code(204).send();
     },
@@ -282,6 +292,9 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       await prisma.membership.delete({
         where: { userId_serverId: { userId: request.userId!, serverId: request.serverId! } },
       });
+      getIO()
+        .to(`server:${request.serverId!}`)
+        .emit(ServerEvents.MEMBER_LEAVE, { userId: request.userId!, serverId: request.serverId! });
       reply.code(204).send();
     },
   );
@@ -387,6 +400,13 @@ export default async function serversRoutes(fastify: FastifyInstance) {
         targetId: targetUserId,
         targetType: "member",
       });
+
+      // Everyone else's member list updates live; the kicked user's own client drops the whole
+      // server (their user room gets the same SERVER_DELETE the frontend already handles).
+      getIO()
+        .to(`server:${request.serverId!}`)
+        .emit(ServerEvents.MEMBER_LEAVE, { userId: targetUserId, serverId: request.serverId! });
+      getIO().to(`user:${targetUserId}`).emit(ServerEvents.SERVER_DELETE, { id: request.serverId! });
 
       reply.code(204).send();
     },

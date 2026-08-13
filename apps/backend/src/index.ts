@@ -34,6 +34,8 @@ import gameRoutes from "./modules/game/routes.js";
 import activityRoutes from "./modules/activities/routes.js";
 import economyRoutes, { seedGifts } from "./modules/economy/routes.js";
 import membershipRoutes from "./modules/economy/memberships.js";
+import discordCompatRest from "./modules/discordcompat/rest.js";
+import { attachDiscordGateway } from "./modules/discordcompat/gateway.js";
 import { seedPolicies } from "./modules/economy/service.js";
 import inboxRoutes from "./modules/inbox/routes.js";
 import xpRoutes from "./modules/xp/routes.js";
@@ -339,6 +341,10 @@ async function main() {
   await fastify.register(activityRoutes, { prefix: "/api" });
   await fastify.register(economyRoutes, { prefix: "/api/economy" });
   await fastify.register(membershipRoutes, { prefix: "/api/economy" });
+  // Discord compat REST — registered twice because Discord libraries append the API version
+  // segment themselves (rest.api option ends up as <base>/v10/...).
+  await fastify.register(discordCompatRest, { prefix: "/discord/api" });
+  await fastify.register(discordCompatRest, { prefix: "/discord/api/v10" });
   await fastify.register(inboxRoutes, { prefix: "/api/inbox" });
   // Same /api/servers prefix the other server-scoped modules use.
   await fastify.register(xpRoutes, { prefix: "/api/servers" });
@@ -393,6 +399,9 @@ async function main() {
   await fastify.ready();
 
   await initIO(fastify.server);
+  // After initIO so socket.io's own upgrade listener is already in place — ours only claims
+  // /discord/gateway and leaves every other upgrade untouched.
+  attachDiscordGateway(fastify.server);
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
   fastify.log.info(`Lumina backend listening on :${env.PORT}`);

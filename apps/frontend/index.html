@@ -54,35 +54,10 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/pwa-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icons/pwa-512.png" />
-    <script>
-      // Applied before first paint (inline, ahead of the bundle) so there's no flash of the
-      // wrong theme: same precedence as store/uiStore.ts (stored preference wins, otherwise
-      // fall back to the OS preference) — that module re-applies the same value once it loads.
-      (function () {
-        try {
-          var stored = localStorage.getItem("lumina-theme");
-          // Kept in sync with THEMES in store/uiStore.ts. Listing them here matters: anything not
-          // recognised falls back to the OS preference, so a stored "midnight" that this script
-          // didn't know about would flash the default dark palette before the bundle corrected it.
-          var known = ["dark", "light", "midnight", "carbon", "moss", "parchment", "slate"];
-          var theme =
-            stored && known.indexOf(stored) !== -1
-              ? stored
-              : window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
-                ? "light"
-                : "dark";
-          document.documentElement.setAttribute("data-theme", theme);
-        } catch (e) {
-          document.documentElement.setAttribute("data-theme", "dark");
-        }
-        try {
-          var accent = localStorage.getItem("lumina-accent-theme");
-          if (accent) document.documentElement.setAttribute("data-accent", accent);
-        } catch (e) {
-          /* default accent (no attribute) */
-        }
-      })();
-    </script>
+    <!-- Parser-blocking on purpose: it must set data-theme before first paint. External rather
+         than inline because the production CSP (csp.conf) allows no inline scripts — the inline
+         version of this was silently blocked in production and never ran. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body class="bg-base-800 text-signal">
     <div id="root"></div>

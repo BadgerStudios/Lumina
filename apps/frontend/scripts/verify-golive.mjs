@@ -55,12 +55,25 @@ const live = nextRoster(sb, (p) => p.channelId === voice.id && p.participants?.s
 sa.emit("voice:stream-state", { kind: "screen" });
 (await live) ? ok('going live broadcasts streaming:"screen" on the roster') : bad("no roster update carried the stream state");
 
-// Illegal kind must be coerced to null, never echoed.
-const evil = nextRoster(sb, (p) => p.channelId === voice.id && p.participants?.some((x) => x.userId === a.id), 6000);
+// Illegal kind must be coerced to null, never echoed. Broadcasts from the PREVIOUS state change
+// can still be in flight here, so don't judge the first roster that arrives — wait for the one
+// where A's state is no longer "screen" (the coercion result), and fail hard only if a roster
+// ever carries a value outside the legal set.
+let sawIllegal = null;
+const settled = nextRoster(sb, (p) => {
+  const row = p.channelId === voice.id ? p.participants?.find((x) => x.userId === a.id) : null;
+  if (!row) return false;
+  if (row.streaming !== null && row.streaming !== "screen" && row.streaming !== "camera") {
+    sawIllegal = row.streaming;
+    return true;
+  }
+  return row.streaming === null;
+}, 8000);
 sa.emit("voice:stream-state", { kind: "malware<script>" });
-const evilRoster = await evil;
-const aRow = evilRoster?.participants?.find((x) => x.userId === a.id);
-aRow && aRow.streaming === null ? ok("an illegal stream kind is coerced to null, not echoed") : bad(`illegal kind produced streaming=${JSON.stringify(aRow?.streaming)}`);
+const settledRoster = await settled;
+if (sawIllegal !== null) bad(`illegal kind was echoed into the roster: ${JSON.stringify(sawIllegal)}`);
+else if (settledRoster) ok("an illegal stream kind is coerced to null, not echoed");
+else bad("no roster update arrived after the illegal-kind emit");
 
 // Stop → cleared.
 const stop = nextRoster(sb, (p) => p.channelId === voice.id && p.participants?.some((x) => x.userId === a.id && x.streaming === null));

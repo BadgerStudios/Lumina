@@ -68,16 +68,33 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
+# The native apps BUNDLE the frontend (capacitor webDir / electron renderer), so any deploy that
+# changes the UI but skips the native builds strands every installed app on the old interface
+# until someone remembers to run a full deploy. --web-only therefore only actually stays web-only
+# when the frontend is UNCHANGED since the last native publish — otherwise it escalates itself.
+# The operator asked for exactly this: "when we deploy updates, the apps update too."
+NATIVE_WEB_HASH_FILE=".last-native-frontend-hash"
+frontend_hash() {
+  find apps/frontend/src apps/frontend/public apps/frontend/index.html packages/shared/src -type f -print0 \
+    | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+}
+
 if [[ "$WEB_ONLY" == true ]]; then
-  # A web-only deploy still ships a new frontend bundle, so open tabs are still stale and still
-  # need telling. Same call as the full path below.
-  if grep -q '^OPS_AGENT_SECRET=.\+' .env; then
-    curl -s -X POST http://127.0.0.1:4000/api/meta/announce-update \
-      -H "x-lumina-agent-secret: $(grep -oP '^OPS_AGENT_SECRET=\K.*' .env)" --max-time 15 >/dev/null || true
+  if [[ "$(frontend_hash)" != "$(cat "$NATIVE_WEB_HASH_FILE" 2>/dev/null)" ]]; then
+    echo "== --web-only requested, but the frontend changed since the last native build =="
+    echo "== escalating to a FULL deploy so installed Android/desktop apps update too =="
+    WEB_ONLY=false
+  else
+    # Backend-only change: the bundled app UI is identical, so natives genuinely need nothing.
+    # Open tabs still get told about the new backend.
+    if grep -q '^OPS_AGENT_SECRET=.\+' .env; then
+      curl -s -X POST http://127.0.0.1:4000/api/meta/announce-update \
+        -H "x-lumina-agent-secret: $(grep -oP '^OPS_AGENT_SECRET=\K.*' .env)" --max-time 15 >/dev/null || true
+    fi
+    echo "== --web-only: frontend unchanged since last native build — skipping Android + desktop =="
+    echo "Deploy complete: https://lumina.luxffa.com"
+    exit 0
   fi
-  echo "== --web-only: skipping Android + desktop builds =="
-  echo "Deploy complete: https://lumina.luxffa.com"
-  exit 0
 fi
 
 echo "== 3/5: building Android debug APK =="
@@ -187,6 +204,10 @@ echo "Update feed: https://lumina.badgerstudios.net/downloads/desktop/latest-lin
 # that otherwise succeeded. Skips silently when R2 isn't configured.
 echo "== publishing releases to R2 =="
 node scripts/publish-release.mjs
+
+# Record what the natives were built from, so a later --web-only can prove the UI is unchanged
+# (and escalate itself when it isn't — see the check at the top).
+frontend_hash > "$NATIVE_WEB_HASH_FILE"
 
 # Tell every connected client to re-check, now that the new artifacts are actually downloadable.
 #

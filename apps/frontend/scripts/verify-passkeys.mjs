@@ -16,7 +16,11 @@ const password = "passkey-verify-pw-1";
 
 async function main() {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext();
+  // bypassCSP is for THIS HARNESS only: it injects @simplewebauthn/browser from esm.sh to drive
+  // a synthetic authenticator, and the production CSP (script-src 'self') rightly refuses that.
+  // The app's own passkey code ships bundled and runs under the real CSP either way — this flag
+  // affects nothing but the test page's ability to load its test tooling.
+  const ctx = await browser.newContext({ bypassCSP: true });
   const page = await ctx.newPage();
 
   // Chrome's virtual authenticator. `hasUV: true` + `isUserVerified: true` is what makes it behave

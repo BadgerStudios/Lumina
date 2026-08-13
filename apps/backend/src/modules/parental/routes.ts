@@ -96,7 +96,21 @@ export default async function parentalRoutes(fastify: FastifyInstance) {
       orderBy: { id: "desc" },
       take: 50,
     });
-    return messages.map((m) => serializeMessage(m, childId));
+    // A parent reading this list needs to know WHERE each message was said, not just what — a
+    // bare "hi" with no context is not actionable. One batched lookup rather than an include so
+    // serializeMessage's contract stays untouched.
+    const channelIds = [...new Set(messages.map((m) => m.channelId).filter((id): id is string => !!id))];
+    const channels = channelIds.length
+      ? await prisma.channel.findMany({
+          where: { id: { in: channelIds } },
+          select: { id: true, name: true, server: { select: { name: true } } },
+        })
+      : [];
+    const context = new Map(channels.map((c) => [c.id, { channel: c.name, server: c.server.name }]));
+    return messages.map((m) => ({
+      ...serializeMessage(m, childId),
+      where: m.channelId ? (context.get(m.channelId) ?? null) : null,
+    }));
   });
 
   /**

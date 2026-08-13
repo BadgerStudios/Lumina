@@ -69,3 +69,5 @@ _tmp_*
 # ---- secrets ----------------------------------------------------------------------------
 # DKIM private key and anything else mounted into containers. Never commit.
 secrets/
+.last-native-frontend-hash
+apps/frontend/dist-verify-mobile/

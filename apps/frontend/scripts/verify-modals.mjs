@@ -1,9 +1,19 @@
 import { chromium } from "playwright";
-const BASE = "http://127.0.0.1:5173";
+// Production by default so this suite is part of the standard production battery; override with
+// BASE=http://127.0.0.1:5173 to point it at a local dev server instead.
+const BASE = process.env.BASE ?? "https://lumina.badgerstudios.net";
 const rand = Date.now();
 let pass = 0, fail = 0;
 function ok(m) { console.log("PASS: " + m); pass++; }
 function bad(m, e) { console.log("FAIL: " + m + (e ? " -- " + e : "")); fail++; }
+
+// When BASE is overridden to a local dev server that isn't running, announce and skip rather
+// than reporting the absence as platform failures. The production default always answers.
+const baseUp = await fetch(BASE, { signal: AbortSignal.timeout(5000) }).then((r) => r.ok, () => false);
+if (!baseUp) {
+  console.log(`SKIP: nothing listening at ${BASE}.`);
+  process.exit(0);
+}
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
@@ -13,6 +23,10 @@ await page.goto(`${BASE}/register`, { waitUntil: "networkidle" });
 await page.getByLabel("Username").fill(`modal_${rand}`);
 await page.getByLabel("Email").fill(`modal_${rand}@example.com`);
 await page.getByLabel("Password").fill("password123");
+// The age gate is mandatory on the live register form (same lesson verify-ui learned: skipping
+// these two fields silently registers nobody and every later assertion cascades).
+await page.getByLabel("Date of birth").fill("1995-04-01");
+await page.getByRole("button", { name: "25–34" }).click();
 await page.getByRole("button", { name: "Register" }).click();
 await page.waitForURL((u) => !u.pathname.startsWith("/register"), { timeout: 10000 });
 

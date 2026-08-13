@@ -547,6 +547,20 @@ model ThreadMembership {
   @@index([userId])
 }
 
+/// Numeric alias for a cuid-keyed entity, minted on first use. Discord-protocol clients do
+/// BigInt arithmetic on ids (sharding math, timestamp extraction), so the compat layer must hand
+/// them numeric snowflake-shaped strings — cuids would crash those libraries. Messages already
+/// have BigInt ids and use them directly; everything else resolves through this table, which
+/// makes the mapping stable across restarts (an in-memory counter would re-mint different ids
+/// and break every bot's cache on reboot).
+model CompatId {
+  id       BigInt @id @default(autoincrement())
+  kind     String
+  luminaId String
+
+  @@unique([kind, luminaId])
+}
+
 enum EventRsvpStatus {
   GOING
   INTERESTED

@@ -79,8 +79,19 @@ async function main() {
 
   // ---------------------------------------------------------------
   // 0. Vite dev server sanity (serves app shell, proxies /api through)
+  //
+  // These three test the DEV setup, so they only run when a dev server is actually up —
+  // otherwise they'd report the absence of a dev server as three platform failures in every
+  // production-only run (which is exactly what they did during the platform debug sweep).
+  // Skipping is announced, never silent, so a wedged dev server still can't hide.
   // ---------------------------------------------------------------
-  await step("Vite dev server serves the app shell HTML", async () => {
+  const viteUp = await fetch(`${FRONTEND}/`, { signal: AbortSignal.timeout(2000) }).then(
+    (r) => r.ok,
+    () => false,
+  );
+  if (!viteUp) console.log(`SKIP: Vite dev server checks (nothing listening at ${FRONTEND} — production-only run)`);
+
+  if (viteUp) await step("Vite dev server serves the app shell HTML", async () => {
     const res = await fetch(`${FRONTEND}/`);
     const text = await res.text();
     assert.equal(res.status, 200);
@@ -88,7 +99,7 @@ async function main() {
     assert.match(text, /src\/main\.tsx/);
   });
 
-  await step("Vite proxy forwards /api/* to the real backend (Fastify 404 body, not Vite's)", async () => {
+  if (viteUp) await step("Vite proxy forwards /api/* to the real backend (Fastify 404 body, not Vite's)", async () => {
     const res = await fetch(`${FRONTEND}/api/healthz`);
     const body = await res.json();
     // healthz is mounted at backend root, not under /api — so this MUST 404 with Fastify's
@@ -97,7 +108,7 @@ async function main() {
     assert.equal(body.error, "Not Found");
   });
 
-  await step("Vite proxy forwards a real API call end-to-end", async () => {
+  if (viteUp) await step("Vite proxy forwards a real API call end-to-end", async () => {
     const res = await apiFetch(FRONTEND, "/api/auth/register", {
       method: "POST",
       body: JSON.stringify({

@@ -199,12 +199,18 @@ function MessagesTab({ childId }: { childId: string }) {
   if (!messages?.length) return <p className="text-sm text-signal-faint">Nothing posted yet.</p>;
   return (
     <div className="flex max-h-80 flex-col gap-1.5 overflow-y-auto">
-      {messages.map((m) => (
-        <div key={m.id} className="rounded bg-base-800 px-2.5 py-1.5">
-          <p className="text-xs text-signal-faint">{new Date(m.createdAt).toLocaleString()}</p>
-          <p className="whitespace-pre-wrap break-words text-sm text-signal">{m.content || "(attachment)"}</p>
-        </div>
-      ))}
+      {messages.map((m) => {
+        const where = (m as unknown as { where?: { channel: string; server: string } | null }).where;
+        return (
+          <div key={m.id} className="rounded bg-base-800 px-2.5 py-1.5">
+            <p className="text-xs text-signal-faint">
+              {new Date(m.createdAt).toLocaleString()}
+              {where ? <span> · #{where.channel} in {where.server}</span> : null}
+            </p>
+            <p className="whitespace-pre-wrap break-words text-sm text-signal">{m.content || "(attachment)"}</p>
+          </div>
+        );
+      })}
     </div>
   );
 }
