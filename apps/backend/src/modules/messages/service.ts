@@ -13,6 +13,7 @@ import { assertPassesAutoMod } from "../automod/service.js";
 import { assertPassesVerification } from "../servers/verification.js";
 import { scheduleLinkPreviews } from "../../lib/linkPreview.js";
 import { touchThreadActivity } from "../threads/service.js";
+import { assertNotLockedMinor } from "../parental/service.js";
 
 /**
  * Shared message service — imported by BOTH the REST routes
@@ -181,6 +182,9 @@ export async function createChannelMessage(params: {
   const channel = await prisma.channel.findUnique({ where: { id: params.channelId } });
   if (!channel) throw new NotFoundError("Channel not found");
 
+  // A minor with no responsible adult yet cannot put text in front of anyone. First of the
+  // gates because it is the broadest: it is not about this channel or this server.
+  await assertNotLockedMinor(params.userId);
   await assertNotMuted(params.userId, channel.serverId);
   await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.SEND_MESSAGES);
   // Server verification gate. After the permission check (so a 403 for "you cannot post here" wins
@@ -288,6 +292,9 @@ export async function createDMMessage(params: {
   stickerId?: string | null;
   pollId?: string | null;
 }): Promise<MessageDTO> {
+  // Same gate as a channel send. A DM is the most direct way to reach a person, so it would be a
+  // strange one to leave open while the channel path is closed.
+  await assertNotLockedMinor(params.userId);
   const participant = await prisma.dMParticipant.findUnique({
     where: { conversationId_userId: { conversationId: params.conversationId, userId: params.userId } },
   });

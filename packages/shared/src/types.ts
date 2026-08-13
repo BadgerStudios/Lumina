@@ -163,6 +163,33 @@ export interface ThreadDTO {
   joined: boolean;
 }
 
+/** A minor's own view of their supervision state. */
+export interface MinorStateDTO {
+  isMinor: boolean;
+  locked: boolean;
+  pairingCode: string | null;
+  status?: "PENDING" | "ACTIVE" | "REVOKED" | null;
+  parent: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
+}
+
+export interface LinkedChildDTO {
+  linkId: string;
+  acceptedAt: string | null;
+  child: { id: string; username: string; displayName: string | null; avatarUrl: string | null; presence: PresenceStatus };
+  approvedContacts: {
+    id: string;
+    note: string | null;
+    user: { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+  }[];
+}
+
+/** A person the child has exchanged DMs with. `isAdult` is the field a parent actually scans for. */
+export interface ChildContactDTO {
+  user: UserDTO;
+  isAdult: boolean;
+  conversationId: string;
+}
+
 export type VerificationLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 export type ExplicitContentFilter = "DISABLED" | "MEMBERS_WITHOUT_ROLES" | "ALL_MEMBERS";
 export type NotificationLevel = "ALL" | "MENTIONS" | "NONE";

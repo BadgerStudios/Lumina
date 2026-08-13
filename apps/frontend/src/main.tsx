@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { BiometricGate } from "./components/common/BiometricGate";
+import { MinorGate } from "./components/parental/MinorGate";
 import { startViewportSync } from "./lib/viewport";
 import { installInspectGuard } from "./lib/inspectGuard";
 import "./index.css";
@@ -36,7 +37,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             reach the boundary rather than leaving a locked screen with no way out. Renders its
             children untouched unless the lock is on and this is a native build. */}
         <BiometricGate>
-          <App />
+          {/* Inside BiometricGate, so an unlocked device is established first — a minor's pairing
+              lock is about who is accountable for the account, not about who is holding the phone.
+              Renders children untouched for every adult account. */}
+          <MinorGate>
+            <App />
+          </MinorGate>
         </BiometricGate>
       </ErrorBoundary>
     </QueryClientProvider>

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { ageVisibilityFilter } from "../parental/visibility.js";
 import { z } from "zod";
 import { Permissions, DEFAULT_EVERYONE_PERMISSIONS } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
@@ -266,7 +267,10 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       const MEMBER_PAGE = 1000;
       const [members, total] = await Promise.all([
         prisma.membership.findMany({
-          where: { serverId: request.serverId! },
+          // Age visibility pushed into the query rather than filtered after: a post-filter would
+          // still have loaded every minor's full user record into this process, and the cap above
+          // would then be spent on rows about to be discarded.
+          where: { serverId: request.serverId!, user: await ageVisibilityFilter(request.userId!) },
           include: memberInclude,
           orderBy: { joinedAt: "asc" },
           take: MEMBER_PAGE,

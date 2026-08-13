@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { assertNotLockedMinor } from "../parental/service.js";
 import { Permissions, ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeInvite, serializeMember } from "../../lib/serialize.js";
@@ -60,6 +61,9 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post("/:code/join", { preHandler: [requireAuth] }, async (request, reply) => {
+    // Joining a server makes the account visible in a member list, so it is gated the same way
+    // messaging is.
+    await assertNotLockedMinor(request.userId!);
     const { code } = request.params as { code: string };
     const resolved = await resolveInviteCode(code);
     if (!resolved) throw new NotFoundError("Invite not found");

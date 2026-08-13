@@ -8,10 +8,24 @@ import type { AgeBracket } from "@prisma/client";
  * accurately as possible while collecting as little as possible.
  */
 
-/** Minimum age to hold an account. Lumina is 18+. Kept as a constant rather than inlined so the
- * threshold and the contact-separation boundary stay visibly distinct — they answer different
- * questions and could diverge if the policy ever changes. */
-export const MINIMUM_AGE = 18;
+/**
+ * Two different thresholds, and the distinction is now load-bearing rather than theoretical.
+ *
+ * `MINIMUM_AGE` is who may hold an account at all. `ADULT_AGE` is where the contact-separation
+ * boundary sits. They used to be the same number, which made the platform simply 18+; they are
+ * deliberately different now, and the gap between them IS the minor tier:
+ *
+ *   under 16   — refused, and the signup device cooldown applies
+ *   16 and 17  — permitted, as a MINOR account: parent-paired, separated from adults, no video
+ *                feed, no billing, no store
+ *   18+        — an ordinary adult account
+ *
+ * 16 rather than 13 was the operator's choice. Worth knowing why the number matters beyond policy:
+ * below 13 the US COPPA regime applies (verifiable parental consent, not merely a paired account),
+ * and several EU states set GDPR digital consent at 16. A 16 floor keeps this instance clear of
+ * both. If this is ever lowered, that is a legal question before it is an engineering one.
+ */
+export const MINIMUM_AGE = 16;
 export const ADULT_AGE = 18;
 
 /**
@@ -82,15 +96,14 @@ export function checkAge(selected: AgeBracket, birthDate: Date, now = new Date()
     return { ok: false, reasonCode: "AGE_UNDER_MINIMUM", bracket: derived, isMinor: true };
   }
 
-  // Selecting "Under 18" is itself disqualifying now that the platform is 18+, regardless of what
-  // the date says — otherwise the bracket question would be decorative for the one answer that
-  // matters most.
-  if (isMinorBracket(selected)) {
-    return { ok: false, reasonCode: "AGE_UNDER_MINIMUM", bracket: derived, isMinor: true };
-  }
-
+  // Selecting "Under 18" is no longer disqualifying — it is how a 16 or 17 year old correctly
+  // identifies themselves, and refusing it was what pushed exactly those people into lying about
+  // their birthday. What still has to hold is that the two answers AGREE about which side of 18
+  // the person is on.
   if (isMinorBracket(selected) !== derivedMinor) {
-    // Restricted to the safer reading while a human resolves it.
+    // Held for a human rather than silently resolved: one answer claims an adult and the other a
+    // minor, and that is the single distinction this whole system exists to get right. Guessing
+    // wrong is harmful in both directions, so neither reading is taken.
     return { ok: false, reasonCode: "AGE_MISMATCH", bracket: derived, isMinor: true };
   }
 

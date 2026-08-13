@@ -247,6 +247,9 @@ model User {
   interactions           Interaction[]
   createdTemplates       ServerTemplate[]         @relation("TemplateCreator")
   threadMemberships ThreadMembership[]
+  parentLinkAsChild  ParentLink?             @relation("ChildOfLink")
+  parentLinksAsParent ParentLink[]           @relation("ParentOfLink")
+  approvedForMinors  ParentApprovedContact[] @relation("ApprovedForMinor")
 }
 
 // A "dev portal" app a human user owns. Each Application has exactly one bot User (see
@@ -1969,4 +1972,70 @@ model ServerTemplate {
 
   @@index([creatorId])
   @@index([sourceServerId])
+}
+
+enum ParentLinkStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+/**
+ * The link between a minor account and the adult responsible for it.
+ *
+ * A minor account is created immediately but is INERT until an adult accepts this link — it cannot
+ * message, join servers, hold friends, or be seen by anyone. That is the operator's chosen posture
+ * and it is enforced server-side (see modules/parental/guard.ts), not by hiding buttons: a locked
+ * minor with a stolen token still cannot do any of those things.
+ *
+ * `childUserId` is unique — exactly one responsible adult, never a committee. A second adult
+ * wanting oversight has to replace the first, which keeps "who is accountable for this account"
+ * answerable with a single row.
+ *
+ * `parentUserId` stays null until the code is redeemed, so a PENDING link names no adult and
+ * cannot be used to imply one consented.
+ */
+model ParentLink {
+  id           String           @id @default(cuid())
+  childUserId  String           @unique
+  parentUserId String?
+  status       ParentLinkStatus @default(PENDING)
+  /// Short, human-transcribable code the child hands to their parent out of band. Unique so
+  /// redemption is an exact lookup and never has to guess between two links.
+  pairingCode  String           @unique
+  createdAt    DateTime         @default(now())
+  acceptedAt   DateTime?
+  revokedAt    DateTime?
+
+  child            User                    @relation("ChildOfLink", fields: [childUserId], references: [id], onDelete: Cascade)
+  parent           User?                   @relation("ParentOfLink", fields: [parentUserId], references: [id], onDelete: SetNull)
+  approvedContacts ParentApprovedContact[]
+
+  @@index([parentUserId])
+  @@index([status])
+}
+
+/**
+ * An adult the parent has cleared to contact THIS child specifically.
+ *
+ * Hung off the ParentLink rather than off the child's User row so the scope is structural: an
+ * approval is meaningless outside the link that created it, and one parent's decision about their
+ * own child can never widen into permission to contact any other minor on the platform. That is
+ * the whole safety property of this table, and the FK is what enforces it rather than a WHERE
+ * clause someone might forget.
+ */
+model ParentApprovedContact {
+  id             String   @id @default(cuid())
+  parentLinkId   String
+  approvedUserId String
+  /// Why the parent allowed this person — their own note (an aunt, a school friend's parent).
+  /// Kept because a bare username list becomes unreviewable within a month.
+  note           String?  @db.VarChar(200)
+  createdAt      DateTime @default(now())
+
+  parentLink   ParentLink @relation(fields: [parentLinkId], references: [id], onDelete: Cascade)
+  approvedUser User       @relation("ApprovedForMinor", fields: [approvedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([parentLinkId, approvedUserId])
+  @@index([approvedUserId])
 }

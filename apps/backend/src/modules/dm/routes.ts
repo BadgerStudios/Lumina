@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { checkContact } from "../age/service.js";
+import { assertNotLockedMinor, checkContactWithApprovals } from "../parental/service.js";
 import { assertTrustedOrigin } from "../risk/service.js";
 import { recordFlag } from "../flags/service.js";
 import { requireAuth } from "../../plugins/authenticate.js";
@@ -160,9 +161,15 @@ export default async function dmRoutes(fastify: FastifyInstance) {
         throw new BlockedError("AGE_MISSING");
       }
 
-      const blocked = others.find((o) => checkContact(creator, o) !== "ok");
-      if (blocked) {
-        const reason = checkContact(creator, blocked);
+      // Resolved one participant at a time because the answer can now depend on a parent's
+      // approval of one specific person, so it is no longer a pure function of the two ages.
+      const decisions = await Promise.all(
+        others.map(async (o) => ({ user: o, decision: await checkContactWithApprovals(creator, o) })),
+      );
+      const blockedEntry = decisions.find((d) => d.decision !== "ok");
+      if (blockedEntry) {
+        const blocked = blockedEntry.user;
+        const reason = blockedEntry.decision;
         void recordFlag({
           userId: request.userId!,
           reasonCode: reason === "unknown-other" ? "AGE_MISSING" : "AGE_CONTACT_RESTRICTED",

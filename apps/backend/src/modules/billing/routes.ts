@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+// Minors get no billing surface at all — see modules/parental/service.ts.
+import { requireAdult } from "../age/guard.js";
 import { primaryAppOrigin } from "../../lib/appOrigin.js";
 import type Stripe from "stripe";
 import { z } from "zod";
@@ -46,7 +48,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     })),
   }));
 
-  fastify.get("/subscription", { preHandler: [requireAuth] }, async (request) => {
+  fastify.get("/subscription", { preHandler: [requireAuth, requireAdult] }, async (request) => {
     const sub = await prisma.subscription.findFirst({
       where: { userId: request.userId!, status: { in: ["ACTIVE", "TRIALING", "PAST_DUE"] } },
       orderBy: { createdAt: "desc" },
@@ -67,7 +69,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
    * Starts a Stripe Checkout session. The client never handles card details — Stripe's hosted page
    * does, which keeps this server entirely out of PCI scope.
    */
-  fastify.post("/checkout", { preHandler: [requireAuth] }, async (request) => {
+  fastify.post("/checkout", { preHandler: [requireAuth, requireAdult] }, async (request) => {
     const stripe = getStripe();
     if (!stripe) throw new BadRequestError("Billing is not configured on this server");
 
@@ -111,7 +113,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
   /** Stripe's hosted billing portal — cancellations, card updates, invoice history. Far better than
    * reimplementing any of that, and it keeps card data off this server entirely. */
-  fastify.post("/portal", { preHandler: [requireAuth] }, async (request) => {
+  fastify.post("/portal", { preHandler: [requireAuth, requireAdult] }, async (request) => {
     const stripe = getStripe();
     if (!stripe) throw new BadRequestError("Billing is not configured on this server");
 

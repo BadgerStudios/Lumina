@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
-import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning } from "lucide-react";
+import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users } from "lucide-react";
 import { MfaSetup } from "./MfaSetup";
 import {
   biometricAvailability,
@@ -46,16 +46,19 @@ import { ApiError, resolveAssetUrl } from "../../lib/apiClient";
 import { isWebPushSupported, getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "../../lib/webPush";
 import { BillingSection } from "./BillingSection";
 import { AdvertisingSection } from "./AdvertisingSection";
+import { FamilySection } from "../parental/FamilySection";
+import { useMinorState } from "../../queries/parental";
 
 const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND"];
 
-type Section = "account" | "sessions" | "appearance" | "privacy" | "notifications" | "billing" | "advertising" | "developer" | "voice";
+type Section = "account" | "sessions" | "appearance" | "privacy" | "family" | "notifications" | "billing" | "advertising" | "developer" | "voice";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "account", label: "My Account", icon: User },
   { key: "sessions", label: "Devices & Sessions", icon: Monitor },
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "privacy", label: "Privacy & Safety", icon: ShieldCheck },
+  { key: "family", label: "Family", icon: Users },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "billing", label: "Billing", icon: CreditCard },
   { key: "advertising", label: "Advertising", icon: Megaphone },
@@ -1442,6 +1445,19 @@ export function UserSettingsModal() {
   const open = openModal === "userSettings";
   const logout = useLogout();
   const [section, setSection] = useState<Section>("account");
+  // Minors get no billing, advertising or developer surface. Hidden AND server-enforced (see the
+  // requireAdult guards on those routes) — this half is presentation, and on its own would be
+  // worth nothing.
+  const { data: minorState } = useMinorState();
+  const isMinor = Boolean(minorState?.isMinor);
+  const visibleSections = SECTIONS.filter(
+    (s) => !(isMinor && (s.key === "billing" || s.key === "advertising" || s.key === "developer")),
+  );
+  // A minor who was already sitting on a now-hidden tab must not be left staring at it.
+  useEffect(() => {
+    if (!visibleSections.some((s) => s.key === section)) setSection("account");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMinor, section]);
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && closeModal()}>
@@ -1450,7 +1466,7 @@ export function UserSettingsModal() {
         <Dialog.Content className="fixed inset-0 z-50 flex focus:outline-none">
           <Dialog.Title className="sr-only">User Settings</Dialog.Title>
           <div className="flex w-60 shrink-0 flex-col gap-0.5 border-r border-base-900/60 bg-base-800 p-3 max-md:w-16">
-            {SECTIONS.map((s) => (
+            {visibleSections.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setSection(s.key)}
@@ -1495,6 +1511,7 @@ export function UserSettingsModal() {
               {section === "billing" && <BillingSection />}
               {section === "advertising" && <AdvertisingSection />}
               {section === "developer" && <DeveloperPortalSection />}
+              {section === "family" && <FamilySection />}
               {section === "voice" && <VoiceSection />}
             </div>
           </div>

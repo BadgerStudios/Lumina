@@ -2,6 +2,7 @@ import { ServerEvents } from "@lumina/shared";
 import type { FriendDTO, FriendRequestDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { canContact, checkContact } from "../age/service.js";
+import { assertNotLockedMinor, canContactWithApprovals } from "../parental/service.js";
 import { recordFlag } from "../flags/service.js";
 import { serializeFriendRequest, serializeUser } from "../../lib/serialize.js";
 import { BadRequestError, BlockedError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
@@ -38,13 +39,16 @@ export async function sendFriendRequest(params: { requesterId: string; addressee
   if (!addressee) throw new NotFoundError("User not found");
   if (addressee.id === params.requesterId) throw new BadRequestError("You can't send a friend request to yourself");
   if (addressee.isBot) throw new BadRequestError("Bots can't be friended");
+  await assertNotLockedMinor(params.requesterId);
 
   // Adults and minors are kept apart. Checked here rather than only at the DM layer because a
   // friendship is the thing that unlocks most other contact, so allowing it and blocking messages
   // later would leave the connection half-formed and confusing for both people.
   const requester = await prisma.user.findUnique({
     where: { id: params.requesterId },
-    select: { isMinor: true, ageRecordedAt: true },
+    // `id` is needed now that the contact decision can turn on a parent's approval of one
+    // specific account, which is looked up by id rather than derived from the two ages.
+    select: { id: true, isMinor: true, ageRecordedAt: true },
   });
   // Own missing age is its own outcome, not a contact restriction: it is the one thing the person
   // can fix, and BlockedError("AGE_MISSING") is what makes the client show the age prompt instead
@@ -62,7 +66,7 @@ export async function sendFriendRequest(params: { requesterId: string; addressee
     throw new ForbiddenError("That account hasn't finished setting up yet");
   }
 
-  if (requester && !canContact(requester, addressee)) {
+  if (requester && !(await canContactWithApprovals(requester, addressee))) {
     void recordFlag({
       userId: params.requesterId,
       reasonCode: "AGE_CONTACT_RESTRICTED",

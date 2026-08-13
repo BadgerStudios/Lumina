@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { ageVisibilityFilter } from "../parental/visibility.js";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { serializeUser, serializeServer } from "../../lib/serialize.js";
@@ -103,7 +104,17 @@ export default async function lookupRoutes(fastify: FastifyInstance) {
         friendships.map((f) => (f.requesterId === userId ? f.addresseeId : f.requesterId)),
       );
 
+      // Age visibility, applied to baseWhere so it reaches EVERY branch below — exact search,
+      // the suggestion fallback, and the friends-only path alike. Putting it on each query
+      // separately is how one of them ends up being the branch that still lists minors.
+      const visibility = await ageVisibilityFilter(userId);
+
+      // AND, not a spread. `visibility` is an { OR: [...] } object and the exact-search branch
+      // below sets its OWN `OR` for the name match — spreading meant the second OR silently
+      // replaced the first, and every minor became searchable by name. Nesting under AND makes
+      // that collision impossible rather than merely fixed here.
       const baseWhere = {
+        AND: [visibility],
         isBot: false,
         ...(excludeSelf ? { id: { not: userId } } : {}),
         ...(query.friendsOnly === "true" ? { id: { in: Array.from(friendIds) } } : {}),

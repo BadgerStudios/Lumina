@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+// Minors cannot use the store.
+import { requireAdult } from "../age/guard.js";
 import { z } from "zod";
 import { primaryAppOrigin } from "../../lib/appOrigin.js";
 import { requireAuth } from "../../plugins/authenticate.js";
@@ -18,7 +20,7 @@ const topUpSchema = z.object({ bundleKey: z.string().min(1) });
 
 /** Mounted under /api/store */
 export default async function storeRoutes(fastify: FastifyInstance) {
-  fastify.get("/catalogue", { preHandler: [requireAuth] }, async (request) => {
+  fastify.get("/catalogue", { preHandler: [requireAuth, requireAdult] }, async (request) => {
     const [items, balance] = await Promise.all([
       catalogue(request.userId!),
       getBalance(request.userId!),
@@ -33,7 +35,7 @@ export default async function storeRoutes(fastify: FastifyInstance) {
     };
   });
 
-  fastify.get("/inventory", { preHandler: [requireAuth] }, async (request) => ({
+  fastify.get("/inventory", { preHandler: [requireAuth, requireAdult] }, async (request) => ({
     items: await inventory(request.userId!),
     balance: await getBalance(request.userId!),
   }));
@@ -41,7 +43,7 @@ export default async function storeRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/purchase",
     {
-      preHandler: [requireAuth],
+      preHandler: [requireAuth, requireAdult],
       schema: { body: purchaseSchema },
       // Spending is cheap to attempt and idempotent by constraint, but a tight limit keeps a
       // runaway client from hammering a transaction that touches the ledger.
@@ -66,7 +68,7 @@ export default async function storeRoutes(fastify: FastifyInstance) {
    */
   fastify.post(
     "/top-up",
-    { preHandler: [requireAuth], schema: { body: topUpSchema } },
+    { preHandler: [requireAuth, requireAdult], schema: { body: topUpSchema } },
     async (request) => {
       if (!isBillingConfigured()) {
         throw new BadRequestError("Payments aren't configured on this server yet");
