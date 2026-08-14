@@ -213,13 +213,16 @@ const client = new Client({
 });
 client.login(process.env.LUMINA_BOT_TOKEN);
 // No ws override needed: the library discovers the gateway from GET /gateway/bot, same as on Discord.`, "js"),
-      note("Tested against real, unmodified discord.js v14.27 — not just our own protocol suite. Message bots (messageCreate → channel.send / msg.reply, with author.bot flagged correctly for the classic self-ignore guard) and a canonical slash-command bot (SlashCommandBuilder → REST.put(Routes.applicationCommands) → interactionCreate → interaction.reply, with typed options arriving through getString()) both run unchanged."),
+      note("Tested against real, unmodified discord.js v14.27 AND real published bots from npm: discord-tictactoe (button-grid game — board posted, moves played from Lumina's native UI, interaction.update() redrawing in place) and discord-giveaways (embed announcement, self-reaction, native Lumina users entering by reacting, winner drawn from the reaction list). Both run unchanged."),
       h2("What's implemented"),
       table(["Surface", "Coverage"], [
         ["Gateway", "hello, identify, heartbeat/ack, resume-as-reconnect; dispatches READY, GUILD_CREATE, MESSAGE_CREATE, MESSAGE_UPDATE, MESSAGE_DELETE, INTERACTION_CREATE (with the entitlements/context fields discord.js ≥14.2x requires)"],
         ["REST", "messages (create/edit/delete/reactions, reply via message_reference), channels (list/fetch), guilds (fetch, members, roles), users (@me, fetch), applications/@me"],
         ["Slash commands", "PUT/GET /applications/:id/commands — Discord's numeric option types translate onto Lumina's command registry; interaction callbacks (type 4 respond, 5/6 acknowledged) via /interactions/:id/:token/callback"],
         ["Objects", "Discord-shaped guild/channel/message/user/interaction JSON. Ids are numeric snowflake-style strings minted stably per entity (BigInt-safe — libraries do id arithmetic), message ids are Lumina's own"],
+        ["Components", "Buttons and selects translate both directions between Discord action rows and Lumina's native components; interaction.update() (callback type 7) edits boards in place; editReply/fetchReply/followUp webhook routes included"],
+        ["Embeds", "Flattened to formatted text on send/edit — Lumina has no bot-authored embed cards, so the content is preserved rather than dropped"],
+        ["Reactions & permissions", "MESSAGE_REACTION_ADD/REMOVE dispatches, reaction-user listing (giveaway draws), and real permission translation: app_permissions and member permissions computed from Lumina's actual role + channel-overwrite engine"],
       ]),
       h2("Behavioral notes"),
       table(["Topic", "Detail"], [
@@ -229,7 +232,7 @@ client.login(process.env.LUMINA_BOT_TOKEN);
         ["Permissions", "The bot sees and does exactly what its Lumina roles allow. There is no separate intent gatekeeping; intents are accepted and ignored"],
       ]),
       h2("What's deliberately not"),
-      p("Voice (Discord's UDP voice protocol is not implemented — use Lumina's own voice), sharding (shard 0 of 1 is always accepted; self-hosted scale doesn't need more), embeds-only messages (content is required), and guild-scoped commands (above)."),
+      p("Voice (Discord's UDP voice protocol is not implemented — use Lumina's own voice), sharding (shard 0 of 1 is always accepted; self-hosted scale doesn't need more), and guild-scoped commands (above). Embeds render as formatted text, not cards."),
       note("This layer is a bridge, not an emulator: complex bots exercising exotic endpoints will hit gaps. The gateway rejects what it doesn't support with a clear close code, and unknown REST snowflakes answer 404 — never a silent hang."),
     ],
   },

@@ -5,7 +5,10 @@ import { prisma } from "../../db/prisma.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { env } from "../../config/env.js";
 import { toSnowflake } from "./ids.js";
-import { mapUser, mapGuild, mapMessage } from "./shapes.js";
+import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord } from "./shapes.js";
+import { computeEffectiveChannelPermissions } from "../../permissions/permissionService.js";
+import { serializeMessage } from "../../lib/serialize.js";
+import { messageInclude } from "../messages/service.js";
 
 /**
  * Discord-gateway-compatible websocket at /discord/gateway.
@@ -79,11 +82,27 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
   for (const { serverId } of memberships) {
     const server = await prisma.server.findUnique({ where: { id: serverId } });
     if (!server) continue;
-    const [roles, channels] = await Promise.all([
+    const [roles, channels, membership] = await Promise.all([
       prisma.role.findMany({ where: { serverId } }),
       prisma.channel.findMany({ where: { serverId, type: { not: "THREAD" } } }),
+      prisma.membership.findUnique({ where: { userId_serverId: { userId: botUser.id, serverId } } }),
     ]);
-    send(session, 0, await mapGuild(server, roles, channels), "GUILD_CREATE");
+    const guild = await mapGuild(server, roles, channels);
+    // The bot's OWN member must ride in GUILD_CREATE: discord.js's guild.members.me is how
+    // libraries compute their permissions, and a null me reads as "no permissions" — the exact
+    // refusal discord-tictactoe printed until this existed.
+    guild.members = [
+      {
+        user: { ...(await mapUser(botUser)), bot: true },
+        nick: membership?.nickname ?? null,
+        roles: [],
+        joined_at: (membership?.joinedAt ?? new Date(0)).toISOString(),
+        deaf: false,
+        mute: false,
+      },
+    ] as never;
+    guild.member_count = await prisma.membership.count({ where: { serverId } });
+    send(session, 0, guild, "GUILD_CREATE");
   }
 
   // The translation feed: a native bot socket, speaking Lumina events in, Discord dispatches out.
@@ -134,14 +153,50 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
       );
     })().catch(() => undefined);
   });
+  // Reactions: Lumina broadcasts {messageId, emoji, userId, count} to the channel room; Discord
+  // dispatches carry channel/guild ids, so the message's location is looked up (and cached — a
+  // reaction pile-on is many events on one message).
+  const messageLocation = new Map<string, { channelId: string; serverId: string | null } | null>();
+  const locate = async (messageId: string) => {
+    if (messageLocation.has(messageId)) return messageLocation.get(messageId);
+    const row = await prisma.message.findUnique({ where: { id: BigInt(messageId) }, select: { channelId: true, channel: { select: { serverId: true } } } });
+    const loc = row?.channelId ? { channelId: row.channelId, serverId: row.channel?.serverId ?? null } : null;
+    messageLocation.set(messageId, loc);
+    return loc;
+  };
+  const reactionDispatch = (t: string) => (payload: { messageId: string; emoji: string; userId: string }) => {
+    void (async () => {
+      const loc = await locate(payload.messageId);
+      if (!loc) return;
+      send(session, 0, {
+        user_id: await toSnowflake("user", payload.userId),
+        message_id: payload.messageId,
+        channel_id: await toSnowflake("channel", loc.channelId),
+        ...(loc.serverId ? { guild_id: await toSnowflake("guild", loc.serverId) } : {}),
+        emoji: { id: null, name: payload.emoji },
+      }, t);
+    })().catch(() => undefined);
+  };
+  internal.on("reaction:add", reactionDispatch("MESSAGE_REACTION_ADD"));
+  internal.on("reaction:remove", reactionDispatch("MESSAGE_REACTION_REMOVE"));
+
   internal.on(
     "interaction:create",
-    (i: { id: string; token: string; type: string; commandName: string | null; options: Record<string, string | number | boolean> | null; componentCustomId: string | null; channelId: string | null; serverId: string | null; userId: string }) => {
+    (i: { id: string; token: string; type: string; commandName: string | null; options: Record<string, string | number | boolean> | null; componentCustomId: string | null; channelId: string | null; serverId: string | null; userId: string; messageId: string | null }) => {
       void (async () => {
         const user = await prisma.user.findUnique({ where: { id: i.userId } });
         if (!user) return;
         const mappedUser = await mapUser(user);
         const isCommand = i.type === "command" || !!i.commandName;
+        // app_permissions is what libraries treat as "what am I allowed to do here" — computed
+        // from Lumina's REAL permission engine (roles + channel overwrites) and translated to
+        // Discord bit positions. Hardcoding "0" made permission-checking bots refuse to work.
+        const botEff = i.serverId && i.channelId
+          ? await computeEffectiveChannelPermissions(botUser.id, i.serverId, i.channelId).catch(() => 0n)
+          : 0n;
+        const invokerEff = i.serverId && i.channelId
+          ? await computeEffectiveChannelPermissions(i.userId, i.serverId, i.channelId).catch(() => 0n)
+          : 0n;
         send(
           session,
           0,
@@ -155,9 +210,19 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
             ...(i.serverId
               ? {
                   guild_id: await toSnowflake("guild", i.serverId),
-                  member: { user: mappedUser, roles: [], joined_at: new Date(0).toISOString(), deaf: false, mute: false },
+                  member: { user: mappedUser, roles: [], joined_at: new Date(0).toISOString(), deaf: false, mute: false, permissions: luminaPermsToDiscord(invokerEff) },
                 }
               : { user: mappedUser }),
+            // Component interactions carry the message they sit on — discord.js's
+            // interaction.update()/message accessors dereference it.
+            ...(!isCommand && i.messageId
+              ? {
+                  message: await (async () => {
+                    const row = await prisma.message.findUnique({ where: { id: BigInt(i.messageId!) }, include: messageInclude });
+                    return row ? await mapMessage(serializeMessage(row, null), i.serverId) : undefined;
+                  })(),
+                }
+              : {}),
             data: isCommand
               ? {
                   id: await toSnowflake("role", `command:${i.commandName}`),
@@ -175,7 +240,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
                       : [],
                 }
               : { custom_id: i.componentCustomId, component_type: 2 },
-            app_permissions: "0",
+            app_permissions: luminaPermsToDiscord(botEff),
             locale: "en-US",
             guild_locale: "en-US",
             // discord.js ≥14.2x dereferences these unconditionally (monetization + user-app

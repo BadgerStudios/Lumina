@@ -4,7 +4,11 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, componentsToLumina, flattenEmbeds, luminaPermsToDiscord } from "./shapes.js";
+import { computeEffectivePermissions } from "../../permissions/permissionService.js";
+import { attachComponents } from "../interactions/service.js";
+import { serializeMessage } from "../../lib/serialize.js";
+import { messageInclude, editMessage, createChannelMessage } from "../messages/service.js";
 
 /**
  * Discord-shaped REST subset. Registered under BOTH /discord/api and /discord/api/v10 (libraries
@@ -123,6 +127,28 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     );
   });
 
+  // Single member — discord-tictactoe fetches the invoking member before starting a game.
+  fastify.get("/guilds/:id/members/:userId", { preHandler: [requireAuth] }, async (request) => {
+    const { id, userId } = request.params as { id: string; userId: string };
+    const guildLumina = await fromSnowflake("guild", id);
+    const userLumina = await fromSnowflake("user", userId);
+    if (!guildLumina || !userLumina) throw new NotFoundError("Unknown member");
+    const membership = await prisma.membership.findUnique({
+      where: { userId_serverId: { userId: userLumina, serverId: guildLumina } },
+      include: { user: true },
+    });
+    if (!membership) throw new NotFoundError("Unknown member");
+    return {
+      user: await mapUser(membership.user),
+      nick: membership.nickname ?? null,
+      roles: [],
+      joined_at: membership.joinedAt.toISOString(),
+      deaf: false,
+      mute: false,
+      permissions: luminaPermsToDiscord(await computeEffectivePermissions(userLumina, guildLumina).catch(() => 0n)),
+    };
+  });
+
   // ---- channels + messages (writes translate onto the real API — one behavior code path)
   fastify.get("/channels/:id", { preHandler: [requireAuth] }, async (request) => {
     const channel = await resolveChannel((request.params as { id: string }).id);
@@ -131,26 +157,77 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
 
   fastify.post("/channels/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
     const channel = await resolveChannel((request.params as { id: string }).id);
-    const body = (request.body ?? {}) as { content?: string; message_reference?: { message_id?: string } };
-    if (!body.content?.trim()) throw new BadRequestError("content is required (embeds-only messages are not supported by the compat layer)");
+    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown; message_reference?: { message_id?: string } };
+    // Embeds flatten to text (Lumina has no bot-authored embed cards), so an embeds-only
+    // message — the normal shape for giveaway/announcement bots — still says everything.
+    const embedText = flattenEmbeds(body.embeds);
+    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+    if (!content) throw new BadRequestError("content or embeds required");
     const res = await internal(request, "POST", `/channels/${channel.id}/messages`, {
-      content: body.content,
+      content,
       ...(body.message_reference?.message_id ? { replyToId: body.message_reference.message_id } : {}),
     });
     // Lumina answers 201 for creation; Discord answers 200 and libraries assert on it.
     reply.code(res.status >= 400 ? res.status : 200);
     if (res.status >= 400) return res.json;
-    return mapMessage(res.json as Parameters<typeof mapMessage>[0], channel.serverId);
+    const dto = res.json as Parameters<typeof mapMessage>[0];
+    const luminaComponents = componentsToLumina(body.components);
+    if (luminaComponents) {
+      await attachComponents(dto.id, luminaComponents, channel.id, null);
+      dto.components = luminaComponents;
+    }
+    return mapMessage(dto, channel.serverId);
   });
 
   fastify.patch("/channels/:id/messages/:messageId", { preHandler: [requireAuth] }, async (request, reply) => {
     const channel = await resolveChannel((request.params as { id: string }).id);
     const { messageId } = request.params as { messageId: string };
-    const { content } = (request.body ?? {}) as { content?: string };
+    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown };
+    const embedText = flattenEmbeds(body.embeds);
+    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
     const res = await internal(request, "PATCH", `/messages/${messageId}`, { content });
     reply.code(res.status);
     if (res.status >= 400) return res.json;
-    return mapMessage(res.json as Parameters<typeof mapMessage>[0], channel.serverId);
+    const dto = res.json as Parameters<typeof mapMessage>[0];
+    const luminaComponents = componentsToLumina(body.components);
+    if (luminaComponents) {
+      await attachComponents(dto.id, luminaComponents, channel.id, null);
+      dto.components = luminaComponents;
+    }
+    return mapMessage(dto, channel.serverId);
+  });
+
+  // ---- message fetches (libraries re-fetch state constantly; giveaway bots live off these)
+  fastify.get("/channels/:id/messages/:messageId", { preHandler: [requireAuth] }, async (request) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const { messageId } = request.params as { messageId: string };
+    const row = await prisma.message.findUnique({ where: { id: BigInt(messageId) }, include: messageInclude });
+    if (!row || row.channelId !== channel.id || row.deletedAt) throw new NotFoundError("Unknown message");
+    return mapMessage(serializeMessage(row, null) as Parameters<typeof mapMessage>[0], channel.serverId);
+  });
+
+  fastify.get("/channels/:id/messages", { preHandler: [requireAuth] }, async (request) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const { limit, before } = request.query as { limit?: string; before?: string };
+    const qs = new URLSearchParams();
+    if (before) qs.set("before", before);
+    const res = await internal(request, "GET", `/channels/${channel.id}/messages${qs.size ? `?${qs}` : ""}`);
+    const list = Array.isArray(res.json) ? (res.json as Parameters<typeof mapMessage>[0][]) : [];
+    const capped = list.slice(0, Math.min(Number(limit ?? 50) || 50, 100));
+    return Promise.all(capped.map((m) => mapMessage(m, channel.serverId)));
+  });
+
+  // Who reacted with an emoji — the API a giveaway bot draws winners from.
+  fastify.get("/channels/:id/messages/:messageId/reactions/:emoji", { preHandler: [requireAuth] }, async (request) => {
+    await resolveChannel((request.params as { id: string }).id);
+    const { messageId, emoji } = request.params as { messageId: string; emoji: string };
+    const name = decodeURIComponent(emoji).split(":")[0];
+    const rows = await prisma.reaction.findMany({
+      where: { messageId: BigInt(messageId), emoji: name },
+      include: { user: true },
+      take: Math.min(Number((request.query as { limit?: string }).limit ?? 25) || 25, 100),
+    });
+    return Promise.all(rows.map((r) => mapUser(r.user)));
   });
 
   fastify.delete("/channels/:id/messages/:messageId", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -196,15 +273,109 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     return res.json;
   });
 
+  // ---- interaction webhook routes: deferReply/editReply/fetchReply/followUp address the
+  // response by application id + interaction token, UNAUTHENTICATED (Discord's design — the
+  // token in the URL is the credential). The bot identity comes from the interaction's own
+  // application, never from the caller's say-so.
+  const interactionByToken = async (token: string) => {
+    const interaction = await prisma.interaction.findUnique({ where: { token } });
+    if (!interaction) throw new NotFoundError("Unknown interaction");
+    const app = await prisma.application.findUnique({ where: { id: interaction.applicationId }, include: { botUser: true } });
+    if (!app?.botUser) throw new NotFoundError("Unknown interaction application");
+    return { interaction, botUserId: app.botUser.id };
+  };
+
+  fastify.get("/webhooks/:appId/:token/messages/@original", async (request) => {
+    const { token } = request.params as { token: string };
+    const { interaction } = await interactionByToken(token);
+    if (!interaction.replyMessageId) throw new NotFoundError("No reply yet");
+    const row = await prisma.message.findUnique({ where: { id: interaction.replyMessageId }, include: messageInclude });
+    if (!row) throw new NotFoundError("Reply message gone");
+    return mapMessage(serializeMessage(row, null) as Parameters<typeof mapMessage>[0], interaction.serverId);
+  });
+
+  fastify.patch("/webhooks/:appId/:token/messages/@original", async (request) => {
+    const { token } = request.params as { token: string };
+    const { interaction, botUserId } = await interactionByToken(token);
+    if (!interaction.replyMessageId) throw new NotFoundError("No reply yet");
+    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown };
+    const embedText = flattenEmbeds(body.embeds);
+    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+    let dto: Parameters<typeof mapMessage>[0] | null = null;
+    if (content) {
+      dto = (await editMessage({ userId: botUserId, messageId: interaction.replyMessageId.toString(), content })) as Parameters<typeof mapMessage>[0];
+    }
+    const luminaComponents = componentsToLumina(body.components);
+    if (luminaComponents) {
+      await attachComponents(interaction.replyMessageId.toString(), luminaComponents, interaction.channelId, interaction.dmConversationId);
+    }
+    if (!dto) {
+      const row = await prisma.message.findUnique({ where: { id: interaction.replyMessageId }, include: messageInclude });
+      if (!row) throw new NotFoundError("Reply message gone");
+      dto = serializeMessage(row, null) as Parameters<typeof mapMessage>[0];
+    } else if (luminaComponents) {
+      dto.components = luminaComponents;
+    }
+    return mapMessage(dto, interaction.serverId);
+  });
+
+  fastify.post("/webhooks/:appId/:token", async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { interaction, botUserId } = await interactionByToken(token);
+    if (!interaction.channelId) throw new BadRequestError("No channel to follow up in");
+    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown };
+    const embedText = flattenEmbeds(body.embeds);
+    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+    if (!content) throw new BadRequestError("content or embeds required");
+    const dto = (await createChannelMessage({ userId: botUserId, channelId: interaction.channelId, content })) as Parameters<typeof mapMessage>[0];
+    const luminaComponents = componentsToLumina(body.components);
+    if (luminaComponents) {
+      await attachComponents(dto.id, luminaComponents, interaction.channelId, null);
+      dto.components = luminaComponents;
+    }
+    reply.code(200);
+    return mapMessage(dto, interaction.serverId);
+  });
+
   // ---- interactions (respond via the real interaction machinery)
   fastify.post("/interactions/:id/:token/callback", async (request, reply) => {
     const { token } = request.params as { token: string };
-    const body = (request.body ?? {}) as { type?: number; data?: { content?: string } };
-    // Type 4 = respond with message; type 5/6 = deferred/ack, which Lumina answers with a
-    // simple acknowledgement content so the interaction doesn't visibly time out.
-    const content = body.data?.content ?? (body.type === 5 || body.type === 6 ? "…" : undefined);
+    const body = (request.body ?? {}) as { type?: number; data?: { content?: string; embeds?: unknown; components?: unknown } };
+
+    // Type 6 (DEFERRED_UPDATE_MESSAGE): a silent component acknowledgement — the bot will edit
+    // (or not) at its leisure. Posting a placeholder here would spam the channel, so it only
+    // marks the interaction answered. Discord answers 204; so do we.
+    if (body.type === 6) {
+      await prisma.interaction.updateMany({ where: { token, status: "PENDING" }, data: { status: "RESPONDED" } });
+      reply.code(204).send();
+      return;
+    }
+
+    // Type 7 (UPDATE_MESSAGE): interaction.update() — edit the message the component sits on
+    // in place. The whole tic-tac-toe genre of bots is this callback in a loop.
+    if (body.type === 7) {
+      const interaction = await prisma.interaction.findUnique({ where: { token } });
+      if (!interaction?.messageId || !interaction.channelId) throw new BadRequestError("No message to update");
+      const embedText = flattenEmbeds(body.data?.embeds);
+      const content = [body.data?.content?.trim(), embedText].filter(Boolean).join("\n\n");
+      if (content) await internal(request, "PATCH", `/messages/${interaction.messageId}`, { content });
+      const luminaComponents = componentsToLumina(body.data?.components);
+      if (luminaComponents) {
+        await attachComponents(interaction.messageId.toString(), luminaComponents, interaction.channelId, interaction.dmConversationId);
+      }
+      await prisma.interaction.updateMany({ where: { token, status: "PENDING" }, data: { status: "RESPONDED" } });
+      reply.code(204).send();
+      return;
+    }
+
+    // Type 4 (respond with message) and 5 (deferred response placeholder).
+    const embedText = flattenEmbeds(body.data?.embeds);
+    const content = [body.data?.content, embedText].filter(Boolean).join("\n\n") || (body.type === 5 ? "…" : undefined);
     if (content === undefined) throw new BadRequestError("Unsupported interaction callback type");
-    const res = await internal(request, "POST", `/interactions/${token}/respond`, { content });
+    const res = await internal(request, "POST", `/interactions/${token}/respond`, {
+      content,
+      ...(body.data?.components ? { components: componentsToLumina(body.data.components) } : {}),
+    });
     reply.code(res.status >= 400 ? res.status : 204).send();
   });
 }

@@ -449,7 +449,7 @@ export async function respondToInteraction(params: {
   components?: unknown;
   /** Ephemeral responses are not posted as a message; the invoking user is shown them privately. */
   ephemeral?: boolean;
-}): Promise<{ ok: true }> {
+}): Promise<{ ok: true; messageId?: string | null }> {
   const interaction = await prisma.interaction.findUnique({ where: { token: params.token } });
   if (!interaction) throw new NotFoundError("Unknown interaction");
 
@@ -493,12 +493,14 @@ export async function respondToInteraction(params: {
   });
   if (!botUser?.botUser) throw new NotFoundError("Bot not found");
 
+  let replyId: string | null = null;
   if (interaction.channelId) {
     const dto = await createChannelMessage({
       userId: botUser.botUser.id,
       channelId: interaction.channelId,
       content,
     });
+    replyId = dto.id;
     if (params.components) await attachComponents(dto.id, params.components, interaction.channelId, null);
   } else if (interaction.dmConversationId) {
     const dto = await createDMMessage({
@@ -506,10 +508,17 @@ export async function respondToInteraction(params: {
       conversationId: interaction.dmConversationId,
       content,
     });
+    replyId = dto.id;
     if (params.components) await attachComponents(dto.id, params.components, null, interaction.dmConversationId);
   }
 
-  return { ok: true };
+  // Recorded so the Discord-compat layer can serve editReply/fetchReply (@original), which
+  // address "the message my response created" by interaction token.
+  if (replyId) {
+    await prisma.interaction.update({ where: { id: interaction.id }, data: { replyMessageId: BigInt(replyId) } }).catch(() => undefined);
+  }
+
+  return { ok: true, messageId: replyId };
 }
 
 /**
@@ -518,7 +527,7 @@ export async function respondToInteraction(params: {
  * threading a bot-only field through all of it to serve one caller is the wrong trade. The update
  * re-broadcasts so clients that already rendered the message pick the buttons up.
  */
-async function attachComponents(
+export async function attachComponents(
   messageId: string,
   components: unknown,
   channelId: string | null,

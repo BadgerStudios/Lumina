@@ -2115,6 +2115,9 @@ model Interaction {
   /// COMPONENT only — the customId the bot put on the button, and the message it was attached to.
   componentCustomId String?
   messageId         BigInt?
+  /// The message this interaction's RESPONSE created (vs messageId, the component's source
+  /// message). Anchors Discord-compat editReply/fetchReply (@original).
+  replyMessageId    BigInt?
   /// Single-use bearer for the response call. The bot proves it may answer *this* interaction by
   /// holding this, so responding never needs its own permission check against the channel.
   token             String            @unique
