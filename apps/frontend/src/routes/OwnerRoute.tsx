@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
-import { usePlatformStats, useAttentionItems, usePlatformHealth } from "../queries/owner";
+import { usePlatformStats, useAttentionItems, usePlatformHealth, useEngagement } from "../queries/owner";
 import { OwnerUsersPanel, OwnerBansPanel } from "../owner/OwnerPeoplePanels";
 import { TeamPanel } from "../owner/OwnerMasterPanels";
 import { OwnerInfrastructurePanel } from "../owner/OwnerInfrastructurePanel";
@@ -168,6 +168,71 @@ function formatUptime(seconds: number): string {
   return `${m}m`;
 }
 
+/**
+ * DAU/WAU + signup-cohort retention, straight off real activity (messages + session refreshes —
+ * see the /owner/engagement route). Bars are plain divs scaled to the window max: honest at any
+ * size, no chart library shipped for four numbers a day.
+ */
+function EngagementSection() {
+  const { data } = useEngagement();
+  if (!data) return null;
+  const maxDaily = Math.max(1, ...data.daily.map((d) => d.users));
+  const today = data.daily[data.daily.length - 1];
+  const thisWeek = data.weekly[data.weekly.length - 1];
+
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-signal-dim">Engagement</h2>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatCard label="Active today" value={today?.users ?? 0} sub="messaged or opened the app" />
+        <StatCard label="Active this week" value={thisWeek?.users ?? 0} sub="WAU" />
+      </div>
+      <div className="mt-3 rounded-lg border border-hairline bg-base-800 p-4">
+        <p className="mb-2 text-xs text-signal-faint">Daily active users, last 30 days</p>
+        <div className="flex h-16 items-end gap-[2px]">
+          {data.daily.map((d) => (
+            <div
+              key={d.day}
+              title={`${d.day}: ${d.users}`}
+              className="min-w-[3px] flex-1 rounded-t bg-accent/70"
+              style={{ height: `${Math.max(6, (d.users / maxDaily) * 100)}%` }}
+            />
+          ))}
+        </div>
+      </div>
+      {data.cohorts.length > 0 && (
+        <div className="mt-3 overflow-x-auto rounded-lg border border-hairline bg-base-800 p-4">
+          <p className="mb-2 text-xs text-signal-faint">
+            Signup cohorts — of each week's new users, how many came back in the following weeks
+          </p>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="text-signal-faint">
+                <th className="py-1 pr-3 font-medium">Week of</th>
+                <th className="py-1 pr-3 font-medium">Signups</th>
+                {[1, 2, 3, 4].map((w) => <th key={w} className="py-1 pr-3 font-medium">+{w}w</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {data.cohorts.map((c) => (
+                <tr key={c.cohort} className="border-t border-hairline text-signal">
+                  <td className="py-1 pr-3">{c.cohort}</td>
+                  <td className="py-1 pr-3">{c.size}</td>
+                  {c.weeks.map((n, i) => (
+                    <td key={i} className="py-1 pr-3 text-signal-dim">
+                      {c.size > 0 ? `${Math.round((n / c.size) * 100)}%` : "—"}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function OverviewPanel() {
   const { data: stats, isLoading } = usePlatformStats();
   const { data: attention } = useAttentionItems();
@@ -228,6 +293,8 @@ function OverviewPanel() {
           />
         </div>
       </section>
+
+      <EngagementSection />
 
       <section>
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-signal-dim">Moderation</h2>

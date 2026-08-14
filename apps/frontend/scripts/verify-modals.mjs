@@ -36,9 +36,13 @@ await page.getByRole("button", { name: "Create", exact: true }).click();
 await page.waitForURL(/\/channels\/.+\/.+/, { timeout: 10000 });
 
 try {
+  // Clicking the server name opens its DROPDOWN (the redesigned header); Server Settings is a
+  // menu item inside it — the suite used to expect the modal directly and rotted when the
+  // header grew a menu.
   await page.getByText("Modal Test Server").click();
-  await page.getByRole("heading", { name: /server settings/i }).waitFor({ timeout: 5000 });
-  ok("Server Settings modal opens");
+  await page.getByText("Server Settings", { exact: true }).click({ timeout: 5000 });
+  await page.getByRole("heading", { name: /server settings|overview/i }).first().waitFor({ timeout: 5000 });
+  ok("Server Settings modal opens (via the server dropdown)");
 } catch (e) { bad("Server Settings modal opens", String(e)); }
 
 try {

@@ -57,6 +57,20 @@ export interface OwnerBanRow {
   identifierCount: number;
 }
 
+export interface EngagementDTO {
+  daily: { day: string; users: number }[];
+  weekly: { week: string; users: number }[];
+  cohorts: { cohort: string; size: number; weeks: number[] }[];
+}
+
+export function useEngagement() {
+  return useQuery({
+    queryKey: ["owner", "engagement"],
+    queryFn: () => api.get<EngagementDTO>("/owner/engagement"),
+    refetchInterval: 300_000, // derived live from activity tables; five minutes is plenty
+  });
+}
+
 export function usePlatformStats() {
   return useQuery({
     queryKey: ["owner", "stats"],

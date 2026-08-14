@@ -111,6 +111,69 @@ export default async function ownerRoutes(fastify: FastifyInstance) {
    * "Needs attention" — the single list the owner should check first. Purely derived from real
    * counts; an empty response genuinely means there is nothing waiting.
    */
+  /**
+   * DAU/WAU + signup-cohort retention. "Active" is a REAL action: authored a message or
+   * refreshed a session that day (token rotation mints a row per refresh, so RefreshToken
+   * .createdAt is a faithful came-back signal; presence pings would overcount idle tabs).
+   * Derived live from existing tables — no counters to drift, nothing new to maintain.
+   */
+  fastify.get("/engagement", { preHandler: [requireAuth, requireOwner] }, async () => {
+    const daily = await prisma.$queryRaw<{ day: Date; users: bigint }[]>`
+      SELECT d.day, count(DISTINCT d.u) AS users FROM (
+        SELECT date_trunc('day', m."createdAt") AS day, m."authorId" AS u
+          FROM "Message" m
+          JOIN "User" usr ON usr.id = m."authorId" AND usr."isBot" = false
+         WHERE m."createdAt" > now() - interval '30 days' AND m."authorId" IS NOT NULL
+        UNION
+        SELECT date_trunc('day', r."createdAt"), r."userId"
+          FROM "RefreshToken" r
+          JOIN "User" usr ON usr.id = r."userId" AND usr."isBot" = false
+         WHERE r."createdAt" > now() - interval '30 days'
+      ) d GROUP BY 1 ORDER BY 1`;
+
+    const weekly = await prisma.$queryRaw<{ week: Date; users: bigint }[]>`
+      SELECT d.week, count(DISTINCT d.u) AS users FROM (
+        SELECT date_trunc('week', m."createdAt") AS week, m."authorId" AS u
+          FROM "Message" m
+          JOIN "User" usr ON usr.id = m."authorId" AND usr."isBot" = false
+         WHERE m."createdAt" > now() - interval '12 weeks' AND m."authorId" IS NOT NULL
+        UNION
+        SELECT date_trunc('week', r."createdAt"), r."userId"
+          FROM "RefreshToken" r
+          JOIN "User" usr ON usr.id = r."userId" AND usr."isBot" = false
+         WHERE r."createdAt" > now() - interval '12 weeks'
+      ) d GROUP BY 1 ORDER BY 1`;
+
+    // Cohorts: of the humans who signed up in week W, how many were active in W+1..W+4?
+    const cohorts = await prisma.$queryRaw<{ cohort: Date; size: bigint; w1: bigint; w2: bigint; w3: bigint; w4: bigint }[]>`
+      WITH activity AS (
+        SELECT DISTINCT date_trunc('week', "createdAt") AS week, "authorId" AS u
+          FROM "Message" WHERE "authorId" IS NOT NULL AND "createdAt" > now() - interval '13 weeks'
+        UNION
+        SELECT DISTINCT date_trunc('week', "createdAt"), "userId"
+          FROM "RefreshToken" WHERE "createdAt" > now() - interval '13 weeks'
+      ), signups AS (
+        SELECT id, date_trunc('week', "createdAt") AS cohort
+          FROM "User" WHERE "isBot" = false AND "createdAt" > now() - interval '8 weeks'
+      )
+      SELECT s.cohort, count(*) AS size,
+        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM activity a WHERE a.u = s.id AND a.week = s.cohort + interval '1 week')) AS w1,
+        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM activity a WHERE a.u = s.id AND a.week = s.cohort + interval '2 weeks')) AS w2,
+        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM activity a WHERE a.u = s.id AND a.week = s.cohort + interval '3 weeks')) AS w3,
+        count(*) FILTER (WHERE EXISTS (SELECT 1 FROM activity a WHERE a.u = s.id AND a.week = s.cohort + interval '4 weeks')) AS w4
+      FROM signups s GROUP BY 1 ORDER BY 1 DESC`;
+
+    return {
+      daily: daily.map((r) => ({ day: r.day.toISOString().slice(0, 10), users: Number(r.users) })),
+      weekly: weekly.map((r) => ({ week: r.week.toISOString().slice(0, 10), users: Number(r.users) })),
+      cohorts: cohorts.map((c) => ({
+        cohort: c.cohort.toISOString().slice(0, 10),
+        size: Number(c.size),
+        weeks: [Number(c.w1), Number(c.w2), Number(c.w3), Number(c.w4)],
+      })),
+    };
+  });
+
   fastify.get("/attention", { preHandler: [requireAuth, requireOwner] }, async () => {
     const [pendingVideos, openReports, pendingAppeals, failedVideos] = await Promise.all([
       prisma.video.count({ where: { status: "PENDING_REVIEW" } }),

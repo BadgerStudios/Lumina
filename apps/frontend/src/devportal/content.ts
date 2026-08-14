@@ -142,6 +142,7 @@ socket.on("message:new", (message) => {
       h2("Message components"),
       p("Messages you post can carry a components tree (buttons, selects). Component clicks arrive as interactions with your customId, and are answered through the same respond endpoint."),
       note("Respond fast. Interactions time out after a short window and the user sees the failure — better an instant acknowledgement you edit later than a perfect answer that arrives too late."),
+      p("Migrating from Discord? You don't need to rewrite registration: discord.js's REST.put(Routes.applicationCommands(...)) works unchanged through the compat layer, numeric option types included — see the Discord compat page."),
     ],
   },
   {
@@ -205,22 +206,31 @@ Authorization: Bot YOUR_BOT_TOKEN
     nav: "Discord compat",
     blocks: [
       p("Lumina speaks enough of the Discord bot protocol that many existing Discord bots run against it with a one-line change: point the library at Lumina's compat endpoint and use your Lumina bot token."),
-      code(`// discord.js v14
+      code(`// discord.js v14 — the complete diff from a Discord deployment is the token and this line:
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
   rest: { api: "https://lumina.badgerstudios.net/discord/api" },
-  ws: { gateway: "wss://lumina.badgerstudios.net/discord/gateway" },
 });
-client.login(process.env.LUMINA_BOT_TOKEN);`, "js"),
+client.login(process.env.LUMINA_BOT_TOKEN);
+// No ws override needed: the library discovers the gateway from GET /gateway/bot, same as on Discord.`, "js"),
+      note("Tested against real, unmodified discord.js v14.27 — not just our own protocol suite. Message bots (messageCreate → channel.send / msg.reply, with author.bot flagged correctly for the classic self-ignore guard) and a canonical slash-command bot (SlashCommandBuilder → REST.put(Routes.applicationCommands) → interactionCreate → interaction.reply, with typed options arriving through getString()) both run unchanged."),
       h2("What's implemented"),
       table(["Surface", "Coverage"], [
-        ["Gateway", "hello, identify, heartbeat/ack, resume-as-reconnect; dispatches READY, GUILD_CREATE, MESSAGE_CREATE, MESSAGE_UPDATE, MESSAGE_DELETE, INTERACTION_CREATE"],
-        ["REST", "messages (create/edit/delete/reactions), channels (list/fetch), guilds (fetch, members, roles), interactions (callback), users (@me)"],
-        ["Objects", "Discord-shaped guild/channel/message/user JSON with snowflake-style ids that map 1:1 onto Lumina entities"],
+        ["Gateway", "hello, identify, heartbeat/ack, resume-as-reconnect; dispatches READY, GUILD_CREATE, MESSAGE_CREATE, MESSAGE_UPDATE, MESSAGE_DELETE, INTERACTION_CREATE (with the entitlements/context fields discord.js ≥14.2x requires)"],
+        ["REST", "messages (create/edit/delete/reactions, reply via message_reference), channels (list/fetch), guilds (fetch, members, roles), users (@me, fetch), applications/@me"],
+        ["Slash commands", "PUT/GET /applications/:id/commands — Discord's numeric option types translate onto Lumina's command registry; interaction callbacks (type 4 respond, 5/6 acknowledged) via /interactions/:id/:token/callback"],
+        ["Objects", "Discord-shaped guild/channel/message/user/interaction JSON. Ids are numeric snowflake-style strings minted stably per entity (BigInt-safe — libraries do id arithmetic), message ids are Lumina's own"],
+      ]),
+      h2("Behavioral notes"),
+      table(["Topic", "Detail"], [
+        ["Command scope", "Commands are global per application, visible in servers the bot has joined. Guild-scoped registration (Routes.applicationGuildCommands) is not implemented and 404s"],
+        ["Interaction window", "Respond promptly — Lumina's interaction timeout is a few seconds, like Discord's. Deferred callbacks (type 5) are acknowledged with a placeholder"],
+        ["Own messages", "Your bot's sends echo back as MESSAGE_CREATE dispatches, matching Discord — keep the standard author.bot guard"],
+        ["Permissions", "The bot sees and does exactly what its Lumina roles allow. There is no separate intent gatekeeping; intents are accepted and ignored"],
       ]),
       h2("What's deliberately not"),
-      p("Voice (Discord's UDP voice protocol is not implemented — use Lumina's own voice), sharding (unnecessary at self-hosted scale; shard 0 of 1 is always accepted), and privileged-intent gatekeeping (your bot sees what its roles allow, exactly like everywhere else in Lumina)."),
-      note("This layer is a bridge, not an emulator: complex bots exercising exotic endpoints will hit gaps. The gateway rejects what it doesn't support with a clear close code instead of silently dropping."),
+      p("Voice (Discord's UDP voice protocol is not implemented — use Lumina's own voice), sharding (shard 0 of 1 is always accepted; self-hosted scale doesn't need more), embeds-only messages (content is required), and guild-scoped commands (above)."),
+      note("This layer is a bridge, not an emulator: complex bots exercising exotic endpoints will hit gaps. The gateway rejects what it doesn't support with a clear close code, and unknown REST snowflakes answer 404 — never a silent hang."),
     ],
   },
 ];
