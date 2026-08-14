@@ -79,6 +79,7 @@ export const DOC_PAGES: DocPage[] = [
     blocks: [
       p("Base URL: https://lumina.badgerstudios.net/api — JSON in, JSON out. IDs are opaque strings (message and video ids are numeric strings; treat all ids as opaque). Errors return { error, code? } with a meaningful HTTP status."),
       note("The complete, always-current route reference lives in the generated Swagger UI at /api/docs. This page covers the conventions and the resources bots touch most."),
+      note("Transport security: the official web/mobile/desktop clients wrap request and response bodies in a hybrid post-quantum envelope (X25519 + ML-KEM-768, XChaCha20-Poly1305) INSIDE TLS, with keys that rotate hourly — 'harvest now, decrypt later' resistance. It is transparent and strictly optional per request (handshake at GET /api/pq/keys + POST /api/pq/session); bots and plain HTTP clients are unaffected and keep using ordinary JSON over TLS."),
       h2("Conventions"),
       table(["Convention", "Detail"], [
         ["Pagination", "Cursor-based: pass ?before=<id> on list endpoints; results are newest-first"],

@@ -35,6 +35,8 @@ import activityRoutes from "./modules/activities/routes.js";
 import economyRoutes, { seedGifts } from "./modules/economy/routes.js";
 import membershipRoutes from "./modules/economy/memberships.js";
 import discordCompatRest from "./modules/discordcompat/rest.js";
+import pqRoutes from "./modules/pq/routes.js";
+import { registerPqTransport } from "./modules/pq/transport.js";
 import { attachDiscordGateway } from "./modules/discordcompat/gateway.js";
 import { seedPolicies } from "./modules/economy/service.js";
 import inboxRoutes from "./modules/inbox/routes.js";
@@ -186,6 +188,11 @@ async function main() {
   await fastify.register(rateLimitPlugin);
   await fastify.register(multipartPlugin);
   await fastify.register(authenticatePlugin);
+
+  // Post-quantum transport hooks + body parser. MUST be before any route registration: a
+  // content-type parser only applies to routes registered after it. See modules/pq/service.ts
+  // for what this is and — as importantly — what it is not.
+  registerPqTransport(fastify);
 
   // Auto-generated from the live route table (every fastify.get/post/etc below), not
   // hand-maintained — every route registered from here on is picked up automatically, so this
@@ -343,6 +350,7 @@ async function main() {
   await fastify.register(membershipRoutes, { prefix: "/api/economy" });
   // Discord compat REST — registered twice because Discord libraries append the API version
   // segment themselves (rest.api option ends up as <base>/v10/...).
+  await fastify.register(pqRoutes, { prefix: "/api/pq" });
   await fastify.register(discordCompatRest, { prefix: "/discord/api" });
   await fastify.register(discordCompatRest, { prefix: "/discord/api/v10" });
   await fastify.register(inboxRoutes, { prefix: "/api/inbox" });

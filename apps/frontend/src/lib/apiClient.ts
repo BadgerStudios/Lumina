@@ -1,4 +1,5 @@
 import type { UserDTO } from "@lumina/shared";
+import { pqSession, pqSeal, pqUnseal, pqInvalidate } from "./pqTransport";
 import { useAuthStore } from "../store/authStore";
 import { USES_BODY_REFRESH_TOKEN, CLIENT_TYPE } from "./platform";
 import { getStoredRefreshToken, setStoredRefreshToken, clearStoredRefreshToken } from "./mobileRefreshToken";
@@ -152,12 +153,69 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  // ---- post-quantum transport (best-effort; see lib/pqTransport.ts) ----------------------------
+  // Sealed only when: the shield is available, this is a JSON (not multipart) call, and it is not
+  // a PQ handshake route itself. Multipart uploads keep their own framing; the handshake must be
+  // in the clear to bootstrap. A failed handshake silently means plain JSON over TLS.
+  const pqEligible = !isFormData && !path.startsWith("/pq/");
+  const pq = pqEligible ? await pqSession(API_BASE_URL) : null;
+
+  let fetchBody: BodyInit | undefined;
+  if (effectiveBody === undefined) {
+    fetchBody = undefined;
+  } else if (isFormData) {
+    fetchBody = effectiveBody as FormData;
+  } else if (pq) {
+    fetchBody = pqSeal(pq, JSON.stringify(effectiveBody)) as unknown as BodyInit;
+    headers["Content-Type"] = "application/x-lumina-pq";
+    headers["X-PQ-Session"] = pq.sessionId;
+  } else {
+    fetchBody = JSON.stringify(effectiveBody);
+  }
+  // A GET/DELETE with no body still wants the shield on its RESPONSE — carry the session header.
+  if (pq && effectiveBody === undefined) headers["X-PQ-Session"] = pq.sessionId;
+
+  let res = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     credentials: "include",
-    body: effectiveBody === undefined ? undefined : isFormData ? (effectiveBody as FormData) : JSON.stringify(effectiveBody),
+    body: fetchBody,
   });
+
+  // The session lapsed (traffic-key rotation): drop it, re-handshake, and retry ONCE in the clear
+  // path so the caller never sees a 428. This is the rotation working, not an error.
+  if (res.status === 428 && pqEligible) {
+    pqInvalidate();
+    const retryHeaders = { ...headers };
+    delete retryHeaders["X-PQ-Session"];
+    const fresh = await pqSession(API_BASE_URL);
+    if (fresh && !isFormData && effectiveBody !== undefined) {
+      retryHeaders["Content-Type"] = "application/x-lumina-pq";
+      retryHeaders["X-PQ-Session"] = fresh.sessionId;
+      res = await fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: pqSeal(fresh, JSON.stringify(effectiveBody)) as unknown as BodyInit });
+    } else if (fresh) {
+      retryHeaders["X-PQ-Session"] = fresh.sessionId;
+      res = await fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: fetchBody });
+    } else {
+      // Shield unavailable now — plain retry so the request still succeeds.
+      delete retryHeaders["Content-Type"];
+      if (!isFormData && effectiveBody !== undefined) retryHeaders["Content-Type"] = "application/json";
+      res = await fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: effectiveBody === undefined ? undefined : isFormData ? (effectiveBody as FormData) : JSON.stringify(effectiveBody) });
+    }
+  }
+
+  // If the response came back sealed, transparently unseal it into a normal JSON-bearing Response
+  // so every line below this is untouched.
+  if (pq && res.headers.get("x-pq") === "1") {
+    const sealedBuf = new Uint8Array(await res.arrayBuffer());
+    let plain = "";
+    try {
+      plain = pqUnseal(pq, sealedBuf);
+    } catch {
+      plain = "";
+    }
+    res = new Response(plain, { status: res.status, statusText: res.statusText, headers: { "content-type": "application/json" } });
+  }
 
   if (USES_BODY_REFRESH_TOKEN && path === "/auth/logout" && res.ok) {
     await clearStoredRefreshToken();

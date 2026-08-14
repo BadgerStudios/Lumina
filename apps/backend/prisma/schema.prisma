@@ -1684,6 +1684,20 @@ model VideoViewDay {
   @@index([day])
 }
 
+/// A rotating hybrid post-quantum KEM keypair (X25519 + ML-KEM-768, FIPS-203). Private halves
+/// are encrypted at rest with a key derived from the server secret; rotation retires the old
+/// key, and retired keys are deleted after the grace window — "current + graced" is the whole
+/// living set, so a leaked backup ages out of usefulness on its own.
+model PqKeypair {
+  kid        String    @id
+  x25519Pub  Bytes
+  x25519Priv Bytes
+  mlkemPub   Bytes
+  mlkemPriv  Bytes
+  createdAt  DateTime  @default(now())
+  retiredAt  DateTime?
+}
+
 enum PoolRunStatus {
   POSTED
   EMPTY_POOL

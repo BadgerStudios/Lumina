@@ -13,6 +13,7 @@ import { sweepArchivableThreads } from "./modules/threads/service.js";
 import { releaseMaturedEarnings } from "./modules/economy/service.js";
 import { sweepAdPools } from "./modules/economy/pools.js";
 import { sweepEventReminders } from "./modules/events/service.js";
+import { rotatePqKeys } from "./modules/pq/service.js";
 import { runFinancialAssertions } from "./modules/economy/reconcile.js";
 
 /** How long a video may sit in PROCESSING before the sweep assumes its job was lost. Comfortably
@@ -158,6 +159,14 @@ async function main() {
   // Creator economy automation — §1.1's "no routine staff queues" made literal: the hold-window
   // release and the financial invariants run on the clock, forever, with no approve button.
   const economyTick = async () => {
+    try {
+      const rotation = await rotatePqKeys();
+      // eslint-disable-next-line no-console
+      if (rotation.rotated) console.log(`[worker] rotated PQ transport keypair -> kid ${rotation.kid}`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] PQ key rotation failed:", err);
+    }
     try {
       const reminded = await sweepEventReminders();
       // eslint-disable-next-line no-console
