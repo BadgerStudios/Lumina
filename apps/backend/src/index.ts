@@ -36,6 +36,7 @@ import economyRoutes, { seedGifts } from "./modules/economy/routes.js";
 import membershipRoutes from "./modules/economy/memberships.js";
 import discordCompatRest from "./modules/discordcompat/rest.js";
 import pqRoutes from "./modules/pq/routes.js";
+import sandboxRoutes from "./modules/sandbox/routes.js";
 import { registerPqTransport } from "./modules/pq/transport.js";
 import { attachDiscordGateway } from "./modules/discordcompat/gateway.js";
 import { seedPolicies } from "./modules/economy/service.js";
@@ -351,6 +352,7 @@ async function main() {
   // Discord compat REST — registered twice because Discord libraries append the API version
   // segment themselves (rest.api option ends up as <base>/v10/...).
   await fastify.register(pqRoutes, { prefix: "/api/pq" });
+  await fastify.register(sandboxRoutes, { prefix: "/api/sandbox" });
   await fastify.register(discordCompatRest, { prefix: "/discord/api" });
   await fastify.register(discordCompatRest, { prefix: "/discord/api/v10" });
   await fastify.register(inboxRoutes, { prefix: "/api/inbox" });

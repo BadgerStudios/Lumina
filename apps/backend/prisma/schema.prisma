@@ -251,6 +251,7 @@ model User {
   creatorTier            CreatorTier?
   supporters             CreatorMembership[]      @relation("MembershipCreator")
   supporting             CreatorMembership[]      @relation("MembershipMember")
+  gameSandboxes          GameSandbox[]
   threadMemberships ThreadMembership[]
   parentLinkAsChild  ParentLink?             @relation("ChildOfLink")
   parentLinksAsParent ParentLink[]           @relation("ParentOfLink")
@@ -440,6 +441,7 @@ model Server {
   memberXp     MemberXp[]
   levelRewards LevelReward[]
   events       ServerEvent[]
+  gameSandboxes GameSandbox[]
 }
 
 model Membership {
@@ -1696,6 +1698,49 @@ model PqKeypair {
   mlkemPriv  Bytes
   createdAt  DateTime  @default(now())
   retiredAt  DateTime?
+}
+
+enum SandboxStatus {
+  OFFLINE
+  STARTING
+  ONLINE
+  STOPPING
+  ERROR
+}
+
+/// A user-hosted, programmable game sandbox (Minecraft first). Lumina stores its DEFINITION and
+/// relays control; the untrusted container runs on the OWNER's machine via the Lumina Game Agent,
+/// which authenticates with a token whose hash lives here and whose scope is ONLY this sandbox's
+/// agent endpoints — it can never reach any other system. Everything the agent reports
+/// (connectAddress, players, console) is self-declared owner data, shown but never trusted as
+/// authority over anything in Lumina.
+model GameSandbox {
+  id             String        @id @default(cuid())
+  ownerId        String
+  name           String
+  kind           String        @default("minecraft")
+  agentTokenHash String?       @unique
+  status         SandboxStatus @default(OFFLINE)
+  /// The owner's programmable config (server type, mods, plugins, map, memory, bots…). Opaque
+  /// JSON handed to the agent verbatim; Lumina never executes it.
+  specJson       Json?
+  connectAddress String?
+  playerCount    Int           @default(0)
+  maxPlayers     Int           @default(0)
+  consoleTail    String?
+  /// A single queued control verb the agent picks up on its next poll (start/stop/restart).
+  pendingCommand String?
+  serverId       String?
+  hostedByLumina Boolean       @default(false)
+  lastHeartbeat  DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  server Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([serverId])
 }
 
 enum PoolRunStatus {
