@@ -550,6 +550,8 @@ type ApplicationLike = {
   createdAt: Date;
   redirectUris: string[];
   clientSecretHash: string | null;
+  intentMessageContent?: boolean;
+  intentServerMembers?: boolean;
 };
 
 export function serializeApplication(app: ApplicationLike, botUserId: string, botUsername: string): ApplicationDTO {
@@ -563,6 +565,7 @@ export function serializeApplication(app: ApplicationLike, botUserId: string, bo
     botUsername,
     redirectUris: app.redirectUris,
     hasClientSecret: !!app.clientSecretHash,
+    intents: { messageContent: app.intentMessageContent ?? false, serverMembers: app.intentServerMembers ?? false },
   };
 }
 

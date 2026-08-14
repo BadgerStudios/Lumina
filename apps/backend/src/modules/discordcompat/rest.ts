@@ -106,9 +106,20 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     return Promise.all(roles.map((r) => mapRole(r, snow)));
   });
 
-  fastify.get("/guilds/:id/members", { preHandler: [requireAuth] }, async (request) => {
+  fastify.get("/guilds/:id/members", { preHandler: [requireAuth] }, async (request, reply) => {
     const luminaId = await fromSnowflake("guild", (request.params as { id: string }).id);
     if (!luminaId) throw new NotFoundError("Unknown guild");
+    // Privileged: listing a server's membership requires the Server Members toggle on the
+    // application (Discord's GUILD_MEMBERS privileged intent, portal-enforced). Discord's own
+    // error shape so libraries surface it correctly.
+    const callerApp = await prisma.application.findFirst({
+      where: { botUser: { id: request.userId! } },
+      select: { intentServerMembers: true },
+    });
+    if (!callerApp?.intentServerMembers) {
+      reply.code(403);
+      return { message: "Missing Access: enable the Server Members intent for this application in the developer portal", code: 50001 };
+    }
     const limit = Math.min(Number((request.query as { limit?: string }).limit ?? 100), 1000);
     const memberships = await prisma.membership.findMany({
       where: { serverId: luminaId },
@@ -147,6 +158,17 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       mute: false,
       permissions: luminaPermsToDiscord(await computeEffectivePermissions(userLumina, guildLumina).catch(() => 0n)),
     };
+  });
+
+  // Kick — translated onto Lumina's own kick route, so the bot needs the real KICK_MEMBERS
+  // permission exactly like a human moderator.
+  fastify.delete("/guilds/:id/members/:userId", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id, userId } = request.params as { id: string; userId: string };
+    const guildLumina = await fromSnowflake("guild", id);
+    const userLumina = await fromSnowflake("user", userId);
+    if (!guildLumina || !userLumina) throw new NotFoundError("Unknown member");
+    const res = await internal(request, "DELETE", `/servers/${guildLumina}/members/${userLumina}`);
+    reply.code(res.status >= 400 ? res.status : 204).send(res.status >= 400 ? res.json : undefined);
   });
 
   // ---- channels + messages (writes translate onto the real API — one behavior code path)

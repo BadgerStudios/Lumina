@@ -224,6 +224,8 @@ client.login(process.env.LUMINA_BOT_TOKEN);
         ["Embeds", "Flattened to formatted text on send/edit — Lumina has no bot-authored embed cards, so the content is preserved rather than dropped"],
         ["Reactions & permissions", "MESSAGE_REACTION_ADD/REMOVE dispatches, reaction-user listing (giveaway draws), and real permission translation: app_permissions and member permissions computed from Lumina's actual role + channel-overwrite engine"],
       ]),
+      h2("Gateway intents & privileged access"),
+      p("Lumina enforces Discord's intent model: your bot receives only the event families it declares in IDENTIFY (GUILD_MESSAGES, GUILD_MESSAGE_REACTIONS, ...). Two intents are privileged, exactly like Discord's portal: Message Content and Server Members. Declaring them in code is not enough — the toggle must ALSO be enabled on your application under Your Applications. Without both, message events arrive with blank content (your bot's own messages excepted), and the members listing answers 403."),
       h2("Behavioral notes"),
       table(["Topic", "Detail"], [
         ["Command scope", "Commands are global per application, visible in servers the bot has joined. Guild-scoped registration (Routes.applicationGuildCommands) is not implemented and 404s"],

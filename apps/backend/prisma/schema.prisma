@@ -280,6 +280,12 @@ model Application {
   description      String?
   iconUrl          String?
   botTokenHash     String?
+  /// Privileged gateway intents, Discord-dev-portal style: OFF by default, switched on
+  /// deliberately in the developer portal. Enforced in the compat gateway (content blanking)
+  /// and the compat members listing — declaring an intent in IDENTIFY is necessary but not
+  /// sufficient; the application must also have the toggle enabled.
+  intentMessageContent Boolean @default(false)
+  intentServerMembers  Boolean @default(false)
   // OAuth2 (authorization-code grant, see modules/oauth2/) — the Application's own `id` doubles
   // as its OAuth client_id, matching Discord's model rather than minting a separate identifier.
   // redirectUris is an allowlist checked exactly (no wildcard/prefix matching) on both

@@ -33,7 +33,11 @@ async function main() {
   if (reg.status !== 201) { console.log(`fatal: register ${reg.status}`); process.exit(1); }
   const human = { token: reg.json.accessToken, id: reg.json.user.id };
   const app = (await api("/applications", { method: "POST", token: human.token, body: { name: `qq compat bot ${rand}` } })).json;
+  // This suite's bot legitimately reads message content — its owner flips the privileged toggle,
+  // exactly the flow a real developer follows in the portal.
+  await api(`/applications/${app.id}/intents`, { method: "PATCH", token: human.token, body: { messageContent: true } });
   const server = (await api("/servers", { method: "POST", token: human.token, body: { name: "Compat Probe" } })).json;
+  const generalLuminaId = ((await api(`/servers/${server.id}/channels`, { token: human.token })).json ?? []).find((c) => c.type === "TEXT")?.id;
   const invite = (await api(`/servers/${server.id}/invites`, { method: "POST", token: human.token, body: {} })).json;
   const joined = await api(`/invites/${invite.code}/join`, { method: "POST", bot: app.botToken });
   joined.status < 300 ? ok("bot joined a server via a normal invite") : bad(`bot join answered ${joined.status}`);
@@ -123,6 +127,63 @@ async function main() {
     });
     ws.on("error", (e) => { bad("gateway socket error", String(e)); clearTimeout(timer); resolve(); });
   });
+
+  // ---- intent security: what a bot did NOT declare (or wasn't granted) it must not receive
+  {
+    const lockedApp = (await api("/applications", { method: "POST", token: human.token, body: { name: `qq locked bot ${rand}` } })).json;
+    await api(`/invites/${invite.code}/join`, { method: "POST", bot: lockedApp.botToken });
+
+    const gw2 = await new Promise((resolve) => {
+      const ws = new WebSocket(GATEWAY);
+      let readyGuild = null, sawBlank = null, sawAny = false;
+      const timer = setTimeout(() => { ws.close(); resolve({ readyGuild, sawBlank, sawAny }); }, 15000);
+      ws.on("message", (raw) => {
+        const p = JSON.parse(String(raw));
+        if (p.op === 10) ws.send(JSON.stringify({ op: 2, d: { token: `Bot ${lockedApp.botToken}`, intents: (1 << 0) | (1 << 9) | (1 << 15) } })); // Guilds+Messages+MessageContent DECLARED but toggle OFF
+        if (p.t === "GUILD_CREATE") {
+          readyGuild = p.d.id;
+          // human posts; the locked bot should see the event with BLANK content
+          setTimeout(() => {
+            void api(`/channels/${generalLuminaId}/messages`, { method: "POST", token: human.token, body: { content: `secret words ${rand}` } });
+          }, 1500); // give the internal socket time to join channel rooms
+        }
+        if (p.t === "MESSAGE_CREATE") {
+          sawAny = true;
+          if (p.d.content === "") sawBlank = true;
+          if (p.d.content?.includes("secret words")) sawBlank = false;
+        }
+      });
+    });
+    gw2.sawAny && gw2.sawBlank === true
+      ? ok("undeclared-privilege bot receives message events with BLANK content (toggle off)")
+      : bad(`content gate failed (sawAny=${gw2.sawAny}, blank=${gw2.sawBlank})`);
+
+    const guildSnow = gw2.readyGuild;
+    const membersLocked = guildSnow ? await api(`${COMPAT}/guilds/${guildSnow}/members`, { bot: lockedApp.botToken }) : { status: 0 };
+    membersLocked.status === 403
+      ? ok("members listing answers 403 without the Server Members toggle")
+      : bad(`locked members list answered ${membersLocked.status}`);
+
+    await api(`/applications/${lockedApp.id}/intents`, { method: "PATCH", token: human.token, body: { serverMembers: true } });
+    const membersOpen = guildSnow ? await api(`${COMPAT}/guilds/${guildSnow}/members`, { bot: lockedApp.botToken }) : { status: 0 };
+    membersOpen.status === 200
+      ? ok("members listing opens once the owner enables the toggle")
+      : bad(`unlocked members list answered ${membersOpen.status}`);
+
+    // zero intents: silence, not blank noise
+    const silent = await new Promise((resolve) => {
+      const ws = new WebSocket(GATEWAY);
+      let saw = false;
+      const timer = setTimeout(() => { ws.close(); resolve(saw); }, 8000);
+      ws.on("message", (raw) => {
+        const p = JSON.parse(String(raw));
+        if (p.op === 10) ws.send(JSON.stringify({ op: 2, d: { token: `Bot ${lockedApp.botToken}`, intents: 0 } }));
+        if (p.t === "READY") void api(`/channels/${generalLuminaId}/messages`, { method: "POST", token: human.token, body: { content: `silent test ${rand}` } });
+        if (p.t === "MESSAGE_CREATE") { saw = true; clearTimeout(timer); ws.close(); resolve(saw); }
+      });
+    });
+    !silent ? ok("a bot with no GUILD_MESSAGES intent receives no message events at all") : bad("intent-less bot still received MESSAGE_CREATE");
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

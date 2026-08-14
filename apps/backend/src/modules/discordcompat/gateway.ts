@@ -27,6 +27,14 @@ import { messageInclude } from "../messages/service.js";
 
 const HEARTBEAT_INTERVAL_MS = 41_250;
 
+// Discord's gateway intent bits — a bot RECEIVES only what it declared, and the privileged ones
+// (message content, member lists) additionally require the application's portal toggle. Same
+// two-key model as Discord's own dev portal: declaration in code AND a deliberate human switch.
+const INTENT_GUILD_MEMBERS = 1 << 1;
+const INTENT_GUILD_MESSAGES = 1 << 9;
+const INTENT_GUILD_MESSAGE_REACTIONS = 1 << 10;
+const INTENT_MESSAGE_CONTENT = 1 << 15;
+
 interface GatewaySession {
   ws: WebSocket;
   seq: number;
@@ -49,7 +57,7 @@ async function guildIdForChannel(session: GatewaySession, channelId: string | nu
   return serverId;
 }
 
-async function handleIdentify(session: GatewaySession, d: { token?: string }): Promise<void> {
+async function handleIdentify(session: GatewaySession, d: { token?: string; intents?: number }): Promise<void> {
   const raw = (d?.token ?? "").replace(/^Bot\s+/i, "");
   const application = await prisma.application.findFirst({
     where: { botTokenHash: hashRefreshToken(raw) },
@@ -60,6 +68,12 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
     return;
   }
   const botUser = application.botUser;
+  const intents = Number(d?.intents ?? 0) || 0;
+  const wantsMessages = (intents & INTENT_GUILD_MESSAGES) !== 0;
+  const wantsReactions = (intents & INTENT_GUILD_MESSAGE_REACTIONS) !== 0;
+  // Content needs BOTH the intent bit and the application's privileged toggle — matching
+  // Discord, a bot always sees the content of its OWN messages regardless.
+  const contentAllowed = (intents & INTENT_MESSAGE_CONTENT) !== 0 && application.intentMessageContent;
 
   // READY first with unavailable guild stubs (Discord's own sequence), then one GUILD_CREATE
   // per guild with the full object — discord.js waits for exactly this to fire its ready event.
@@ -117,6 +131,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
   // view them. A Discord bot's contract is "every message in every guild I'm in", so the
   // translator joins every channel room up front (server rooms were auto-joined at connect).
   internal.on("connect", () => {
+    if (!wantsMessages) return; // no GUILD_MESSAGES intent — the bot asked to hear no messages
     void (async () => {
       const channels = await prisma.channel.findMany({
         where: { serverId: { in: memberships.map((m) => m.serverId) }, type: { in: ["TEXT", "THREAD"] } },
@@ -126,18 +141,22 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
     })().catch(() => undefined);
   });
 
-  internal.on("message:create", (m: Parameters<typeof mapMessage>[0]) => {
+  const dispatchMessage = (t: string) => (m: Parameters<typeof mapMessage>[0]) => {
+    if (!wantsMessages) return;
     void (async () => {
       // The bot's own REST sends echo back through the room; Discord's gateway also does this,
       // so they are forwarded rather than filtered — libraries expect their own messages.
-      send(session, 0, await mapMessage(m, await guildIdForChannel(session, m.channelId)), "MESSAGE_CREATE");
+      const mapped = await mapMessage(m, await guildIdForChannel(session, m.channelId));
+      if (!contentAllowed && m.authorId !== botUser.id) {
+        // Discord's exact privileged-content behavior: the event still flows, the content is
+        // blank. Bots that need it declare the intent AND their owner flips the portal toggle.
+        mapped.content = "";
+      }
+      send(session, 0, mapped, t);
     })().catch(() => undefined);
-  });
-  internal.on("message:update", (m: Parameters<typeof mapMessage>[0]) => {
-    void (async () => {
-      send(session, 0, await mapMessage(m, await guildIdForChannel(session, m.channelId)), "MESSAGE_UPDATE");
-    })().catch(() => undefined);
-  });
+  };
+  internal.on("message:create", dispatchMessage("MESSAGE_CREATE"));
+  internal.on("message:update", dispatchMessage("MESSAGE_UPDATE"));
   internal.on("message:delete", (payload: { id: string; channelId?: string | null }) => {
     void (async () => {
       const guildLumina = await guildIdForChannel(session, payload.channelId ?? null);
@@ -177,8 +196,10 @@ async function handleIdentify(session: GatewaySession, d: { token?: string }): P
       }, t);
     })().catch(() => undefined);
   };
-  internal.on("reaction:add", reactionDispatch("MESSAGE_REACTION_ADD"));
-  internal.on("reaction:remove", reactionDispatch("MESSAGE_REACTION_REMOVE"));
+  if (wantsReactions) {
+    internal.on("reaction:add", reactionDispatch("MESSAGE_REACTION_ADD"));
+    internal.on("reaction:remove", reactionDispatch("MESSAGE_REACTION_REMOVE"));
+  }
 
   internal.on(
     "interaction:create",

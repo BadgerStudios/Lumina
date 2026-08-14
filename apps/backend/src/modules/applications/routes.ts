@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../../plugins/authenticate.js";
+import { prisma } from "../../db/prisma.js";
+import { NotFoundError } from "../../lib/errors.js";
 import {
   createApplication,
   deleteApplication,
@@ -42,6 +44,34 @@ export default async function applicationRoutes(fastify: FastifyInstance) {
     const body = request.body as z.infer<typeof redirectUrisSchema>;
     return updateRedirectUris({ ownerId: request.userId!, applicationId: id, redirectUris: body.redirectUris });
   });
+
+  /**
+   * Privileged gateway intents, Discord-dev-portal style. Only the application's owner can flip
+   * them, and OFF is the default — a bot reads message content or lists members only because a
+   * human deliberately said so, twice (the toggle here AND the intent bit in IDENTIFY).
+   */
+  fastify.patch(
+    "/:id/intents",
+    {
+      schema: { body: z.object({ messageContent: z.boolean().optional(), serverMembers: z.boolean().optional() }) },
+      preHandler: [requireAuth],
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { messageContent?: boolean; serverMembers?: boolean };
+      const app = await prisma.application.findUnique({ where: { id }, select: { ownerId: true } });
+      if (!app || app.ownerId !== request.userId) throw new NotFoundError("Application not found");
+      const updated = await prisma.application.update({
+        where: { id },
+        data: {
+          ...(body.messageContent !== undefined ? { intentMessageContent: body.messageContent } : {}),
+          ...(body.serverMembers !== undefined ? { intentServerMembers: body.serverMembers } : {}),
+        },
+        select: { intentMessageContent: true, intentServerMembers: true },
+      });
+      return { messageContent: updated.intentMessageContent, serverMembers: updated.intentServerMembers };
+    },
+  );
 
   fastify.post("/:id/oauth/regenerate-secret", { preHandler: [requireAuth] }, async (request) => {
     const { id } = request.params as { id: string };

@@ -12,6 +12,7 @@ import {
   useDeleteApplication,
   useUpdateRedirectUris,
   useRegenerateClientSecret,
+  useUpdateIntents,
 } from "../../queries/applications";
 import { DOC_PAGES, NAV_SECTIONS, type DocBlock } from "../../devportal/content";
 
@@ -274,6 +275,7 @@ function AppCard({ app }: { app: NonNullable<ReturnType<typeof useMyApplications
   const regenerateToken = useRegenerateBotToken();
   const regenerateSecret = useRegenerateClientSecret();
   const updateUris = useUpdateRedirectUris();
+  const updateIntents = useUpdateIntents();
   const deleteApp = useDeleteApplication();
   const [revealed, setRevealed] = useState<{ label: string; value: string } | null>(null);
   const [uris, setUris] = useState(app.redirectUris.join("\n"));
@@ -349,6 +351,31 @@ function AppCard({ app }: { app: NonNullable<ReturnType<typeof useMyApplications
         </div>
       </div>
       {revealed && <div className="mt-2"><Secret label={revealed.label} value={revealed.value} /></div>}
+
+      <div className="mt-3">
+        <p className="text-[11px] font-bold uppercase text-signal-dim">Privileged gateway intents</p>
+        <p className="mt-0.5 text-[11px] text-signal-faint">
+          Off by default, like Discord's portal. A bot only receives what it declares in IDENTIFY — and these two
+          additionally require your explicit switch here.
+        </p>
+        {([
+          ["messageContent", "Message Content", "Read the text of other users' messages from the gateway (without this, message events arrive with blank content)"],
+          ["serverMembers", "Server Members", "List the full membership of servers the bot is in"],
+        ] as const).map(([key, label, hint]) => (
+          <label key={key} className="mt-1.5 flex cursor-pointer items-start gap-2 rounded-lg bg-base-800 px-2.5 py-2">
+            <input
+              type="checkbox"
+              checked={app.intents?.[key] ?? false}
+              onChange={(e) => updateIntents.mutate({ applicationId: app.id, [key]: e.target.checked })}
+              className="mt-0.5"
+            />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-signal">{label}</span>
+              <span className="block text-[11px] text-signal-faint">{hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
 
       <div className="mt-3">
         <p className="text-[11px] font-bold uppercase text-signal-dim">OAuth2 redirect URIs (one per line)</p>

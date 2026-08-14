@@ -37,6 +37,9 @@ const invite = (await api(`/servers/${server.id}/invites`, { method: "POST", tok
 
 async function mkBot(name) {
   const app = (await api("/applications", { method: "POST", token: human, body: { name } })).json;
+  // These bots read message content — their owner enables the privileged toggle, same as a real
+  // developer in the portal.
+  await api(`/applications/${app.id}/intents`, { method: "PATCH", token: human, body: { messageContent: true, serverMembers: true } });
   await api(`/invites/${invite.code}/join`, { method: "POST", bot: app.botToken });
   return app.botToken;
 }

@@ -61,6 +61,9 @@ export interface ApplicationDTO {
   botUsername: string;
   redirectUris: string[];
   hasClientSecret: boolean;
+  /// Privileged gateway intents (Discord-dev-portal parity): enforced in the compat gateway
+  /// (content blanking) and the compat members listing. OFF by default.
+  intents: { messageContent: boolean; serverMembers: boolean };
 }
 
 /** Returned exactly once, from POST /api/applications and POST /api/applications/:id/regenerate

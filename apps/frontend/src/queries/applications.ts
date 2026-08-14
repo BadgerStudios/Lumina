@@ -54,6 +54,17 @@ export function useRegenerateClientSecret() {
   });
 }
 
+export function useUpdateIntents() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ applicationId, ...body }: { applicationId: string; messageContent?: boolean; serverMembers?: boolean }) =>
+      api.patch<{ messageContent: boolean; serverMembers: boolean }>(`/applications/${applicationId}/intents`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
+    },
+  });
+}
+
 export function useDeleteApplication() {
   const queryClient = useQueryClient();
   return useMutation({
