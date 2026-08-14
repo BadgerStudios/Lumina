@@ -1,0 +1,14 @@
+# Lumina Game Agent — connect this server to your Lumina sandbox.
+#
+# 1. In Lumina, open your sandbox and mint an Agent Token.
+# 2. Paste it below, set the address players connect to, and restart the server (or /luminaagent reload).
+lumina:
+  # Your Lumina instance.
+  url: "https://lumina.badgerstudios.net"
+  # The scoped agent token from your sandbox. It can ONLY report this server's status to Lumina —
+  # it grants no access to anything else. Treat it like a password anyway.
+  agent-token: "PASTE_YOUR_AGENT_TOKEN_HERE"
+  # What players type to connect (host or host:port). Shown on the Lumina control panel.
+  public-address: ""
+  # How often to report in, seconds.
+  heartbeat-seconds: 10

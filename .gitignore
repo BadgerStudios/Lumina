@@ -71,3 +71,5 @@ _tmp_*
 secrets/
 .last-native-frontend-hash
 apps/frontend/dist-verify-mobile/
+game-agent-plugin/target/
+game-agent-plugin/dependency-reduced-pom.xml

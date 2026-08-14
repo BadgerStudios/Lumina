@@ -1,0 +1,15 @@
+name: LuminaGameAgent
+version: 1.0.0
+main: net.lumina.agent.LuminaAgentPlugin
+api-version: "1.13"
+author: Lumina
+description: Connects this Minecraft server to a Lumina game sandbox — reports live status, players and console, and honours stop/restart from the Lumina control panel.
+commands:
+  luminaagent:
+    description: Show or reload the Lumina agent connection status
+    usage: /luminaagent [reload|status]
+    permission: luminaagent.admin
+permissions:
+  luminaagent.admin:
+    description: Manage the Lumina agent
+    default: op
