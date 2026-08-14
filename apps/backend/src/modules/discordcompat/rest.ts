@@ -376,11 +376,15 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     // Type 7 (UPDATE_MESSAGE): interaction.update() — edit the message the component sits on
     // in place. The whole tic-tac-toe genre of bots is this callback in a loop.
     if (body.type === 7) {
-      const interaction = await prisma.interaction.findUnique({ where: { token } });
-      if (!interaction?.messageId || !interaction.channelId) throw new BadRequestError("No message to update");
+      // The callback route is UNAUTHENTICATED (the token in the URL is the credential), so there
+      // is no auth header to forward — the message must be edited AS THE BOT that owns the
+      // interaction. Resolving the bot from the interaction and calling editMessage directly is
+      // exactly what the respond path does, and keeps this off the forwarded-auth path that 401'd.
+      const { interaction, botUserId } = await interactionByToken(token);
+      if (!interaction.messageId || !interaction.channelId) throw new BadRequestError("No message to update");
       const embedText = flattenEmbeds(body.data?.embeds);
       const content = [body.data?.content?.trim(), embedText].filter(Boolean).join("\n\n");
-      if (content) await internal(request, "PATCH", `/messages/${interaction.messageId}`, { content });
+      if (content) await editMessage({ userId: botUserId, messageId: interaction.messageId.toString(), content });
       const luminaComponents = componentsToLumina(body.data?.components);
       if (luminaComponents) {
         await attachComponents(interaction.messageId.toString(), luminaComponents, interaction.channelId, interaction.dmConversationId);

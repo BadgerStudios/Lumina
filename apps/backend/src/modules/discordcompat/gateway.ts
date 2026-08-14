@@ -203,7 +203,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
 
   internal.on(
     "interaction:create",
-    (i: { id: string; token: string; type: string; commandName: string | null; options: Record<string, string | number | boolean> | null; componentCustomId: string | null; channelId: string | null; serverId: string | null; userId: string; messageId: string | null }) => {
+    (i: { id: string; token: string; type: string; commandName: string | null; options: Record<string, string | number | boolean> | null; customId: string | null; channelId: string | null; serverId: string | null; userId: string; messageId: string | null }) => {
       void (async () => {
         const user = await prisma.user.findUnique({ where: { id: i.userId } });
         if (!user) return;
@@ -260,7 +260,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
                         }))
                       : [],
                 }
-              : { custom_id: i.componentCustomId, component_type: 2 },
+              : { custom_id: i.customId, component_type: 2 },
             app_permissions: luminaPermsToDiscord(botEff),
             locale: "en-US",
             guild_locale: "en-US",
