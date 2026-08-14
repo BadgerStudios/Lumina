@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
-import { requireAuth } from "../../plugins/authenticate.js";
+import { requireAuth, requireMembership, resolveServerId } from "../../plugins/authenticate.js";
 import { requireAdult } from "../age/guard.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { BadRequestError, ForbiddenError, NotFoundError, UnauthorizedError } from "../../lib/errors.js";
@@ -212,6 +212,34 @@ export default async function sandboxRoutes(fastify: FastifyInstance) {
   );
 
   // ============================================================ CONSUMER (Activity panel readers)
+  /** Every game sandbox attached to a server the caller is a member of — backs the in-server
+   * Game Activity panel. Members see live status + connect address; only the owner sees controls
+   * (enforced per-sandbox, not by this list). */
+  fastify.get(
+    "/server/:serverId",
+    { preHandler: [requireAuth, requireMembership(resolveServerId.fromParam("serverId"))] },
+    async (request) => {
+      const rows = await prisma.gameSandbox.findMany({ where: { serverId: request.serverId! }, orderBy: { createdAt: "asc" } });
+      return rows.map((s) => {
+        const online = !!s.lastHeartbeat && Date.now() - s.lastHeartbeat.getTime() < HEARTBEAT_STALE_MS;
+        return {
+          id: s.id,
+          name: s.name,
+          kind: s.kind,
+          status: online ? s.status : "OFFLINE",
+          online,
+          connectAddress: online ? s.connectAddress : null,
+          playerCount: online ? s.playerCount : 0,
+          maxPlayers: s.maxPlayers,
+          // The container's live "stream" into the channel: its console tail, refreshed each poll.
+          consoleTail: online ? s.consoleTail : null,
+          isOwner: s.ownerId === request.userId,
+        };
+      });
+    },
+  );
+
+
   /** Read-only public view for the control-panel Activity and server members: is it up, where do
    * I connect. Anyone who can see the attached server can see this; nothing sensitive here. */
   fastify.get("/:id/public", { preHandler: [requireAuth] }, async (request) => {

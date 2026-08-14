@@ -12,6 +12,7 @@ export type ModalType =
   | "notificationSettings"
   | "leaderboard"
   | "serverEvents"
+  | "game"
   | "userSettings"
   | null;
 
@@ -25,6 +26,7 @@ interface ModalPayloads {
   notificationSettings: { serverId: string };
   leaderboard: { serverId: string };
   serverEvents: { serverId: string };
+  game: { serverId: string };
   userSettings: undefined;
   createServer: undefined;
 }

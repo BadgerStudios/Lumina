@@ -22,6 +22,7 @@ import {
   Bell,
   MessagesSquare,
   CalendarDays,
+  Gamepad2,
 } from "lucide-react";
 import { useState } from "react";
 import { useChannels, useReorderChannels } from "../../queries/channels";
@@ -392,6 +393,12 @@ export function ChannelSidebar({ serverId, activeChannelId }: { serverId: string
               className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600"
             >
               <CalendarDays size={15} /> Events
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => openModalWith("game", { serverId })}
+              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600"
+            >
+              <Gamepad2 size={15} /> Games
             </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={() => openModalWith("notificationSettings", { serverId })}

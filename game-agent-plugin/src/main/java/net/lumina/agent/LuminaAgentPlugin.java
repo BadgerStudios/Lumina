@@ -7,6 +7,12 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -15,9 +21,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.Map;
-import java.util.logging.Handler;
-import java.util.logging.LogRecord;
 
 /**
  * Lumina Game Agent — an in-server plugin for Bukkit / Spigot / Paper / Purpur (one jar, all of
@@ -37,7 +40,7 @@ public final class LuminaAgentPlugin extends JavaPlugin {
 
     private BukkitTask heartbeatTask;
     private final Deque<String> consoleRing = new ArrayDeque<String>();
-    private Handler logHandler;
+    private AbstractAppender consoleAppender;
 
     @Override
     public void onEnable() {
@@ -50,24 +53,43 @@ public final class LuminaAgentPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (heartbeatTask != null) heartbeatTask.cancel();
-        if (logHandler != null) Bukkit.getLogger().removeHandler(logHandler);
+        if (consoleAppender != null) {
+            try {
+                LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+                ctx.getConfiguration().getRootLogger().removeAppender(consoleAppender.getName());
+                consoleAppender.stop();
+            } catch (Throwable ignored) { }
+        }
         // A final OFFLINE so the panel reflects the shutdown immediately rather than waiting to go stale.
         try { report("OFFLINE"); } catch (Throwable ignored) { }
     }
 
-    // ---- console capture: keep a rolling tail to show in the Lumina panel -----------------------
+    // ---- console capture: a Log4j2 appender on the ROOT logger, which IS the real server console.
+    // (A JUL handler on Bukkit.getLogger() only sees that one logger — found live: /version and
+    // /list output never reached it. Paper/Bukkit have run on Log4j2 since 1.7.) -----------------
     private void attachConsoleCapture() {
-        logHandler = new Handler() {
-            @Override public void publish(LogRecord record) {
-                synchronized (consoleRing) {
-                    consoleRing.addLast(record.getLevel() + " " + record.getMessage());
-                    while (consoleRing.size() > 40) consoleRing.removeFirst();
+        try {
+            final Deque<String> ring = this.consoleRing;
+            consoleAppender = new AbstractAppender("LuminaConsole", null, null, false, Property.EMPTY_ARRAY) {
+                @Override public void append(LogEvent event) {
+                    try {
+                        // Strip ANSI colour codes — Paper's console is coloured, but the panel wants plain text.
+                        String msg = event.getMessage().getFormattedMessage().replaceAll("\\[[;\\d]*m", "");
+                        String line = event.getLevel() + " " + msg;
+                        synchronized (ring) {
+                            ring.addLast(line);
+                            while (ring.size() > 40) ring.removeFirst();
+                        }
+                    } catch (Throwable ignored) { }
                 }
-            }
-            @Override public void flush() { }
-            @Override public void close() { }
-        };
-        Bukkit.getLogger().addHandler(logHandler);
+            };
+            consoleAppender.start();
+            LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+            ctx.getConfiguration().getRootLogger().addAppender(consoleAppender, null, null);
+            ctx.updateLoggers();
+        } catch (Throwable t) {
+            getLogger().warning("Could not attach console capture (status/players still report): " + t.getMessage());
+        }
     }
 
     private String consoleTail() {

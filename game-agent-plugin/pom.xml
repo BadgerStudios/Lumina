@@ -33,6 +33,15 @@
       <version>1.20.1-R0.1-SNAPSHOT</version>
       <scope>provided</scope>
     </dependency>
+    <!-- Log4j2 core: the real server console. Bukkit/Paper have shipped Log4j2 since 1.7, so
+         capturing the console means attaching an appender to the Log4j2 root — a JUL handler on
+         Bukkit.getLogger() only sees that one logger, not the console. `provided`: the server has it. -->
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>2.19.0</version>
+      <scope>provided</scope>
+    </dependency>
   </dependencies>
 
   <build>
