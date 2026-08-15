@@ -209,6 +209,13 @@ export function MessageItem({
                         alt={stripSpoilerPrefix(a.fileName)}
                         className="max-h-80 max-w-sm rounded-lg border border-base-600"
                       />
+                    ) : a.mimeType.startsWith("video/") ? (
+                      <video
+                        src={attachmentUrl(a.url)}
+                        controls
+                        preload="metadata"
+                        className="max-h-80 max-w-sm rounded-lg border border-base-600"
+                      />
                     ) : (
                       <a
                         href={attachmentUrl(a.url)}
