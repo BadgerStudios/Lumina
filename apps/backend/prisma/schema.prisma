@@ -100,6 +100,16 @@ enum BanScope {
 // Coarse age bands collected at signup. Five buckets rather than a free-form age because a bucket
 // is far less identifying to store, and the only decision the platform actually makes from it is
 // "is this account a minor".
+/// How strongly an account's age is known. Ordered weakest→strongest; gates ask for a minimum.
+/// SELF_DECLARED = a typed-in birthday (the pre-existing floor). DEVICE_DECLARED = a native
+/// Apple/Google age band, only trusted with a valid Play Integrity / App Attest attestation.
+/// DOCUMENT_VERIFIED = cleared a Persona document+selfie inquiry OR an admin-reviewed selfie.
+enum AgeAssuranceLevel {
+  SELF_DECLARED
+  DEVICE_DECLARED
+  DOCUMENT_VERIFIED
+}
+
 enum AgeBracket {
   UNDER_18
   AGE_18_24
@@ -168,6 +178,14 @@ model User {
   /// people about moderation decisions that is a ready-made phishing kit. This flag is settable
   /// only by MASTER, so the badge is the one part of an official identity that can't be copied.
   isOfficial             Boolean        @default(false)
+  /// Excluded from every "find people" surface: user search and the Discover people panel.
+  ///
+  /// For accounts that must be able to USE the product fully while not appearing to anyone as
+  /// someone to add or message — the Google Play review account is the reason this exists. It is
+  /// deliberately NOT a ban or a privacy setting: the account still posts, still shows in a
+  /// conversation it takes part in, and is still visible to anyone it actually interacts with.
+  /// It only stops the account being SURFACED to strangers by the directory.
+  hiddenFromDirectory    Boolean        @default(false)
   // Age signals, collected at registration.
   //
   // `isMinor` is derived from birthDate and stored rather than computed per request because it
@@ -178,6 +196,32 @@ model User {
   birthDate              DateTime?
   isMinor                Boolean        @default(false)
   ageRecordedAt          DateTime?
+
+  /// A persistent per-adult "family code" shown in Family Settings, which a minor (or their
+  /// parent, on the minor's locked screen) enters to link the minor to THIS adult — the reverse
+  /// direction of the child-generated ParentLink.pairingCode, kept alongside it rather than
+  /// replacing it. Unique so redemption is an exact lookup; nullable + minted lazily the first
+  /// time an adult opens Family Settings, so no backfill is needed for existing rows. Only an
+  /// age-recorded adult account is ever allowed to hold one (enforced in service, not schema).
+  familyCode String? @unique
+
+  // ---- age assurance (layered verification) ----
+  // `isMinor`/`ageRecordedAt` above are the self-declared floor. These record the STRONGEST age
+  // signal we have and how it was obtained, so gates can demand a minimum assurance level rather
+  // than trusting a typed-in birthday. Denormalized here (like isMinor) for cheap per-request reads;
+  // the full signal history lives in AgeVerification. All nullable + defaulted — additive for the
+  // existing rows, which simply sit at SELF_DECLARED until a signal upgrades them.
+  ageAssuranceLevel  AgeAssuranceLevel @default(SELF_DECLARED)
+  ageAssuranceSource String? // self | google_play_age_signals | apple_declared_age_range | persona | admin_selfie_review
+  ageAssuredBand     String? // the band the signal reported, e.g. "18+", "16-17"
+  ageAssuredAt       DateTime?
+  // Set once the account clears a document/selfie identity step (Persona OR an admin selfie review).
+  // This is the gate for the money surface (payouts/monetization) — not the same as ageRecordedAt.
+  identityVerifiedAt DateTime?
+  personaInquiryId   String?           @unique
+  personaStatus      String? // created | pending | completed | approved | declined | failed
+  ageVerifications   AgeVerification[]
+  manualAgeReviews   ManualAgeReview[]
 
   // ---- two-factor authentication ----
   //
@@ -209,6 +253,7 @@ model User {
   dmParticipation        DMParticipant[]
   auditLogEntries        AuditLogEntry[]          @relation("Actor")
   ownedApplications      Application[]            @relation("ApplicationOwner")
+  botInstallRequests     BotInstallRequest[]
   botApplication         Application?             @relation("BotUser", fields: [applicationId], references: [id], onDelete: Cascade)
   createdWebhooks        Webhook[]
   sentFriendRequests     FriendRequest[]          @relation("FriendRequester")
@@ -252,21 +297,21 @@ model User {
   supporters             CreatorMembership[]      @relation("MembershipCreator")
   supporting             CreatorMembership[]      @relation("MembershipMember")
   gameSandboxes          GameSandbox[]
-  threadMemberships ThreadMembership[]
-  parentLinkAsChild  ParentLink?             @relation("ChildOfLink")
-  parentLinksAsParent ParentLink[]           @relation("ParentOfLink")
-  approvedForMinors  ParentApprovedContact[] @relation("ApprovedForMinor")
-  gameLinks GameLink[]
-  notifications      Notification[] @relation("InboxOwner")
-  notificationActs   Notification[] @relation("InboxActor")
-  memberXp           MemberXp[]
-  creatorWallet   CreatorWallet?
-  earningItems    EarningItem[]
-  creatorProgram  CreatorProgram?
-  payoutAccount   PayoutAccount?
-  payouts         Payout[]
-  giftsSent       GiftSend[] @relation("GiftsSent")
-  giftsReceived   GiftSend[] @relation("GiftsReceived")
+  threadMemberships      ThreadMembership[]
+  parentLinkAsChild      ParentLink?              @relation("ChildOfLink")
+  parentLinksAsParent    ParentLink[]             @relation("ParentOfLink")
+  approvedForMinors      ParentApprovedContact[]  @relation("ApprovedForMinor")
+  gameLinks              GameLink[]
+  notifications          Notification[]           @relation("InboxOwner")
+  notificationActs       Notification[]           @relation("InboxActor")
+  memberXp               MemberXp[]
+  creatorWallet          CreatorWallet?
+  earningItems           EarningItem[]
+  creatorProgram         CreatorProgram?
+  payoutAccount          PayoutAccount?
+  payouts                Payout[]
+  giftsSent              GiftSend[]               @relation("GiftsSent")
+  giftsReceived          GiftSend[]               @relation("GiftsReceived")
 }
 
 // A "dev portal" app a human user owns. Each Application has exactly one bot User (see
@@ -275,36 +320,36 @@ model User {
 // key, and scopes ARE whatever server roles/permissions the bot is assigned — no parallel scope
 // system.
 model Application {
-  id               String                   @id @default(cuid())
-  ownerId          String
-  name             String
-  description      String?
-  iconUrl          String?
-  botTokenHash     String?
+  id                   String                   @id @default(cuid())
+  ownerId              String
+  name                 String
+  description          String?
+  iconUrl              String?
+  botTokenHash         String?
   /// Privileged gateway intents, Discord-dev-portal style: OFF by default, switched on
   /// deliberately in the developer portal. Enforced in the compat gateway (content blanking)
   /// and the compat members listing — declaring an intent in IDENTIFY is necessary but not
   /// sufficient; the application must also have the toggle enabled.
-  intentMessageContent Boolean @default(false)
-  intentServerMembers  Boolean @default(false)
+  intentMessageContent Boolean                  @default(false)
+  intentServerMembers  Boolean                  @default(false)
   // OAuth2 (authorization-code grant, see modules/oauth2/) — the Application's own `id` doubles
   // as its OAuth client_id, matching Discord's model rather than minting a separate identifier.
   // redirectUris is an allowlist checked exactly (no wildcard/prefix matching) on both
   // /oauth2/authorize and /oauth2/token — a mismatch is a hard reject, standard OAuth2 practice
   // to prevent code/token redirection to an attacker-controlled URI.
-  redirectUris     String[]                 @default([])
-  clientSecretHash String?
-  createdAt        DateTime                 @default(now())
-  owner            User                     @relation("ApplicationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  botUser          User?                    @relation("BotUser")
-  oauthCodes       OAuthAuthorizationCode[]
-  oauthTokens      OAuthAccessToken[]
-  addons           Addon[]                  @relation("AddonApplication")
-  slashCommands    SlashCommand[]
-  interactions     Interaction[]
+  redirectUris         String[]                 @default([])
+  clientSecretHash     String?
+  createdAt            DateTime                 @default(now())
+  owner                User                     @relation("ApplicationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  botUser              User?                    @relation("BotUser")
+  oauthCodes           OAuthAuthorizationCode[]
+  oauthTokens          OAuthAccessToken[]
+  addons               Addon[]                  @relation("AddonApplication")
+  slashCommands        SlashCommand[]
+  interactions         Interaction[]
+  activities           Activity[]
 
   @@index([ownerId])
-  activities Activity[]
 }
 
 // Short-lived (5 min), single-use authorization code — the intermediate step between a user
@@ -385,6 +430,8 @@ model Server {
   systemChannelId String?
   createdAt       DateTime @default(now())
 
+  botInstallRequests BotInstallRequest[]
+
   // ---- Moderation ----
   verificationLevel     VerificationLevel     @default(NONE)
   explicitContentFilter ExplicitContentFilter @default(DISABLED)
@@ -420,6 +467,16 @@ model Server {
   /// listed. An unscoped directory would leak the name and existence of every private community —
   /// the same concern lookup/routes.ts documents for server search.
   discoverable          Boolean                @default(false)
+  /// THE first-party Lumina community, shown with a badge that cannot be faked.
+  ///
+  /// Same reasoning as User.isOfficial, one level up: a server can call itself "Lumina Official",
+  /// copy the logo as its icon and claim a vanity that reads official, and an invite to it is a
+  /// convincing place to phish from. Settable only by MASTER, so it is the one part of an official
+  /// community's identity a copy cannot reproduce.
+  ///
+  /// Not derived from `ownerId == the official account`: ownership can transfer, and a badge that
+  /// silently follows a transfer is a badge that can be given away by accident.
+  isOfficial            Boolean                @default(false)
   /// "host" or "host:port" of the Minecraft server this community runs, if any. Powers the live
   /// status chip. Stored as text and resolved+validated at ping time (modules/game/minecraft.ts)
   /// because the DNS answer, not the string, is what decides whether it is safe to dial.
@@ -438,10 +495,10 @@ model Server {
   stickers              Sticker[]
   soundboardSounds      SoundboardSound[]
   templatesFrom         ServerTemplate[]       @relation("TemplateSource")
-  memberXp     MemberXp[]
-  levelRewards LevelReward[]
-  events       ServerEvent[]
-  gameSandboxes GameSandbox[]
+  memberXp              MemberXp[]
+  levelRewards          LevelReward[]
+  events                ServerEvent[]
+  gameSandboxes         GameSandbox[]
 }
 
 model Membership {
@@ -460,20 +517,20 @@ model Membership {
 }
 
 model Role {
-  id          String           @id @default(cuid())
-  serverId    String
-  name        String
-  color       Int?
-  permissions BigInt
-  position    Int
-  isDefault   Boolean          @default(false)
-  mentionable Boolean          @default(true)
-  createdAt   DateTime         @default(now())
-  server      Server           @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  assignments RoleAssignment[]
+  id           String           @id @default(cuid())
+  serverId     String
+  name         String
+  color        Int?
+  permissions  BigInt
+  position     Int
+  isDefault    Boolean          @default(false)
+  mentionable  Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  server       Server           @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  assignments  RoleAssignment[]
+  levelRewards LevelReward[]
 
   @@index([serverId])
-  levelRewards LevelReward[]
 }
 
 model RoleAssignment {
@@ -491,22 +548,22 @@ model RoleAssignment {
 }
 
 model Channel {
-  id              String      @id @default(cuid())
+  id              String                       @id @default(cuid())
   serverId        String
   name            String
-  type            ChannelType @default(TEXT)
+  type            ChannelType                  @default(TEXT)
   topic           String?
   parentId        String?
   position        Int
   // Seconds a member must wait between messages in this channel (0 = off). Enforced in
   // modules/messages/service.ts's createChannelMessage; MANAGE_MESSAGES bypasses it, same as
   // Discord's own moderator exemption.
-  slowmodeSeconds Int         @default(0)
-  nsfw            Boolean     @default(false)
-  createdAt       DateTime    @default(now())
-  server          Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  parent          Channel?    @relation("ChannelToCategory", fields: [parentId], references: [id])
-  children        Channel[]   @relation("ChannelToCategory")
+  slowmodeSeconds Int                          @default(0)
+  nsfw            Boolean                      @default(false)
+  createdAt       DateTime                     @default(now())
+  server          Server                       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  parent          Channel?                     @relation("ChannelToCategory", fields: [parentId], references: [id])
+  children        Channel[]                    @relation("ChannelToCategory")
   messages        Message[]
   webhooks        Webhook[]
   overwrites      ChannelPermissionOverwrite[]
@@ -519,13 +576,13 @@ model Channel {
   // unique index is what makes that a database guarantee rather than a race between two clicks.
   // Cascade: if the origin message is deleted the thread goes with it, matching the fact that the
   // thread is rendered as part of that message.
-  threadOriginMessageId BigInt?  @unique
-  threadOrigin          Message? @relation("MessageThread", fields: [threadOriginMessageId], references: [id], onDelete: Cascade)
+  threadOriginMessageId BigInt?            @unique
+  threadOrigin          Message?           @relation("MessageThread", fields: [threadOriginMessageId], references: [id], onDelete: Cascade)
   // Archived threads stay readable and keep their messages; they are hidden from the active list
   // and re-open on the next post. Discord's model, and it avoids a destructive sweep.
-  archived              Boolean  @default(false)
+  archived              Boolean            @default(false)
   archivedAt            DateTime?
-  autoArchiveMinutes    Int      @default(4320)
+  autoArchiveMinutes    Int                @default(4320)
   /// Last message time, denormalised. The auto-archive sweep runs over every active thread on a
   /// schedule; deriving this with a correlated MAX(Message.createdAt) per thread would make that
   /// sweep's cost grow with total message volume rather than with thread count.
@@ -539,7 +596,6 @@ model Channel {
 
 /**
  * Who has explicitly joined a thread, for notification purposes.
- *
  * Not inferred from message history: "has posted here" and "wants to hear about this" are
  * different questions. Someone who read a thread and never replied still wants replies, and
  * someone who posted once and left does not — neither is answerable from Message alone.
@@ -671,14 +727,12 @@ enum OverwriteTargetType {
 
 /**
  * A per-channel adjustment to the server-wide permissions a role or member already has.
- *
  * Two bitfields rather than one, because a channel has to be able to express both directions
  * independently: "this role may post here even though it cannot post server-wide" (allow) and
  * "this role may not post here even though it can everywhere else" (deny). A single field could
  * only ever say one of those, and a tri-state per bit is exactly what two fields encode — a bit
  * set in neither means "inherit", which is the common case and correctly stays sensitive to later
  * changes in the underlying role.
- *
  * `targetId` is intentionally not a foreign key: it points at a Role or a User depending on
  * `targetType`, and Prisma cannot express a polymorphic relation. Cleanup of stale rows is
  * therefore explicit — see deleteChannelOverwritesForRole, called when a role is deleted.
@@ -970,10 +1024,14 @@ model NotificationOverride {
 // viewCount has no join table at all by design: one row per view is unbounded growth, so views are
 // deduped per user in Redis and only the counter is persisted.
 model Video {
-  id       BigInt      @id @default(autoincrement())
-  authorId String?
-  caption  String?     @db.VarChar(300)
-  status   VideoStatus @default(PROCESSING)
+  id          BigInt      @id @default(autoincrement())
+  authorId    String?
+  caption     String?     @db.VarChar(300)
+  status      VideoStatus @default(PROCESSING)
+  // 0-100 while status is PROCESSING, driven by ffmpeg's own -progress output against the known
+  // source duration. Meaningless once transcoding ends either way, so nothing resets it back to 0
+  // on success/failure — the client only ever reads it while status is PROCESSING.
+  progressPct Int         @default(0)
 
   sourceKey    String
   playbackKey  String?
@@ -2234,16 +2292,13 @@ enum ParentLinkStatus {
 
 /**
  * The link between a minor account and the adult responsible for it.
- *
  * A minor account is created immediately but is INERT until an adult accepts this link — it cannot
  * message, join servers, hold friends, or be seen by anyone. That is the operator's chosen posture
  * and it is enforced server-side (see modules/parental/guard.ts), not by hiding buttons: a locked
  * minor with a stolen token still cannot do any of those things.
- *
  * `childUserId` is unique — exactly one responsible adult, never a committee. A second adult
  * wanting oversight has to replace the first, which keeps "who is accountable for this account"
  * answerable with a single row.
- *
  * `parentUserId` stays null until the code is redeemed, so a PENDING link names no adult and
  * cannot be used to imply one consented.
  */
@@ -2269,7 +2324,6 @@ model ParentLink {
 
 /**
  * An adult the parent has cleared to contact THIS child specifically.
- *
  * Hung off the ParentLink rather than off the child's User row so the scope is structural: an
  * approval is meaningless outside the link that created it, and one parent's decision about their
  * own child can never widen into permission to contact any other minor on the platform. That is
@@ -2292,17 +2346,82 @@ model ParentApprovedContact {
   @@index([approvedUserId])
 }
 
+/// Append-only log of every age signal an account has produced — a self-declared answer, a native
+/// device band, a Persona result, an admin selfie decision. The current best signal is denormalized
+/// onto User (ageAssurance*); this table is the audit trail behind it. Never updated in place.
+model AgeVerification {
+  id            String            @id @default(cuid())
+  userId        String
+  level         AgeAssuranceLevel
+  source        String // self | google_play_age_signals | apple_declared_age_range | persona | admin_selfie_review
+  band          String? // reported age band, if any
+  isMinorSignal Boolean? // what this signal implies about side-of-18, if determinable
+  inquiryId     String? // Persona inquiry id, when source=persona
+  rawStatus     String? // provider status string, for debugging
+  createdAt     DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([inquiryId])
+}
+
+enum ManualAgeReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ManualAgeDecision {
+  ADULT
+  MINOR
+}
+
+/// The Persona-cap fallback: when the monthly Persona budget is exhausted, a user submits a selfie
+/// and an admin in the owner suite decides over/under 18. The selfie is stored privately on disk
+/// (UPLOADS_DIR/age-review/<id>) and PURGED once decided — `selfieKey` is nulled on decision.
+model ManualAgeReview {
+  id              String                @id @default(cuid())
+  userId          String
+  selfieKey       String? // filename under UPLOADS_DIR/age-review; nulled once purged
+  /// Photo of a government ID, same directory and lifecycle as the selfie. Separate column rather
+  /// than a JSON blob so the purge sweep can null each one independently and a half-purged review
+  /// is still a legible row.
+  idDocKey        String?
+  status          ManualAgeReviewStatus @default(PENDING)
+  decision        ManualAgeDecision?
+  decidedByUserId String?
+  decidedAt       DateTime?
+  note            String?               @db.VarChar(500)
+  /// When the images become due for deletion: decision time + RETENTION_HOURS. The worker sweep
+  /// purges anything past this and nulls the keys. Stored rather than computed from decidedAt so
+  /// the retention window is visible in the row and can be shortened without a code change.
+  purgeAfter      DateTime?
+  createdAt       DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+/// Monthly Persona verification budget (500 on the current tier). One row per YYYY-MM; `used` is
+/// incremented as inquiries are created, and the cap redirects overflow to the manual-review path.
+model PersonaBudget {
+  periodYm  String   @id // "2026-08"
+  used      Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
 enum GameProvider {
   MINECRAFT
 }
 
 /**
  * A game identity attached to a Lumina account.
- *
  * One row per (user, provider). `externalId` is the game's own stable id (Minecraft: the profile
  * UUID) — usernames rename, UUIDs do not, so the UUID is the identity and the name is a cached
  * display value refreshed on relink.
- *
  * `verified` distinguishes "claimed" from "proven". Anyone can type any Minecraft username; proof
  * happens in-game: a server plugin (any owner's, via the documented bot-token API) submits the
  * user's `verifyCode` together with the UUID it observed the player using. Claimed-but-unverified
@@ -2332,7 +2451,6 @@ model GameLink {
  * Discord Activities. Launched docked beside a channel in a sandboxed iframe; the client hands it
  * an origin-targeted identity handshake (see frontend ActivityFrame) and nothing else. It never
  * receives a token it didn't obtain itself through the existing OAuth2 flow.
- *
  * `url` is https-only by validation: an activity is third-party code every launcher's browser will
  * load, and a plaintext embed would be an injection point on every machine that opens it.
  */
@@ -2467,12 +2585,10 @@ enum PayoutState {
 
 /**
  * Double-entry ledger — the financial source of truth.
- *
  * Balances are never stored authoritatively anywhere else: CreatorWallet below is a READ MODEL
  * maintained in the same transaction as the entries that change it, and reconciliation re-derives
  * it from entries to prove it. History is append-only; there is no update path in code, and
  * corrections are reversing transactions. Money is integer minor units + ISO currency, always.
- *
  * Per-creator positions live as entries against CONTROL accounts (CREATOR_PENDING,
  * CREATOR_PAYABLE) tagged with subjectUserId — the standard control/subledger shape, which keeps
  * the chart of accounts finite while every creator's balance stays derivable.
@@ -2507,26 +2623,32 @@ model LedgerEntry {
 
 /// Normalized envelope every monetized thing flows through before it may touch the ledger.
 model RevenueEvent {
-  id             String             @id @default(cuid())
-  eventType      String
-  idempotencyKey String             @unique
-  source         String
-  status         RevenueEventStatus @default(RECEIVED)
-  occurredAt     DateTime
-  receivedAt     DateTime           @default(now())
-  currency       String             @db.VarChar(3)
-  grossMinor     BigInt
-  userId         String?
-  creatorId      String?
-  contentRef     String?
-  externalRef    String?
-  riskContext    Json?
-  excludedReason String?
-  ledgerTxId     String?
-  policyVersion  Int?
+  id              String             @id @default(cuid())
+  eventType       String
+  idempotencyKey  String             @unique
+  source          String
+  status          RevenueEventStatus @default(RECEIVED)
+  occurredAt      DateTime
+  receivedAt      DateTime           @default(now())
+  currency        String             @db.VarChar(3)
+  grossMinor      BigInt
+  userId          String?
+  creatorId       String?
+  contentRef      String?
+  externalRef     String?
+  /// Stripe PaymentIntent id for fiat-sourced events (tips, membership invoices). Stored so a
+  /// charge.refunded / charge.dispute.created webhook — whose payload carries the payment_intent
+  /// but NOT the checkout-session/invoice id this event was keyed on — can find the originating
+  /// event and reverse the creator's earning. Null for coin-sourced events (gifts) and older rows.
+  paymentIntentId String?
+  riskContext     Json?
+  excludedReason  String?
+  ledgerTxId      String?
+  policyVersion   Int?
 
   @@index([creatorId, occurredAt])
   @@index([status])
+  @@index([paymentIntentId])
 }
 
 /**
@@ -2552,14 +2674,14 @@ model RevenuePolicy {
 
 /// Read model over the ledger, per creator. Proven against entries by reconciliation.
 model CreatorWallet {
-  userId        String   @id
-  currency      String   @default("usd") @db.VarChar(3)
-  pendingMinor  BigInt   @default(0)
-  availableMinor BigInt  @default(0)
-  reservedMinor BigInt   @default(0)
-  paidMinor     BigInt   @default(0)
-  updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String   @id
+  currency       String   @default("usd") @db.VarChar(3)
+  pendingMinor   BigInt   @default(0)
+  availableMinor BigInt   @default(0)
+  reservedMinor  BigInt   @default(0)
+  paidMinor      BigInt   @default(0)
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// One creator-earning line a person can point at: which event, how much, when it unlocks.
@@ -2621,13 +2743,13 @@ model Payout {
 
 /// The gift catalogue — coins in, creator fiat earnings out, per policy.
 model Gift {
-  id         String  @id @default(cuid())
-  key        String  @unique
+  id         String     @id @default(cuid())
+  key        String     @unique
   name       String
   emoji      String
   priceCoins Int
-  active     Boolean @default(true)
-  sortOrder  Int     @default(0)
+  active     Boolean    @default(true)
+  sortOrder  Int        @default(0)
   sends      GiftSend[]
 }
 
@@ -2645,4 +2767,128 @@ model GiftSend {
   creator        User     @relation("GiftsReceived", fields: [creatorId], references: [id], onDelete: Cascade)
 
   @@index([creatorId, createdAt])
+}
+
+enum ImageframeStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+/// A video prepared for playback on a Minecraft imageframe screen. The uploader names it and gets a
+/// short `code`; the worker transcodes the source into a palette-quantized .ifv frame pack the
+/// plugin pulls and caches. ownerId is a plain column (no User relation) so this table stays
+/// decoupled from the account model.
+model ImageframeVideo {
+  id      BigInt           @id @default(autoincrement())
+  code    String           @unique
+  name    String           @db.VarChar(60)
+  ownerId String?
+  status  ImageframeStatus @default(PROCESSING)
+
+  sourceKey String
+  packKey   String?
+  posterKey String?
+
+  mimeType  String
+  sizeBytes Int
+  sha256    String
+
+  gridCols Int @default(3)
+  gridRows Int @default(2)
+  fps      Int @default(10)
+
+  durationMs     Int?
+  srcWidth       Int?
+  srcHeight      Int?
+  frameCount     Int?
+  paletteVersion Int?
+
+  failureReason String?
+  uploadIp      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, id])
+  @@index([ownerId, id])
+}
+
+/// One server admin's request to bring a bot in, and the step-by-step record of what the worker
+/// did about it. The steps array is what the settings screen renders live — the point of this
+/// feature is that the person watching can see WHY it worked or what is missing, instead of a
+/// spinner that ends in "failed".
+model BotInstallRequest {
+  id            String           @id @default(cuid())
+  serverId      String
+  requestedById String
+  /// Exactly what the admin pasted, kept verbatim for support and for improving the resolver.
+  sourceUrl     String
+  status        BotInstallStatus @default(QUEUED)
+  /// 0-100, written by the worker as it moves between phases. Reported rather than inferred so the
+  /// UI never has to know the pipeline's shape to draw a bar.
+  progress      Int              @default(0)
+  /// Human label for what is happening right now, shown above the bar.
+  phase         String?
+  /// Append-only [{ at, key, label, detail, ok }] — never rewritten, so a failed run keeps the
+  /// evidence of how far it got.
+  steps         Json             @default("[]")
+  recipeId      String?
+  /// The Lumina Application minted for this bot, once the worker gets that far.
+  applicationId String?
+  error         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  server      Server     @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  requestedBy User       @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+  recipe      BotRecipe? @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  @@index([serverId])
+  @@index([status])
+}
+
+enum BotInstallStatus {
+  QUEUED
+  RESOLVING
+  PREPARING
+  /// Recipe known and an application minted — the bot can be connected and installed.
+  READY
+  /// Hosted by Lumina and live. Reserved for the execution phase.
+  RUNNING
+  FAILED
+}
+
+/// The shared knowledge. Resolving "this link is that bot, and here is how it runs" is the slow,
+/// human part; doing it once and keying it by a normalised source means the SECOND server to want
+/// the same bot skips straight past it. Recipes are global on purpose — one server's onboarding
+/// teaches every other server's worker.
+model BotRecipe {
+  id            String   @id @default(cuid())
+  /// Normalised identity of the pasted link — "discord-app:12345", "github:owner/repo",
+  /// "npm:package". The unique key that makes a repeat install instant.
+  sourceKey     String   @unique
+  displayName   String
+  sourceUrl     String
+  repoUrl       String?
+  packageName   String?
+  /// "node" | "python" | null when not yet determined.
+  runtime       String?
+  installCmd    String?
+  startCmd      String?
+  /// Which env var the bot reads its token from, and which one (if any) repoints its API base.
+  tokenEnvVar   String?
+  apiBaseEnvVar String?
+  /// Anything a later worker should know: quirks, required intents, manual steps.
+  notes         String?
+  /// Grows every time the recipe serves an install, so the catalog can rank by real use.
+  installCount  Int      @default(0)
+  /// A human confirmed this recipe actually produces a working bot.
+  verified      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  requests BotInstallRequest[]
+
+  @@index([verified])
 }

@@ -57,6 +57,7 @@ export default {
         // the values now come from CSS custom properties (see src/index.css :root /
         // :root[data-theme] blocks), which is what actually re-themes the whole app.
         base: {
+          950: themed("base-950"),
           900: themed("base-900"),
           800: themed("base-800"),
           700: themed("base-700"),

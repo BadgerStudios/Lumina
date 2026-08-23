@@ -8,9 +8,17 @@ const RENDERER_DIR = path.join(__dirname, "..", "renderer");
 const isDev = !!process.env.LUMINA_DESKTOP_DEV;
 
 // Registered before app.whenReady(), mirrors the Capacitor Android app's capacitor://localhost:
-// a "standard" privileged scheme gives the renderer a real, stable Origin (app://bundle) that
+// a "standard" privileged scheme gives the renderer a real, stable Origin (app://localhost) that
 // the backend's CORS_ORIGIN allowlist can match exactly (see apps/backend .env CORS_ORIGIN),
 // instead of the ambiguous/frequently-null Origin behavior of loading straight from file://.
+//
+// The host is deliberately `localhost` and not something app-specific. Cloudflare Turnstile binds a
+// solved token to the page's hostname, and both the widget (against the site key's domain list) and
+// the server (against TURNSTILE_HOSTNAMES) have to accept it. The old `app://bundle` presented the
+// hostname "bundle", which is not a registrable domain and is in neither list - so every
+// Turnstile-gated flow on desktop (signup, password reset, checkout, tips) was unsolvable. The
+// Capacitor Android app already ships on `localhost` and is verified to solve, so presenting the
+// same hostname here puts desktop on the identical, working footing.
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "app",
@@ -59,7 +67,7 @@ function createWindow(): void {
     if (mainWindow === win) mainWindow = null;
   });
 
-  void win.loadURL("app://bundle/index.html");
+  void win.loadURL("app://localhost/index.html");
   if (isDev) win.webContents.openDevTools({ mode: "detach" });
 }
 

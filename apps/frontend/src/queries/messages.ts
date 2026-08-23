@@ -4,6 +4,7 @@ import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
 import { ClientEvents } from "@lumina/shared";
 import { getSocket } from "../socket/socketClient";
+import { reportError } from "../store/toastStore";
 import {
   patchMessageDelete,
   patchMessageUpdate,
@@ -67,6 +68,7 @@ export function useSendChannelMessage(channelId: string) {
     onSuccess: (message) => {
       queryClient.setQueryData<MessagePages>(queryKeys.messages(channelId), (old) => upsertMessageCreate(old, message));
     },
+    onError: (e) => reportError(e, "Message didn't send"),
   });
 }
 
@@ -83,6 +85,7 @@ export function useSendChannelMessageWithAttachments(channelId: string) {
     onSuccess: (message) => {
       queryClient.setQueryData<MessagePages>(queryKeys.messages(channelId), (old) => upsertMessageCreate(old, message));
     },
+    onError: (e) => reportError(e, "Message didn't send"),
   });
 }
 
@@ -103,6 +106,7 @@ export function useSendDMMessage(conversationId: string) {
     onSuccess: (message) => {
       queryClient.setQueryData<MessagePages>(queryKeys.dmMessages(conversationId), (old) => upsertMessageCreate(old, message));
     },
+    onError: (e) => reportError(e, "Message didn't send"),
   });
 }
 
@@ -124,6 +128,7 @@ export function useSendDMMessageWithAttachments(conversationId: string) {
     onSuccess: (message) => {
       queryClient.setQueryData<MessagePages>(queryKeys.dmMessages(conversationId), (old) => upsertMessageCreate(old, message));
     },
+    onError: (e) => reportError(e, "Message didn't send"),
   });
 }
 
@@ -161,6 +166,7 @@ export function useSendChannelMessageRich(channelId: string) {
     onSuccess: (message) => {
       queryClient.setQueryData<MessagePages>(queryKeys.messages(channelId), (old) => upsertMessageCreate(old, message));
     },
+    onError: (e) => reportError(e, "Message didn't send"),
   });
 }
 
@@ -174,6 +180,7 @@ export function useSendDMMessageRich(conversationId: string) {
         upsertMessageCreate(old, message),
       );
     },
+    onError: (e) => reportError(e, "Message didn't send"),
   });
 }
 
@@ -189,6 +196,7 @@ export function useEditMessage() {
     onSuccess: (message) => {
       queryClient.setQueryData<MessagePages>(messageQueryKeyFor(message), (old) => patchMessageUpdate(old, message));
     },
+    onError: (e) => reportError(e, "Couldn't save that edit"),
   });
 }
 
@@ -200,6 +208,7 @@ export function useDeleteMessage(target: { channelId?: string; dmConversationId?
     onSuccess: (_data, messageId) => {
       queryClient.setQueryData<MessagePages>(key, (old) => patchMessageDelete(old, messageId));
     },
+    onError: (e) => reportError(e, "Couldn't delete that message"),
   });
 }
 
@@ -224,6 +233,7 @@ export function useTogglePinMessage() {
         queryClient.invalidateQueries({ queryKey: [...queryKeys.messages(message.channelId), "pins"] });
       }
     },
+    onError: (e) => reportError(e, "Couldn't update pins"),
   });
 }
 
@@ -239,6 +249,7 @@ export function useAddReaction() {
     // No cache patch here: the ServerEvents.REACTION_ADD broadcast (which the server sends
     // to the sender too, since they're in the room) is what drives the UI update — see
     // useSocketEvents.ts. Avoids double-counting since the ack has no message-scoped payload.
+    onError: (e) => reportError(e, "Couldn't add that reaction"),
   });
 }
 
@@ -251,5 +262,6 @@ export function useRemoveReaction() {
           else reject(new Error(res.error ?? "Failed to remove reaction"));
         });
       }),
+    onError: (e) => reportError(e, "Couldn't remove that reaction"),
   });
 }

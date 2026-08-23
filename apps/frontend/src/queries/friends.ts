@@ -2,9 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FriendDTO, FriendRequestDTO, FriendSuggestionsResponse } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
+import { reportError } from "../store/toastStore";
 
 // The app-wide QueryClient default (main.tsx) sets staleTime: 15_000 — fine for most data, but
-// wrong here: DMSidebar mounts useFriendRequests() on nearly every route (it backs the nav
+// wrong here: the nav deck mounts useFriendRequests() on nearly every route (it backs the nav
 // badge), so its result is almost always already cached from moments ago by the time someone
 // actually opens the Friends view — e.g. a request that arrived 5s ago wouldn't show until the
 // 15s staleness window lapsed, even though the whole point of opening this view is to check
@@ -47,6 +48,7 @@ export function useRespondToFriendRequest() {
       queryClient.invalidateQueries({ queryKey: queryKeys.friendRequests() });
       queryClient.invalidateQueries({ queryKey: queryKeys.friends() });
     },
+    onError: (e) => reportError(e, "That didn't go through"),
   });
 }
 
@@ -57,6 +59,7 @@ export function useRemoveFriend() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends() });
     },
+    onError: (e) => reportError(e, "Couldn't remove that friend"),
   });
 }
 
@@ -113,6 +116,7 @@ export function useBlockUser() {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends() });
       queryClient.invalidateQueries({ queryKey: queryKeys.friendRequests() });
     },
+    onError: (e) => reportError(e, "Couldn't block that user"),
   });
 }
 
@@ -123,6 +127,7 @@ export function useUnblockUser() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.blockedUsers() });
     },
+    onError: (e) => reportError(e, "Couldn't unblock that user"),
   });
 }
 

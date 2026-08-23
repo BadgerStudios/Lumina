@@ -3,6 +3,7 @@ import type { InviteDTO, MemberDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
 import { reconnectSocket } from "../socket/socketClient";
+import { reportError } from "../store/toastStore";
 
 export function useInvites(serverId: string | undefined) {
   return useQuery({
@@ -20,6 +21,7 @@ export function useCreateInvite(serverId: string) {
     onSuccess: (invite) => {
       queryClient.setQueryData<InviteDTO[]>(queryKeys.invites(serverId), (old) => (old ? [invite, ...old] : [invite]));
     },
+    onError: (e) => reportError(e, "Couldn't create that invite"),
   });
 }
 
@@ -30,6 +32,7 @@ export function useRevokeInvite(serverId: string) {
     onSuccess: (_data, code) => {
       queryClient.setQueryData<InviteDTO[]>(queryKeys.invites(serverId), (old) => old?.filter((i) => i.code !== code));
     },
+    onError: (e) => reportError(e, "Couldn't revoke that invite"),
   });
 }
 
@@ -55,5 +58,6 @@ export function useJoinInvite() {
       // socket-connect time (realtime/io.ts's joinInitialRooms).
       reconnectSocket();
     },
+    onError: (e) => reportError(e, "Couldn't join that server"),
   });
 }

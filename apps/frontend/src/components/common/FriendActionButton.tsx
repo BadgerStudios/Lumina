@@ -19,7 +19,7 @@ import { cn } from "../../lib/cn";
  * built on top of it (recommendations, the Following feed, DM suggestions).
  *
  * Relationship state is DERIVED from the two lists the app already keeps warm rather than fetched
- * per user: DMSidebar mounts useFriendRequests() on nearly every route for the nav badge, and
+ * per user: the nav deck mounts useFriendRequests() on nearly every route for its badge, and
  * useFriends() is cached alongside it, so rendering this next to fifty member rows costs nothing
  * extra. The cost is that it renders "Add friend" for a beat before the lists load — deliberate,
  * since the failure mode is a request that comes back "already sent", not a wrong action.

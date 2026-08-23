@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { SiteNav, SiteFooter } from "../components/site/SiteChrome";
 import {
   ShieldCheck,
   Server,
@@ -33,49 +34,41 @@ import {
 export function FeaturesRoute() {
   return (
     <div className="min-h-app bg-base-900 text-signal">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-        <Link to="/" className="flex items-center gap-2.5">
-          <img src="/icons/logo-128.png" alt="" aria-hidden="true" className="h-8 w-8 rounded-xl" />
-          <span className="font-display text-lg">Lumina</span>
-        </Link>
-        <Link
-          to="/register"
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover"
-        >
-          Create an account
-        </Link>
-      </header>
+      <SiteNav />
 
-      <section className="mx-auto max-w-3xl px-6 pb-10 pt-6 text-center">
+      <section className="mx-auto max-w-3xl px-6 pb-10 pt-12 text-center">
         <h1 className="font-display text-4xl leading-tight sm:text-5xl">
-          A community platform you actually own
+          A community platform, all in one place
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-signal-dim">
-          Servers, channels, voice, video and a short-video feed — running on your hardware, under
-          your rules, with your data in your database.
+          Servers, channels, voice, video and a short-video feed — hosted and run for you by Badger
+          Studios, with no ads sold against your conversations.
         </p>
       </section>
 
       <Shot
-        src="/screens/chat.png"
+        src="/screens/app-chat.png"
         alt="A Lumina server showing a text channel with several messages, a channel list and a member list"
-        caption="Servers, channels, roles, voice and DMs. Everything you'd expect, self-hosted."
+        caption="Servers, channels, roles, voice and DMs. Everything you'd expect."
       />
 
       {/* ---- age & safety: the section that has to be exactly right ---------------------- */}
       <section className="mx-auto max-w-5xl px-6 py-14">
         <div className="mb-8 flex items-center gap-3">
           <ShieldCheck className="h-6 w-6 text-online" />
-          <h2 className="font-display text-2xl">Adults only, enforced in the schema</h2>
+          <h2 className="font-display text-2xl">Age and safety, enforced in the schema</h2>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
           <div>
             <p className="text-signal-dim">
-              Lumina is an 18+ platform. The age check runs before an account row is ever created,
-              and there is no request that can skip it — both the date of birth and the age range
-              are required fields, and the two are cross-checked against each other. An answer that
-              crosses the 18 boundary in one field but not the other is refused and flagged.
+              Lumina is 16+. Under-18s can join, but as supervised accounts: a minor's account stays
+              locked until a parent or guardian links it to their own — after which the parent can
+              see the messages, contacts and servers on it. The video feed stays adults only. The age
+              check runs before an account row is ever created, and there is no request that can skip
+              it — both the date of birth and the age range are required fields, and the two are
+              cross-checked against each other. An answer that crosses the 18 boundary in one field
+              but not the other is refused and flagged.
             </p>
             <p className="mt-4 text-signal-dim">
               An account with no age on record cannot contact anyone at all until it answers — not
@@ -84,7 +77,7 @@ export function FeaturesRoute() {
             </p>
 
             <ul className="mt-6 space-y-3 text-sm">
-              <Point>Under-18 signups refused before the account exists</Point>
+              <Point>Under-16 signups refused before the account exists</Point>
               <Point>Both age fields required — no API path omits the check</Point>
               <Point>Minors and adults cannot contact each other, enforced server-side on DMs, group DMs and friend requests</Point>
             <Point>An account with no age recorded can contact nobody until it answers</Point>
@@ -113,8 +106,8 @@ export function FeaturesRoute() {
           <Shot
             inline
             src="/screens/age-gate.png"
-            alt="Lumina's registration form refusing an under-18 date of birth with the message: You need to be 18 or over to use Lumina."
-            caption="The actual refusal, not a mockup — an under-18 date of birth entered on the live signup form."
+            alt="Lumina's registration form showing the age section: Lumina is 16+, and under-18s need a parent or guardian to link their account."
+            caption="The live signup form — age is required and cross-checked before an account is ever created."
           />
         </div>
       </section>
@@ -131,9 +124,9 @@ export function FeaturesRoute() {
             A vertical For You feed with its own recommendation engine, hashtags, stitch and duet —
             every upload reviewed by staff before anyone else sees it.
           </Feature>
-          <Feature icon={Server} title="Self-hosted, end to end">
-            Docker Compose, Postgres, Redis, your own TURN server for voice. One command deploys the
-            web app, both Android apps and the desktop build.
+          <Feature icon={Server} title="On every screen">
+            One account across the web app, both Android apps and the Linux desktop build — and
+            installable on iPhone straight from Safari. Voice runs on our own TURN server.
           </Feature>
           <Feature icon={Fingerprint} title="Passkeys and 2FA">
             Sign in with Face ID, a fingerprint or Windows Hello. TOTP two-factor with single-use
@@ -151,7 +144,7 @@ export function FeaturesRoute() {
       </section>
 
       <Shot
-        src="/screens/feed.png"
+        src="/screens/app-feed.png"
         alt="Lumina's For You video feed"
         caption="The For You feed. Adults only, and every video is reviewed before it can appear."
       />
@@ -160,8 +153,8 @@ export function FeaturesRoute() {
       <section className="mx-auto max-w-4xl px-6 py-14">
         <h2 className="mb-2 font-display text-2xl">How it differs from Discord</h2>
         <p className="mb-8 text-sm text-signal-dim">
-          Architectural differences only — the things that follow from Lumina being software you run
-          yourself. Both are good at different jobs.
+          The differences that actually change the experience — how ads work, who can join, and how
+          moderation is handled. Both are good at different jobs.
         </p>
 
         <div className="overflow-x-auto rounded-xl border border-hairline">
@@ -174,14 +167,12 @@ export function FeaturesRoute() {
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
-              <Row label="Where it runs" a="Your server" b="Their cloud" aGood />
-              <Row label="Who holds the data" a="You — your Postgres" b="Discord" aGood />
-              <Row label="Minimum age" a="18+" b="13+" aGood />
+              <Row label="Minimum age" a="16+ (under-18 parent-supervised)" b="13+" aGood />
               <Row label="Behavioural ad targeting" a="None — ads are never targeted on what you say or watch" b="Sponsored placements" aGood />
+              <Row label="Video feed" a="Adults only, every upload human-reviewed" b="No comparable feed" aGood />
               <Row label="Moderation tooling" a="Full console, audit trail, appeals" b="Built-in tools" />
-              <Row label="Source code" a="Yours to read and change" b="Closed" aGood />
-              <Row label="Cost" a="Your hosting bill" b="Free tier + Nitro" />
-              <Row label="Scale" a="What your hardware allows" b="Hundreds of millions of users" bGood />
+              <Row label="Cost" a="Free to join" b="Free tier + Nitro" aGood />
+              <Row label="Scale" a="Small, growing" b="Hundreds of millions of users" bGood />
               <Row label="Ecosystem" a="Small — bots, webhooks, OAuth2, addons" b="Enormous" bGood />
             </tbody>
           </table>
@@ -190,18 +181,18 @@ export function FeaturesRoute() {
         {/* Said plainly, because a comparison table that only flatters is not worth reading. */}
         <p className="mt-4 text-xs text-signal-faint">
           Discord is a larger, more mature product with an ecosystem Lumina will not match. If you
-          want the biggest network and none of the operational work, use Discord. Lumina is for
-          people who would rather own the thing.
+          want the biggest network, use Discord. Lumina is for people who want a smaller place with
+          no behavioural ad targeting, a higher age floor and moderation that shows its work.
         </p>
       </section>
 
       <section className="mx-auto max-w-3xl px-6 pb-20 text-center">
         <div className="rounded-2xl border border-hairline bg-base-800 p-8">
           <Lock className="mx-auto mb-3 h-7 w-7 text-accent" />
-          <h2 className="font-display text-2xl">Run your own</h2>
+          <h2 className="font-display text-2xl">Join Lumina</h2>
           <p className="mx-auto mt-3 max-w-lg text-signal-dim">
-            Free, self-hosted, and yours. Available on the web, Android and Linux desktop — and
-            installable on iPhone straight from Safari.
+            Free to join. Available on the web, Android and Linux desktop — and installable on iPhone
+            straight from Safari.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link
@@ -219,6 +210,8 @@ export function FeaturesRoute() {
           </div>
         </div>
       </section>
+
+      <SiteFooter />
     </div>
   );
 }

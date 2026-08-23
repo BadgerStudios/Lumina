@@ -91,6 +91,8 @@ export async function recordRevenueEvent(params: {
   creatorId?: string | null;
   contentRef?: string | null;
   externalRef?: string | null;
+  /** Stripe PaymentIntent id, for fiat sources — the key a refund/dispute webhook can find this by. */
+  paymentIntentId?: string | null;
   riskContext?: Record<string, unknown>;
 }) {
   try {
@@ -106,6 +108,7 @@ export async function recordRevenueEvent(params: {
         creatorId: params.creatorId ?? null,
         contentRef: params.contentRef ?? null,
         externalRef: params.externalRef ?? null,
+        paymentIntentId: params.paymentIntentId ?? null,
         riskContext: params.riskContext as never,
       },
     });
@@ -229,29 +232,130 @@ export async function releaseMaturedEarnings(limit = 200): Promise<number> {
   });
   let released = 0;
   for (const item of due) {
-    await postTransaction({
-      kind: "earning.release",
-      idempotencyKey: `release:${item.id}`,
-      metadata: { earningItemId: item.id },
-      entries: [
-        { account: ACCOUNTS.CREATOR_PENDING, direction: "DEBIT", amountMinor: item.amountMinor, currency: item.currency, subjectUserId: item.creatorId },
-        { account: ACCOUNTS.CREATOR_PAYABLE, direction: "CREDIT", amountMinor: item.amountMinor, currency: item.currency, subjectUserId: item.creatorId },
-      ],
+    // Claim the row (PENDING→AVAILABLE) BEFORE posting. This conditional update serializes against
+    // reverseRevenueEvent's identical PENDING claim through the row lock, so a maturity release and
+    // a refund reversal can never both post to the ledger for one earning. Losing the claim means a
+    // reversal already took it — skip without posting.
+    const claim = await prisma.earningItem.updateMany({
+      where: { id: item.id, status: "PENDING" },
+      data: { status: "AVAILABLE" },
     });
-    await prisma.earningItem.update({ where: { id: item.id }, data: { status: "AVAILABLE" } });
+    if (claim.count === 0) continue;
+    try {
+      await postTransaction({
+        kind: "earning.release",
+        idempotencyKey: `release:${item.id}`,
+        metadata: { earningItemId: item.id },
+        entries: [
+          { account: ACCOUNTS.CREATOR_PENDING, direction: "DEBIT", amountMinor: item.amountMinor, currency: item.currency, subjectUserId: item.creatorId },
+          { account: ACCOUNTS.CREATOR_PAYABLE, direction: "CREDIT", amountMinor: item.amountMinor, currency: item.currency, subjectUserId: item.creatorId },
+        ],
+      });
+    } catch (err) {
+      // Post failed after we claimed — return the row to PENDING so the next sweep retries, rather
+      // than leaving it AVAILABLE with no release ever posted (money stranded in pending).
+      await prisma.earningItem
+        .updateMany({ where: { id: item.id, status: "AVAILABLE" }, data: { status: "PENDING" } })
+        .catch(() => undefined);
+      throw err;
+    }
     released++;
   }
   return released;
 }
 
-/** Refund/dispute path: reverse the original posting and mark the earning REVERSED. History is
- * untouched; the reversal is a new, visible transaction. */
-export async function reverseRevenueEvent(eventId: string, reason: string) {
+/** Outcome of attempting to reverse one revenue event. Never a throw for the expected refund
+ * shapes — the webhook aggregates these and logs the ones a human must finish by hand. */
+export type ReverseOutcome =
+  | { status: "reversed"; eventId: string; amountMinor: bigint }
+  | { status: "already-reversed"; eventId: string }
+  | { status: "not-posted"; eventId: string }
+  | { status: "no-creator-earning"; eventId: string }
+  | { status: "requires-manual"; eventId: string; earningStatus: string; amountMinor: bigint };
+
+/**
+ * Refund/dispute path: reverse the original posting and mark the creator earning REVERSED.
+ *
+ * LEDGER SAFETY — this is the whole reason the function is shaped like this. The original posting
+ * credited CREATOR_PENDING. `postReversal` mirrors that posting exactly (flips every entry), so it
+ * is only balanced while the creator share is STILL PENDING. Once the hold window elapses,
+ * `releaseMaturedEarnings` has already moved that money PENDING→PAYABLE (and a payout may have
+ * moved it again). Mirroring the original posting then would DEBIT CREATOR_PENDING it no longer
+ * holds, driving that account negative and tripping the financial assertions.
+ *
+ * So: reverse cleanly while PENDING; for a matured/paid earning, DO NOTHING to the ledger and
+ * report `requires-manual` — clawing back money a creator was already paid is a business decision,
+ * not something a webhook may do silently. Platform-only events (no creator share) reverse safely.
+ * Idempotent: the ledger post is keyed `reversal:<txId>`, and a re-run finds the earning already
+ * REVERSED and reports `already-reversed`.
+ */
+export async function reverseRevenueEvent(eventId: string, reason: string): Promise<ReverseOutcome> {
   const event = await prisma.revenueEvent.findUniqueOrThrow({ where: { id: eventId } });
-  if (!event.ledgerTxId) throw new BadRequestError("Event was never posted");
-  await postReversal(event.ledgerTxId, reason);
-  await prisma.earningItem.updateMany({
-    where: { revenueEventId: eventId, status: { in: ["PENDING", "AVAILABLE"] } },
+  if (!event.ledgerTxId || event.status !== "POSTED") return { status: "not-posted", eventId };
+
+  const earning = await prisma.earningItem.findUnique({ where: { revenueEventId: eventId } });
+
+  // Platform-only revenue (no creator share) — safe to mirror, nothing matures.
+  if (!earning) {
+    await postReversal(event.ledgerTxId, reason);
+    return { status: "no-creator-earning", eventId };
+  }
+  if (earning.status === "REVERSED") {
+    // Self-heal the crash window: if the process died AFTER the claim (PENDING→REVERSED) committed but
+    // BEFORE postReversal, the earning reads REVERSED while the ledger reversal was never posted — and
+    // nothing else would ever re-post it (the sweep only touches PENDING). postReversal is idempotent
+    // (keyed `reversal:<txId>`), so this re-posts only if genuinely missing and is a no-op otherwise.
+    await postReversal(event.ledgerTxId, reason);
+    return { status: "already-reversed", eventId };
+  }
+  // Matured or paid out — mirroring would corrupt the ledger. Hands off; a human decides clawback.
+  if (earning.status !== "PENDING") {
+    return { status: "requires-manual", eventId, earningStatus: earning.status, amountMinor: earning.amountMinor };
+  }
+
+  // Claim the still-pending earning BEFORE touching the ledger. This conditional update serializes,
+  // via the row lock, against releaseMaturedEarnings' identical `status: "PENDING"` claim: exactly
+  // one of {reverse, release} can move the row out of PENDING, so the reversal posting and the
+  // maturity release can never both fire for the same earning (which would double-debit
+  // CREATOR_PENDING). If we lose the claim, the row already moved — re-read and report precisely.
+  const claim = await prisma.earningItem.updateMany({
+    where: { revenueEventId: eventId, status: "PENDING" },
     data: { status: "REVERSED" },
   });
+  if (claim.count === 1) {
+    try {
+      await postReversal(event.ledgerTxId, reason);
+    } catch (err) {
+      // Post failed after we claimed — roll the claim back to PENDING so a webhook redelivery
+      // retries cleanly, rather than leaving the row REVERSED with the ledger never reversed.
+      await prisma.earningItem
+        .updateMany({ where: { revenueEventId: eventId, status: "REVERSED" }, data: { status: "PENDING" } })
+        .catch(() => undefined);
+      throw err;
+    }
+    return { status: "reversed", eventId, amountMinor: earning.amountMinor };
+  }
+  const current = await prisma.earningItem.findUnique({ where: { revenueEventId: eventId } });
+  if (current?.status === "REVERSED") return { status: "already-reversed", eventId };
+  return { status: "requires-manual", eventId, earningStatus: current?.status ?? "UNKNOWN", amountMinor: earning.amountMinor };
+}
+
+/**
+ * Reverse every posted creator earning funded by one Stripe PaymentIntent. This is the entry point
+ * a `charge.refunded` / `charge.dispute.created` webhook calls — those payloads carry the
+ * payment_intent but not the checkout-session / invoice id the event was keyed on, which is exactly
+ * why `RevenueEvent.paymentIntentId` exists. Returns the per-event outcomes so the caller can log
+ * the `requires-manual` ones; never throws for the matured case.
+ */
+export async function reverseEarningsForPaymentIntent(paymentIntentId: string, reason: string): Promise<ReverseOutcome[]> {
+  if (!paymentIntentId) return [];
+  const events = await prisma.revenueEvent.findMany({
+    where: { paymentIntentId, status: "POSTED" },
+    select: { id: true },
+  });
+  const outcomes: ReverseOutcome[] = [];
+  for (const e of events) {
+    outcomes.push(await reverseRevenueEvent(e.id, reason));
+  }
+  return outcomes;
 }

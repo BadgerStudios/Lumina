@@ -39,7 +39,7 @@ const specSchema = z.object({
   plugins: z.array(z.string().max(400)).max(200).default([]),
   worldUrl: z.string().max(500).optional(),
   motd: z.string().max(120).optional(),
-  extraEnv: z.record(z.string().max(2000)).optional(),
+  extraEnv: z.record(z.string().max(2000)).refine((r) => Object.keys(r).length <= 50, "too many env keys (max 50)").optional(),
 });
 
 function serializeOwner(s: {
@@ -203,9 +203,13 @@ export default async function sandboxRoutes(fastify: FastifyInstance) {
         },
         select: { specJson: true, pendingCommand: true },
       });
-      // Deliver + clear the queued command in the same breath so it fires exactly once.
+      // Deliver + clear the queued command exactly once. Conditional on the value we just read, so
+      // two concurrent polls can't both read-and-return the same command before either clears it.
       if (s.pendingCommand) {
-        await prisma.gameSandbox.update({ where: { id: request.sandbox!.id }, data: { pendingCommand: null } });
+        await prisma.gameSandbox.updateMany({
+          where: { id: request.sandbox!.id, pendingCommand: s.pendingCommand },
+          data: { pendingCommand: null },
+        });
       }
       return { command: s.pendingCommand ?? null, spec: s.specJson ?? null };
     },
@@ -245,6 +249,19 @@ export default async function sandboxRoutes(fastify: FastifyInstance) {
   fastify.get("/:id/public", { preHandler: [requireAuth] }, async (request) => {
     const s = await prisma.gameSandbox.findUnique({ where: { id: (request.params as { id: string }).id } });
     if (!s) throw new NotFoundError("Sandbox not found");
+    // "Anyone who can see the attached server can see this" — enforce it. This returns the owner's
+    // own machine's connect address, so a caller who once held the id (or a sandbox attached
+    // elsewhere) must not keep reading it after leaving the server. Owner always may; otherwise the
+    // sandbox must be attached to a server the caller is currently a member of.
+    if (s.ownerId !== request.userId) {
+      const membership = s.serverId
+        ? await prisma.membership.findUnique({
+            where: { userId_serverId: { userId: request.userId!, serverId: s.serverId } },
+            select: { id: true },
+          })
+        : null;
+      if (!membership) throw new NotFoundError("Sandbox not found");
+    }
     const online = !!s.lastHeartbeat && Date.now() - s.lastHeartbeat.getTime() < HEARTBEAT_STALE_MS;
     return {
       id: s.id,

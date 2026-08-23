@@ -144,9 +144,8 @@ export interface PollVotePayload {
  * already had. The alternative — trusting the payload — would silently clear every viewer's own
  * ticks each time anyone else voted.
  */
-export function patchPollVote(data: MessagePages, payload: PollVotePayload, currentUserId: string | undefined): MessagePages {
+export function patchPollVote(data: MessagePages, payload: PollVotePayload, _currentUserId: string | undefined): MessagePages {
   if (!data) return data;
-  const isMine = !!currentUserId && payload.voterId === currentUserId;
   return {
     ...data,
     pages: data.pages.map((page) =>
@@ -159,9 +158,13 @@ export function patchPollVote(data: MessagePages, payload: PollVotePayload, curr
             ...payload.poll,
             options: payload.poll.options.map((o) => ({
               ...o,
-              // The voter's own flags come from the fresh payload's vote counts via the option the
-              // event says they touched; everyone else keeps their existing flag untouched.
-              votedByMe: isMine ? o.votedByMe : (previous.get(o.id) ?? false),
+              // votedByMe is preserved from the local cache for EVERYONE, including the voter — the
+              // broadcast payload is serialized with no viewer so its votedByMe is always false.
+              // The old `isMine` branch trusted that false for the voter, which un-ticked their own
+              // selection a beat after the optimistic REST update ticked it. The voter's own choice
+              // is authoritatively tracked by that optimistic mutation, not by this echo; take the
+              // fresh counts from the payload and keep every votedByMe flag from what's already here.
+              votedByMe: previous.get(o.id) ?? false,
             })),
           },
         };

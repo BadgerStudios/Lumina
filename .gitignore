@@ -73,3 +73,6 @@ secrets/
 apps/frontend/dist-verify-mobile/
 game-agent-plugin/target/
 game-agent-plugin/dependency-reduced-pom.xml
+
+# Local migration scratch data — not source.
+migdata/

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
@@ -96,36 +96,112 @@ export async function probeVideo(sourcePath: string): Promise<ProbeResult> {
  * dimensions even (H.264 requires it — an odd dimension is a hard encoder failure). `-threads 2`
  * bounds CPU so one video can't monopolise the box.
  */
-export async function transcodeVideo(sourcePath: string, destPath: string): Promise<void> {
-  try {
-    await execFileAsync(
-      "ffmpeg",
-      [
-        "-nostdin",
-        "-v", "error",
-        "-protocol_whitelist", "file",
-        "-y",
-        "-i", sourcePath,
-        "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease,scale=-2:trunc(ih/2)*2",
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "26",
-        "-profile:v", "main",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ac", "2",
-        "-movflags", "+faststart",
-        "-threads", "2",
-        destPath,
-      ],
-      { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
-    );
-  } catch (err) {
-    await safeUnlink(destPath);
-    const stderr = (err as { stderr?: string }).stderr ?? "";
-    throw new TranscodeError(stderr.trim().split("\n").pop() || "Transcode failed");
-  }
+export async function transcodeVideo(
+  sourcePath: string,
+  destPath: string,
+  opts?: {
+    /** Enables progress reporting when provided alongside onProgress — without a known duration
+     * there is nothing to compute a fraction against. */
+    durationMs?: number;
+    /** Called with a 0-0.99 fraction as ffmpeg reports its own encode position. Best-effort: a
+     * missed or malformed progress line is silently skipped rather than failing the transcode over
+     * a UI nicety. Never reaches 1 — that transition is the caller's to make, once the file (and
+     * the thumbnail after it) genuinely exist on disk. */
+    onProgress?: (fraction: number) => void;
+  },
+): Promise<void> {
+  const args = [
+    "-nostdin",
+    "-v", "error",
+    "-protocol_whitelist", "file",
+    "-y",
+    "-i", sourcePath,
+    "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease,scale=-2:trunc(ih/2)*2",
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-crf", "26",
+    "-profile:v", "main",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "128k",
+    "-ac", "2",
+    "-movflags", "+faststart",
+    "-threads", "2",
+    // Periodic key=value progress lines on stdout, entirely separate from -v error's stderr — the
+    // two must not be mixed, since stderr's only job here is carrying a real error message if the
+    // process exits non-zero. -nostats additionally suppresses ffmpeg's own default per-frame
+    // stats line, which (unlike -progress) is not gated by -v and would otherwise land in the same
+    // stream the error-tail logic below reads from.
+    "-progress", "pipe:1",
+    "-nostats",
+    destPath,
+  ];
+
+  await new Promise<void>((resolve, reject) => {
+    // Same lockdown as every other ffmpeg/ffprobe invocation in this file (see probeVideo's
+    // comment above): argument-array exec, -protocol_whitelist file, -nostdin. spawn rather than
+    // execFile specifically because execFile buffers everything until the process exits — progress
+    // has to be readable while ffmpeg is still running, and spawn is the one of the two that
+    // streams instead of buffering.
+    const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+
+    let settled = false;
+    let stdoutBuf = "";
+    // Bounded so a file that makes ffmpeg spew warnings can't grow this without limit for the
+    // life of the process — only the tail is ever used, for the eventual error message.
+    let stderrTail = "";
+
+    // execFile's `timeout` option has no spawn equivalent, so the same wall-clock backstop
+    // (see FFMPEG_TIMEOUT_MS's own comment) is reimplemented by hand here.
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new TranscodeError("Transcode timed out"));
+    }, FFMPEG_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (!opts?.onProgress || !opts.durationMs) return;
+      stdoutBuf += chunk.toString("utf8");
+      let idx: number;
+      while ((idx = stdoutBuf.indexOf("\n")) >= 0) {
+        const line = stdoutBuf.slice(0, idx).trim();
+        stdoutBuf = stdoutBuf.slice(idx + 1);
+        // out_time=HH:MM:SS.ffffff — read this over ffmpeg's own out_time_ms/out_time_us fields,
+        // which have historically disagreed with their own names about which unit they're in
+        // across ffmpeg versions. A colon-and-dot timestamp has exactly one possible reading.
+        const match = /^out_time=(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(line);
+        if (match) {
+          const outMs =
+            (Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])) * 1000;
+          opts.onProgress(Math.max(0, Math.min(0.99, outMs / opts.durationMs)));
+        }
+      }
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrTail = (stderrTail + chunk.toString("utf8")).slice(-4000);
+    });
+
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new TranscodeError(err.message));
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const message = stderrTail.trim().split("\n").pop() || "Transcode failed";
+      void safeUnlink(destPath).finally(() => reject(new TranscodeError(message)));
+    });
+  });
 }
 
 /** Single frame ~1s in (or at the start for very short clips), used as the feed poster image so a
@@ -169,7 +245,15 @@ export async function generateThumbnail(
  * Any TranscodeError becomes a FAILED row carrying a reason the uploader can actually read, rather
  * than a video stuck in PROCESSING forever with no explanation.
  */
-export async function processVideo(videoId: bigint): Promise<void> {
+export async function processVideo(
+  videoId: bigint,
+  opts?: {
+    /** Whether this is the last attempt BullMQ will make for this job. Defaults to true so any
+     * caller that doesn't pass it (or a future one) gets the safe, terminal behaviour rather than
+     * silently never writing FAILED. */
+    isFinalAttempt?: boolean;
+  },
+): Promise<void> {
   const video = await prisma.video.findUnique({ where: { id: videoId } });
   if (!video) return;
   // Guards against a duplicate/replayed job re-transcoding something already decided — including
@@ -199,7 +283,27 @@ export async function processVideo(videoId: bigint): Promise<void> {
     }
 
     const probe = await probeVideo(sourcePath);
-    await transcodeVideo(sourcePath, playbackPath);
+
+    // Throttled by both time and value so a normal transcode writes a handful of rows, not one per
+    // progress line ffmpeg emits (several a second). Fire-and-forget: a dropped or failed progress
+    // write is invisible to the uploader and must never be what fails an otherwise-succeeding
+    // transcode.
+    let lastWrittenPct = -1;
+    let lastWriteAt = 0;
+    await transcodeVideo(sourcePath, playbackPath, {
+      durationMs: probe.durationMs,
+      onProgress: (fraction) => {
+        const pct = Math.round(fraction * 100);
+        const now = Date.now();
+        if (pct === lastWrittenPct) return;
+        if (now - lastWriteAt < 1500 && pct < 99) return;
+        lastWrittenPct = pct;
+        lastWriteAt = now;
+        void prisma.video
+          .update({ where: { id: videoId }, data: { progressPct: pct } })
+          .catch(() => undefined);
+      },
+    });
     await generateThumbnail(playbackPath, thumbnailPath, probe.durationMs);
 
     await prisma.video.update({
@@ -229,17 +333,27 @@ export async function processVideo(videoId: bigint): Promise<void> {
     await safeUnlink(uploadPath);
     if (composedPath) await safeUnlink(composedPath);
   } catch (err) {
+    // Only a FINAL attempt writes the terminal FAILED status. Writing it on every attempt used to
+    // make BullMQ's own retries pointless: the guard at the top of this function
+    // (`status !== "PROCESSING"` → return) saw the FAILED row a retry itself had just written,
+    // returned without throwing, and BullMQ recorded that as a completed job — so a transient
+    // failure (disk pressure, a worker restart mid-job) got exactly one real attempt no matter what
+    // `attempts` was configured to. Cleanup is held back for the same reason: deleting the raw
+    // upload on a non-final attempt would make every subsequent retry fail identically with "file
+    // not found", which is not a retry at all.
     const reason = err instanceof TranscodeError ? err.message : "Unexpected error while processing";
-    await prisma.video.update({
-      where: { id: videoId },
-      data: { status: "FAILED", failureReason: reason.slice(0, 500) },
-    });
-    await Promise.all([
-      safeUnlink(playbackPath),
-      safeUnlink(thumbnailPath),
-      safeUnlink(uploadPath),
-      ...(composedPath ? [safeUnlink(composedPath)] : []),
-    ]);
+    if (opts?.isFinalAttempt ?? true) {
+      await prisma.video.update({
+        where: { id: videoId },
+        data: { status: "FAILED", failureReason: reason.slice(0, 500) },
+      });
+      await Promise.all([
+        safeUnlink(playbackPath),
+        safeUnlink(thumbnailPath),
+        safeUnlink(uploadPath),
+        ...(composedPath ? [safeUnlink(composedPath)] : []),
+      ]);
+    }
     throw err;
   }
 }

@@ -45,7 +45,8 @@ export function AgeGateModal() {
       <div className="w-full max-w-md rounded-xl border border-hairline bg-base-800 p-6">
         <h2 className="font-display text-xl text-signal">One quick thing</h2>
         <p className="mt-2 text-sm text-signal-dim">
-          We need your age before you can carry on using Lumina. Lumina is 18+. Your date of birth is
+          We need your age before you can carry on using Lumina. Lumina is 16+; if you're under 18 a
+          parent or guardian will need to link their account to yours. Your date of birth is
           never shown on your profile — see our{" "}
           <a href="/privacy" className="text-accent hover:underline">
             privacy policy

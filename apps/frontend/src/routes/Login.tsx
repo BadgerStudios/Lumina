@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Fingerprint } from "lucide-react";
+import { SiteThemeMenu } from "../components/SiteThemeMenu";
+import { Turnstile } from "../components/Turnstile";
 import { isMfaChallenge, useLogin, useVerifyMfa } from "../queries/auth";
 import { ApiError } from "../lib/apiClient";
 import {
@@ -14,6 +16,7 @@ import { useAuthStore } from "../store/authStore";
 export function Login() {
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
   const login = useLogin();
   const verifyMfa = useVerifyMfa();
   const navigate = useNavigate();
@@ -43,7 +46,7 @@ export function Login() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     try {
-      const result = await login.mutateAsync({ emailOrUsername, password });
+      const result = await login.mutateAsync({ emailOrUsername, password, turnstileToken: turnstileToken || undefined });
       if (isMfaChallenge(result)) {
         setMfaTicket(result.mfaTicket);
         // Cleared immediately: the password has done its job and there is no reason for it to stay
@@ -123,7 +126,10 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-app items-center justify-center bg-base-900">
+    <div className="relative flex min-h-app items-center justify-center bg-base-900">
+      <div className="absolute right-4 top-4">
+        <SiteThemeMenu />
+      </div>
       <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
         <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
         <h1 className="mb-1 text-center text-2xl font-bold text-signal">Welcome back</h1>
@@ -161,9 +167,24 @@ export function Login() {
 
           {login.isError ? (
             <p className="text-sm text-dnd">
-              {login.error instanceof ApiError ? login.error.message : "Login failed"}
+              {/* A non-ApiError here means something threw client-side AFTER a request the
+                  server may have handled successfully — the generic "Login failed" that used to
+                  show gave no way to tell those two apart from on-device. Surfacing the real
+                  message (and constructor name, since some throws carry no message at all) turns
+                  the phone screen itself into the diagnostic instead of guessing blind. */}
+              {login.error instanceof ApiError
+                ? login.error.message
+                : login.error instanceof Error
+                  ? `${login.error.name}: ${login.error.message || "(no message)"}`
+                  : `Login failed: ${String(login.error)}`}
             </p>
           ) : null}
+
+          {/* Every login is challenged (see requireTurnstileForLogin). Solving it here means the
+              token rides the first request; without an inline widget each sign-in would round-trip
+              403 -> challenge modal -> retry, flashing a modal at every user every time. It renders
+              nothing when Turnstile is unconfigured, so this stays correct if the keys are removed. */}
+          <Turnstile onToken={setTurnstileToken} action="login" />
 
           <button
             type="submit"
@@ -215,6 +236,11 @@ export function Login() {
           Need an account?{" "}
           <Link to="/register" className="text-accent hover:underline">
             Register
+          </Link>
+        </p>
+        <p className="mt-1 text-sm text-signal-dim">
+          <Link to="/forgot-password" className="text-accent hover:underline">
+            Forgot your password?
           </Link>
         </p>
       </div>

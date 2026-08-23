@@ -184,7 +184,29 @@ function parseTarget(raw: string): URL {
   return url;
 }
 
-function requestOnce(url: URL, deadline: number, userAgent: string): Promise<SafeResponse> {
+/**
+ * What a caller will accept back. The defaults are the link-preview behaviour this module was
+ * written for — HTML only, anything else dropped unread — because that is what makes a preview
+ * fetch safe against a 4GB ISO behind a link.
+ *
+ * A JSON caller (the bot onboarding worker reading npm/GitHub metadata) needs the same SSRF
+ * hardening — pinned DNS, rebinding checks, redirect re-validation, byte cap — against a
+ * different content type, so it passes its own instead of getting an empty body and a 200.
+ */
+export interface SafeFetchOptions {
+  /** Sent as the Accept header. */
+  accept?: string;
+  /** Response content-types that may be read. A response outside it is dropped unread. */
+  contentTypePattern?: RegExp;
+}
+
+const HTML_CONTENT_TYPES = /^\s*(text\/html|application\/xhtml\+xml)/i;
+export const JSON_FETCH: SafeFetchOptions = {
+  accept: "application/json,text/plain;q=0.9",
+  contentTypePattern: /^\s*(application\/json|application\/vnd\.github|text\/plain)/i,
+};
+
+function requestOnce(url: URL, deadline: number, userAgent: string, options: SafeFetchOptions = {}): Promise<SafeResponse> {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === "https:" ? https : http;
     const remaining = deadline - Date.now();
@@ -205,7 +227,7 @@ function requestOnce(url: URL, deadline: number, userAgent: string): Promise<Saf
         headers: {
           // Honest about what this is. A site that would rather not be unfurled can refuse it.
           "user-agent": userAgent,
-          accept: "text/html,application/xhtml+xml",
+          accept: options.accept ?? "text/html,application/xhtml+xml",
           // Compression is declined on purpose: a decompressor turns the byte cap into a cap on
           // *compressed* bytes, and a zip bomb expands well past it.
           "accept-encoding": "identity",
@@ -220,7 +242,7 @@ function requestOnce(url: URL, deadline: number, userAgent: string): Promise<Saf
         // reading a byte of the body.
         const contentType = String(res.headers["content-type"] ?? "");
         const isRedirect = res.statusCode !== undefined && res.statusCode >= 300 && res.statusCode < 400;
-        if (!isRedirect && contentType && !/^\s*(text\/html|application\/xhtml\+xml)/i.test(contentType)) {
+        if (!isRedirect && contentType && !(options.contentTypePattern ?? HTML_CONTENT_TYPES).test(contentType)) {
           res.destroy();
           resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.alloc(0), finalUrl: url.toString(), truncated: false });
           return;
@@ -281,12 +303,16 @@ function requestOnce(url: URL, deadline: number, userAgent: string): Promise<Saf
  * treat that as a cached negative rather than a retryable failure, because it will not become true
  * later.
  */
-export async function safeFetch(rawUrl: string, userAgent = "LuminaBot/1.0 (+link preview)"): Promise<SafeResponse> {
+export async function safeFetch(
+  rawUrl: string,
+  userAgent = "LuminaBot/1.0 (+link preview)",
+  options: SafeFetchOptions = {},
+): Promise<SafeResponse> {
   const deadline = Date.now() + TOTAL_TIMEOUT_MS;
   let url = parseTarget(rawUrl);
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    const res = await requestOnce(url, deadline, userAgent);
+    const res = await requestOnce(url, deadline, userAgent, options);
     const location = res.headers.location;
     const isRedirect = res.status >= 300 && res.status < 400 && typeof location === "string" && location.length > 0;
     if (!isRedirect) return res;

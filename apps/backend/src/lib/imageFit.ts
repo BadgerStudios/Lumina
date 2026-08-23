@@ -1,4 +1,10 @@
 import sharp from "sharp";
+
+// sharp ships as `export = sharp` with its types on a merged namespace. sharp 0.35 stopped exposing
+// that namespace through the default import, so `sharp.Metadata` no longer resolves as a type.
+// Deriving it from the value is version-proof: it's whatever `.metadata()` resolves to, whatever
+// sharp calls it internally.
+type SharpMetadata = Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
 import { BadRequestError } from "./errors.js";
 
 /**
@@ -48,8 +54,13 @@ const PRESETS: Record<ImagePreset, PresetSpec> = {
   // it is on emoji — a still frame of an animated sticker is a different sticker.
   sticker: { width: 320, height: 320, allowAnimation: true, quality: 85 },
   serverIcon: { width: 512, height: 512, allowAnimation: true, quality: 82 },
-  // 3:1. Matches how every banner surface renders today (a short, full-width strip), so the
-  // stored pixels and the displayed box agree and nothing is cropped twice.
+  // 3:1, and the display boxes are pinned to the same ratio with `aspect-[3/1]` — see
+  // UserProfileCard, UserSettingsModal and ServerSettingsModal. That coupling is the whole point:
+  // if a surface picks its own height instead, `cover` crops the banner a SECOND time on top of
+  // the crop performed here, and the uploader loses part of what they framed. It regressed exactly
+  // that way once (boxes were h-16/h-24/h-20 against a 3:1 asset, so the h-16 w-72 profile card
+  // was discarding 32 of every 96 rendered pixels — a third of the banner). If you change these
+  // numbers, change the aspect-[3/1] classes to match.
   userBanner: { width: 1500, height: 500, allowAnimation: false, quality: 80 },
   serverBanner: { width: 1920, height: 640, allowAnimation: false, quality: 80 },
 };
@@ -78,7 +89,7 @@ export interface FittedImage {
 export async function fitImage(input: Buffer, preset: ImagePreset): Promise<FittedImage> {
   const spec = PRESETS[preset];
 
-  let metadata: sharp.Metadata;
+  let metadata: SharpMetadata;
   try {
     metadata = await sharp(input, { limitInputPixels: MAX_INPUT_PIXELS }).metadata();
   } catch {
@@ -106,7 +117,7 @@ export async function fitImage(input: Buffer, preset: ImagePreset): Promise<Fitt
 /** The source's dimensions **as they will be after auto-orientation** — EXIF orientations 5-8
  * transpose the image, so reading width/height straight off the metadata would have them the
  * wrong way round for a photo taken in portrait on a phone. */
-function sourceSize(metadata: sharp.Metadata): { width: number; height: number } {
+function sourceSize(metadata: SharpMetadata): { width: number; height: number } {
   // For an animated source, `height` is the whole filmstrip; `pageHeight` is one frame.
   const width = metadata.width ?? 0;
   const height = metadata.pageHeight ?? metadata.height ?? 0;

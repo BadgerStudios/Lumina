@@ -16,8 +16,9 @@ function formatTime(iso: string): string {
  * ever passed `onSearch` down to it. Everything up to the last mile was built. This is the last
  * mile, and it is the third time this exact gap has been found in this codebase.
  *
- * Deliberately mirrors PinnedMessagesPanel: same anchored panel, same shape, so the two things you
- * can open from the header behave identically rather than being two people's idea of a panel.
+ * Anchored under the room header capsule. Unlike pins — which moved into the contextual aside so
+ * they can sit BESIDE the conversation — search results are transient and belong over it: you read
+ * one, you jump, they go away.
  */
 export function SearchResultsPanel({
   serverId,
@@ -34,8 +35,8 @@ export function SearchResultsPanel({
   const channelName = (id: string | null) => channels?.find((c) => c.id === id)?.name ?? "unknown";
 
   return (
-    <div className="absolute right-3 top-14 z-20 flex max-h-[calc(var(--app-height-safe)*0.70)] w-96 flex-col overflow-hidden rounded-lg border border-base-500 bg-base-800 shadow-2xl">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-base-900/60 px-3 py-2.5 text-sm font-semibold text-signal">
+    <div className="lx-raised absolute right-3 top-[3.6rem] z-20 flex max-h-[calc(var(--app-height-safe)*0.70)] w-96 max-w-[calc(100%-1.5rem)] flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-hairline px-3 py-2.5 text-sm font-semibold text-signal">
         <Search size={15} className="text-accent" />
         Results for “{query}”
         <button onClick={onClose} className="ml-auto text-signal-dim hover:text-signal" aria-label="Close search results">

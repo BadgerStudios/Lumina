@@ -78,7 +78,12 @@ export default async function feedRoutes(fastify: FastifyInstance) {
 
         if (picked.length > 0) {
           const adVideos = await prisma.video.findMany({
-            where: { id: { in: picked.map((c) => c.videoId) } },
+            // Restated even though eligibleCampaigns() already filtered on the video's status: that
+            // filter ran moments earlier in the same request, and every other place a video reaches
+            // a viewer re-checks status: "APPROVED" in its own where-clause rather than trusting an
+            // earlier query — a takedown landing in the gap between the two queries is a narrow
+            // window, but this is the one public video query that didn't close it.
+            where: { id: { in: picked.map((c) => c.videoId) }, status: "APPROVED", playbackKey: { not: null } },
             include: { author: { select: VIDEO_AUTHOR_SELECT }, ...VIDEO_TAGS_INCLUDE, ...VIDEO_SOURCE_INCLUDE },
           });
           const byId = new Map(adVideos.map((v) => [v.id.toString(), v]));

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "prom-client";
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
+import { timingSafeEqual } from "node:crypto";
 
 /**
  * Prometheus metrics.
@@ -146,7 +147,11 @@ export function registerMetricsRoute(fastify: FastifyInstance): void {
     const presented = String(request.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
     // Token check first: an operator who set one can scrape from anywhere, and someone on the
     // Docker network is already inside the trust boundary.
-    const authorized = (token && presented === token) || isLocalScrape(request);
+    const authorized =
+      (!!token &&
+        presented.length === token.length &&
+        timingSafeEqual(Buffer.from(presented), Buffer.from(token))) ||
+      isLocalScrape(request);
     if (!authorized) {
       // 404, not 403. A 403 confirms the endpoint exists and is worth coming back to.
       reply.code(404);

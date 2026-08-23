@@ -1,6 +1,7 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
+import { rmSync } from "node:fs";
 
 /**
  * Two builds from one source tree, selected by APP_VARIANT:
@@ -15,8 +16,42 @@ import { resolve } from "node:path";
  */
 const isOwnerBuild = process.env.APP_VARIANT === "owner";
 
-export default defineConfig({
-  plugins: [react()],
+/**
+ * Landing-page media, dropped from the native bundles.
+ *
+ * Everything under public/ is copied verbatim into dist/, and Capacitor then copies dist/ into the
+ * APK — so the marketing site's assets ship inside the app. That is 20MB+ of nebula loop and
+ * product footage, for a page a native build never renders: `/` routes straight to the app when
+ * CLIENT_TYPE is set (see App.tsx's LandingGate).
+ *
+ * Discovered by diffing a rebuilt APK against the shipped one: 34MB vs 14MB, and the entire delta
+ * was the five-minute background video.
+ *
+ * Web builds keep all of it, obviously — that is where it is actually used.
+ */
+const LANDING_ONLY = ["screens"];
+
+function stripLandingMedia(outDir: string): Plugin {
+  return {
+    name: "lumina-strip-landing-media",
+    apply: "build",
+    closeBundle() {
+      for (const dir of LANDING_ONLY) {
+        rmSync(resolve(__dirname, outDir, dir), { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+
+export default defineConfig(({ mode }) => ({
+  // The owner console carries them too — 5MB of the marketing site inside an admin app that has
+  // never had a route which renders any of it.
+  plugins: [
+    react(),
+    ...(mode === "mobile" || mode === "desktop" ? [stripLandingMedia("dist")] : []),
+    ...(isOwnerBuild ? [stripLandingMedia("dist-owner")] : []),
+  ],
   ...(isOwnerBuild
     ? {
         // Relative asset paths so one bundle works in both places it is served: Capacitor loads it
@@ -51,4 +86,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

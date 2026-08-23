@@ -7,8 +7,8 @@ android {
         applicationId "com.luxffa.lumina"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 29
-        versionName "1.29"
+        versionCode 52
+        versionName "1.52"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -39,6 +39,13 @@ dependencies {
     // BiometricPrompt — the packaged apps cannot use WebAuthn passkeys (their capacitor:// origin
     // can never match the relying-party domain), so biometric unlock is done natively instead.
     implementation "androidx.biometric:biometric:1.1.0"
+    // Native age assurance (AgeSignalsPlugin): Play Integrity attests the app is genuine, Play Age
+    // Signals supplies the coarse age band. The backend (verification/attestation.ts) trusts the band
+    // only if the Integrity token verifies. Age Signals is beta + geo-gated (Google's staged rollout
+    // through end of 2026), so the band is often "unavailable" — the app then falls back to the
+    // self-declared birthday, same as web.
+    implementation "com.google.android.play:integrity:1.4.0"
+    implementation "com.google.android.play:age-signals:0.0.4"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

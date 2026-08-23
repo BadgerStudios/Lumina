@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { prisma } from "../../db/prisma.js";
+import { env } from "../../config/env.js";
 
 /**
  * Public stats for the marketing site. Mounted under /api/site.
@@ -36,9 +37,13 @@ export default async function siteRoutes(fastify: FastifyInstance) {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-      const [users, newUsers, downloads, recentDownloads, videos, byCountryUsers, byCountryDownloads, recentSignups] =
+      const [users, onlineNow, newUsers, downloads, recentDownloads, videos, byCountryUsers, byCountryDownloads, recentSignups] =
         await Promise.all([
           prisma.user.count({ where: { isBot: false } }),
+          // Live count of people connected right now. Presence is flipped to OFFLINE on socket
+          // disconnect (realtime/handlers/presence.ts), so "not OFFLINE" is the set of currently
+          // connected humans — bots excluded so the number reads as a community size, not traffic.
+          prisma.user.count({ where: { isBot: false, presence: { not: "OFFLINE" } } }),
           prisma.user.count({ where: { isBot: false, createdAt: { gte: weekAgo } } }),
           prisma.appDownload.count(),
           prisma.appDownload.count({ where: { createdAt: { gte: weekAgo } } }),
@@ -86,8 +91,13 @@ export default async function siteRoutes(fastify: FastifyInstance) {
       }
 
       return {
+        // Drives the landing-page status pill. "offline" is intentionally not a value the server
+        // can return — a reachable server is by definition not offline; the client renders red only
+        // when this request fails outright.
+        status: env.SITE_STATUS,
         totals: {
           users,
+          onlineNow,
           newUsersThisWeek: newUsers,
           downloads,
           downloadsThisWeek: recentDownloads,

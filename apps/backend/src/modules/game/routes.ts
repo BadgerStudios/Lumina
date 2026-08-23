@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
 import { redis } from "../../db/redis.js";
 import { requireAuth, requireMembership, resolveServerId } from "../../plugins/authenticate.js";
-import { BadRequestError, NotFoundError } from "../../lib/errors.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import {
   cacheSkin,
   generateVerifyCode,
@@ -101,6 +101,17 @@ export default async function gameRoutes(fastify: FastifyInstance) {
     "/minecraft/verify",
     { schema: { body: verifySchema }, preHandler: [requireAuth] },
     async (request) => {
+      // Plugin-only: the whole proof is that a trusted server plugin WITNESSED the UUID in-game and
+      // reports it. requireAuth also accepts ordinary human sessions, so without this gate a user
+      // could just call /minecraft/link {username:"Notch"} then /minecraft/verify with their own
+      // code + Notch's public UUID and self-verify a link to an account they don't own. Requiring a
+      // bot principal enforces the documented contract (the plugin authenticates with a bot token).
+      // (Residual: a user who stands up their own bot could still call this; fully closing that
+      // needs binding verification to the specific game-server agent, which is a plugin-contract
+      // change — tracked separately.)
+      const caller = await prisma.user.findUnique({ where: { id: request.userId! }, select: { isBot: true } });
+      if (!caller?.isBot) throw new ForbiddenError("Minecraft verification is performed by the server plugin, not a user session");
+
       const { code, uuid } = request.body as z.infer<typeof verifySchema>;
       const normalized = uuid.replace(/-/g, "").toLowerCase();
 

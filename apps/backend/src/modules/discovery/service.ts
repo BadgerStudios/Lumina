@@ -61,6 +61,7 @@ export async function getDiscovery(viewerId: string) {
           iconUrl: true,
           description: true,
           createdAt: true,
+          isOfficial: true,
           _count: { select: { memberships: true } },
         },
       }),
@@ -72,7 +73,12 @@ export async function getDiscovery(viewerId: string) {
       prisma.user.findMany({
         // Adults only, never bots. Minors are already unreachable behind requireAdult, but this
         // query must not DEPEND on that staying true.
-        where: { isMinor: false, isBot: false, ageRecordedAt: { not: null }, id: { not: viewerId } },
+        where: {
+          isMinor: false, isBot: false, ageRecordedAt: { not: null }, id: { not: viewerId },
+          // Same reason as the lookup filter: an account can be fully usable and still not be
+          // something Discover offers strangers.
+          hiddenFromDirectory: false,
+        },
         orderBy: { updatedAt: "desc" },
         take: POOL_SIZE,
       }),
@@ -103,6 +109,9 @@ export async function getDiscovery(viewerId: string) {
     description: s.description,
     memberCount: s._count.memberships,
     createdAt: s.createdAt.toISOString(),
+    // Discover is exactly where an imitation would want to be seen, so the badge has to survive
+    // the trip into this narrower card DTO rather than only existing on the full ServerDTO.
+    isOfficial: s.isOfficial,
   });
 
   return {

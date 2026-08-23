@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { Permissions } from "@lumina/shared";
 import type { MessageDTO, WebhookDTO, WebhookWithTokenDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
@@ -72,7 +73,14 @@ export async function postToWebhook(params: {
 }): Promise<MessageDTO> {
   const webhook = await prisma.webhook.findUnique({ where: { id: params.webhookId } });
   if (!webhook) throw new NotFoundError("Webhook not found");
-  if (hashRefreshToken(params.token) !== webhook.tokenHash) throw new UnauthorizedError("Invalid webhook token");
+  // Plain !== on hash values is a timing oracle in principle (bails at the first differing byte);
+  // emailVerification.ts's token check already uses timingSafeEqual for the same reason, so this
+  // matches that established convention rather than introducing a second standard.
+  const expected = Buffer.from(hashRefreshToken(params.token));
+  const presented = Buffer.from(webhook.tokenHash);
+  if (expected.length !== presented.length || !timingSafeEqual(expected, presented)) {
+    throw new UnauthorizedError("Invalid webhook token");
+  }
   if (!params.content?.trim()) throw new BadRequestError("Message must have content");
 
   return createWebhookMessage({

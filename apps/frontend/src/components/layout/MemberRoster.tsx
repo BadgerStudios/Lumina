@@ -9,7 +9,6 @@ import { useCreateDM } from "../../queries/dms";
 import { useTimeoutMember, useBanMember } from "../../queries/moderation";
 import { usePresenceStore } from "../../store/presenceStore";
 import { reportError } from "../../store/toastStore";
-import { useUIStore } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import { UserAvatar } from "../common/UserAvatar";
 import { BotBadge } from "../common/BotBadge";
@@ -20,7 +19,8 @@ import { ApiError } from "../../lib/apiClient";
 import { cn } from "../../lib/cn";
 import type { MemberDTO, RoleDTO } from "@lumina/shared";
 
-// Discord's own timeout duration ladder.
+// The timeout ladder. Roughly logarithmic — a minute for a flare-up, a week for a pattern —
+// because the useful durations are not evenly spaced.
 const TIMEOUT_PRESETS: Array<{ label: string; seconds: number }> = [
   { label: "60 seconds", seconds: 60 },
   { label: "5 minutes", seconds: 5 * 60 },
@@ -306,7 +306,7 @@ function MemberRow({
 }) {
   const label = member.nickname ?? member.user.displayName ?? member.user.username;
   return (
-    <div className="group flex items-center gap-2.5 rounded px-2 py-1.5 hover:bg-base-600">
+    <div className="lx-row group">
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
@@ -344,12 +344,19 @@ function MemberRow({
   );
 }
 
-export function MemberList({ serverId }: { serverId: string }) {
+/**
+ * The people in a space, grouped by their highest coloured role.
+ *
+ * Content only: this used to be a 240px column that positioned itself, painted its own background
+ * and closed itself through a store action, which meant it could only ever be the member list and
+ * could only ever live in that one slot. It is now the "People" tab of the contextual aside (see
+ * AsidePanel.tsx), which owns the frame.
+ */
+export function MemberRoster({ serverId }: { serverId: string }) {
   const { data: members } = useMembers(serverId);
   const { data: roles } = useRoles(serverId);
   const { data: server } = useServer(serverId);
   const presenceByUserId = usePresenceStore((s) => s.presenceByUserId);
-  const closeMemberList = useUIStore((s) => s.toggleMemberList);
   const currentUserId = useAuthStore((s) => s.user?.id);
   const me = members?.find((m) => m.userId === currentUserId);
   const canManageRoles = can("MANAGE_ROLES", { userId: currentUserId, server, member: me, roles });
@@ -404,18 +411,12 @@ export function MemberList({ serverId }: { serverId: string }) {
   }, [members, roles, presenceByUserId]);
 
   return (
-    <>
-      <div className="mobile-drawer-backdrop fixed inset-0 z-30 md:hidden" onClick={closeMemberList} />
-      <div
-        className={cn(
-          "flex h-full w-60 shrink-0 flex-col overflow-y-auto bg-base-800 px-2 py-3",
-          "max-md:fixed max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-2xl",
-        )}
-      >
+    <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
       {groups.map((group) => (
         <div key={group.label} className="mb-4">
-          <div className="mb-1 px-2 text-xs font-bold uppercase tracking-wide text-signal-dim">
-            {group.label} — {group.members.length}
+          <div className="lx-eyebrow flex items-baseline gap-1.5 px-2 pb-1" style={group.color ? { color: group.color } : undefined}>
+            <span className="min-w-0 truncate">{group.label}</span>
+            <span className="shrink-0 opacity-60">{group.members.length}</span>
           </div>
           <div className="flex flex-col gap-0.5">
             {group.members
@@ -442,7 +443,7 @@ export function MemberList({ serverId }: { serverId: string }) {
           </div>
         </div>
       ))}
-      </div>
-    </>
+      {groups.length === 0 && <p className="px-2 py-4 text-center text-sm text-signal-faint">Loading people…</p>}
+    </div>
   );
 }

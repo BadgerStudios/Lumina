@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
-import { checkContact, type ContactCheck } from "../age/service.js";
+import { checkContact, ageFromBirthDate, ADULT_AGE, type ContactCheck } from "../age/service.js";
 
 export type ContactDecision = ContactCheck;
 
@@ -63,13 +63,49 @@ export async function getMinorState(userId: string): Promise<MinorState> {
   if (!user.isMinor) return { isMinor: false, locked: false, parentUserId: null, pairingCode: null };
 
   const link = user.parentLinkAsChild;
-  const active = link?.status === "ACTIVE";
+  // parentUserId must be non-null, not just status ACTIVE: ParentLink.parent is onDelete: SetNull,
+  // so a supervising parent deleting their account nulls parentUserId while leaving status ACTIVE.
+  // Reading active off status alone would leave the minor fully unlocked with nobody responsible —
+  // exactly the state the lock exists to prevent. (Account deletion now also REVOKEs these links so
+  // the minor can re-pair; this guard is the belt-and-suspenders for any other SetNull path.)
+  const active = link?.status === "ACTIVE" && link.parentUserId !== null;
   return {
     isMinor: true,
     locked: !active,
     parentUserId: active ? (link?.parentUserId ?? null) : null,
     pairingCode: link && link.status !== "REVOKED" ? link.pairingCode : null,
   };
+}
+
+/**
+ * Recompute `isMinor` from `birthDate`, and on a minor→adult transition end supervision.
+ *
+ * `isMinor` is stored rather than derived per request (it gates hot paths), which means it goes
+ * stale: a 17-year-old who turns 18 would otherwise stay flagged a minor — locked, feed-restricted,
+ * parent-supervised — indefinitely, because nothing re-derived it. (The schema comment claimed it
+ * was "refreshed on login"; nothing actually did.) This is that refresh: called on login and from a
+ * daily worker sweep for accounts that age up without logging in.
+ *
+ * When an account crosses into adulthood its ParentLink is deleted — otherwise a former guardian
+ * keeps read access to a now-adult's private account, since requireActiveLink authorizes on link
+ * status alone and never re-checks minority. Deleting the link cascades its approved-contact rows
+ * away too. Returns the effective isMinor so a caller (login) can reflect it without a re-read.
+ */
+export async function refreshMinorStatus(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isMinor: true, birthDate: true },
+  });
+  if (!user || user.birthDate === null) return user?.isMinor ?? false;
+  const shouldBeMinor = ageFromBirthDate(user.birthDate) < ADULT_AGE;
+  if (shouldBeMinor === user.isMinor) return shouldBeMinor;
+
+  await prisma.user.update({ where: { id: userId }, data: { isMinor: shouldBeMinor } });
+  if (!shouldBeMinor) {
+    // Aged into adulthood — end any parental supervision (cascades ParentApprovedContact).
+    await prisma.parentLink.deleteMany({ where: { childUserId: userId } });
+  }
+  return shouldBeMinor;
 }
 
 /** Throws if the account is a minor with no responsible adult. Adults pass straight through. */
@@ -155,6 +191,145 @@ export async function redeemPairingCode(parentUserId: string, code: string) {
     where: { id: link.id },
     include: { child: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
   });
+}
+
+/**
+ * The adult side of the reverse-direction flow: a persistent "family code" the adult keeps in
+ * Family Settings, which a minor (or a parent on the minor's locked screen) enters to link the
+ * minor to THIS adult. Kept ALONGSIDE the child-generated pairingCode, not replacing it — the two
+ * are the same handshake from opposite ends, and different households find one or the other more
+ * natural.
+ *
+ * Minted lazily and idempotently: the first read allocates one, every later read returns the same
+ * value, so a code an adult has already handed out never silently rotates from under them.
+ * Adult-and-age-verified only, for exactly the reason redeemPairingCode checks the same thing — a
+ * code that is supposed to identify a responsible adult must not be mintable by a minor or an
+ * unknown-age account.
+ */
+export async function ensureFamilyCode(adultUserId: string): Promise<{ familyCode: string }> {
+  const user = await prisma.user.findUnique({
+    where: { id: adultUserId },
+    select: { isMinor: true, ageRecordedAt: true, familyCode: true },
+  });
+  if (!user) throw new NotFoundError("User not found");
+  if (user.ageRecordedAt === null) throw new ForbiddenError("Confirm your own age before using a family code");
+  if (user.isMinor) throw new ForbiddenError("Only an adult account has a family code");
+  if (user.familyCode) return { familyCode: user.familyCode };
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const familyCode = generateCode();
+    try {
+      // Guarded on familyCode still being null so two concurrent first-reads can't each mint a
+      // different code and leave the client holding a stale one — the loser reads back the winner's.
+      const claimed = await prisma.user.updateMany({
+        where: { id: adultUserId, familyCode: null },
+        data: { familyCode },
+      });
+      if (claimed.count === 1) return { familyCode };
+      const fresh = await prisma.user.findUnique({ where: { id: adultUserId }, select: { familyCode: true } });
+      if (fresh?.familyCode) return { familyCode: fresh.familyCode };
+    } catch {
+      // Unique collision against another user's code — vanishingly unlikely at 31^8, retried.
+    }
+  }
+  throw new ConflictError("Could not allocate a family code, please try again");
+}
+
+/**
+ * Rotate the adult's family code — for when one has leaked or been shared too widely.
+ *
+ * Deliberately does NOT touch existing links: a family code is not stored on the ParentLink (the
+ * link records the parent, not the code that created it), so rotating only invalidates the code
+ * for FUTURE redemptions and never kicks out a child already linked. That is the point — an adult
+ * can retire a code that got around without severing supervision of the accounts it already made.
+ */
+export async function regenerateFamilyCode(adultUserId: string): Promise<{ familyCode: string }> {
+  const user = await prisma.user.findUnique({
+    where: { id: adultUserId },
+    select: { isMinor: true, ageRecordedAt: true },
+  });
+  if (!user) throw new NotFoundError("User not found");
+  if (user.ageRecordedAt === null) throw new ForbiddenError("Confirm your own age before using a family code");
+  if (user.isMinor) throw new ForbiddenError("Only an adult account has a family code");
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const familyCode = generateCode();
+    try {
+      const updated = await prisma.user.update({ where: { id: adultUserId }, data: { familyCode } });
+      return { familyCode: updated.familyCode! };
+    } catch {
+      // Unique collision — retried.
+    }
+  }
+  throw new ConflictError("Could not allocate a family code, please try again");
+}
+
+/**
+ * The minor side of the reverse-direction flow: the locked minor submits an adult's family code
+ * and, if it belongs to a real age-verified adult, becomes linked to them — the same end state as
+ * an adult redeeming the child's pairingCode, reached from the other direction.
+ */
+export async function redeemFamilyCode(childUserId: string, code: string) {
+  const child = await prisma.user.findUnique({
+    where: { id: childUserId },
+    select: { isMinor: true, parentLinkAsChild: { select: { id: true, status: true } } },
+  });
+  if (!child) throw new NotFoundError("User not found");
+  if (!child.isMinor) throw new BadRequestError("Only a minor account needs a parent link");
+
+  const adult = await prisma.user.findUnique({
+    where: { familyCode: code.trim().toUpperCase() },
+    select: { id: true, isMinor: true, ageRecordedAt: true, username: true, displayName: true, avatarUrl: true },
+  });
+  // Same non-committal message whether the code is unknown or belongs to an ineligible account, so
+  // this can't be used to probe which codes exist or which accounts are adults.
+  if (!adult || adult.ageRecordedAt === null || adult.isMinor) {
+    throw new NotFoundError("That family code is not valid");
+  }
+  if (adult.id === childUserId) throw new BadRequestError("An account cannot supervise itself");
+
+  const existing = child.parentLinkAsChild;
+  if (existing?.status === "ACTIVE") throw new ConflictError("This account already has a parent linked");
+
+  if (existing) {
+    // Conditional so a concurrent redemption (family code and child pairing code race each other)
+    // can't leave two adults both believing they are responsible.
+    const claimed = await prisma.parentLink.updateMany({
+      where: { id: existing.id, status: { in: ["PENDING", "REVOKED"] } },
+      data: { parentUserId: adult.id, status: "ACTIVE", acceptedAt: new Date(), revokedAt: null },
+    });
+    if (claimed.count === 0) throw new ConflictError("This account already has a parent linked");
+    // Reactivating a REVOKED link keeps the SAME row, so any ParentApprovedContact rows the PREVIOUS
+    // guardian added would silently carry over to this new guardian — adults approved by A would keep
+    // bypassing the age barrier under B, who never approved them. Purge them so the new guardian
+    // starts from a clean allowlist. (The child-generated-code path deletes+recreates the link, so
+    // its approvals cascade away; this in-place reactivation is the one that needs an explicit purge.)
+    await prisma.parentApprovedContact.deleteMany({ where: { parentLinkId: existing.id } });
+  } else {
+    // No link row yet (one is only created when the child views their own pairing code). Create it
+    // straight into ACTIVE. pairingCode is a required, unique column even though this direction
+    // doesn't use it, so a fresh value is generated purely to satisfy the row.
+    let created = false;
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      const pairingCode = generateCode();
+      try {
+        await prisma.parentLink.create({
+          data: { childUserId, pairingCode, parentUserId: adult.id, status: "ACTIVE", acceptedAt: new Date() },
+        });
+        created = true;
+      } catch (err) {
+        // childUserId is @unique: if a link appeared concurrently, stop and report the conflict
+        // rather than burning all retries on a pairingCode regeneration that can never win.
+        if ((err as { code?: string }).code === "P2002" && String((err as { meta?: { target?: string[] } }).meta?.target ?? "").includes("childUserId")) {
+          throw new ConflictError("This account already has a parent linked");
+        }
+        // Otherwise a pairingCode collision — retried.
+      }
+    }
+    if (!created) throw new ConflictError("Could not link this account, please try again");
+  }
+
+  return { parent: { id: adult.id, username: adult.username, displayName: adult.displayName, avatarUrl: adult.avatarUrl } };
 }
 
 /** Either party may end supervision. The child re-locks immediately — see getMinorState. */

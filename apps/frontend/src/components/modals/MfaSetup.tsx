@@ -70,7 +70,17 @@ export function MfaSetup() {
             Turn off
           </button>
         ) : (
-          <div className="space-y-2 rounded-lg border border-hairline bg-base-900 p-3">
+          // A <form>, not a bare input+button: without it, pressing Enter after typing the
+          // password — the reflexive way to submit a single-field form — did nothing at all. Same
+          // bug already found and fixed elsewhere this session (StaffVideosRoute, StaffTicketsRoute).
+          <form
+            className="space-y-2 rounded-lg border border-hairline bg-base-900 p-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!password || disable.isPending) return;
+              disable.mutate(password, { onSuccess: () => { setShowDisable(false); setPassword(""); } });
+            }}
+          >
             {/* The password again, on purpose: without it anyone who reaches an unlocked, already
                 signed-in session can strip the second factor in two taps. */}
             <label className="block text-xs text-signal-dim">
@@ -79,6 +89,7 @@ export function MfaSetup() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoFocus
                 className="mt-1 w-full rounded bg-base-800 px-2 py-1.5 text-sm text-signal outline-none ring-1 ring-base-500 focus:ring-accent"
               />
             </label>
@@ -89,9 +100,8 @@ export function MfaSetup() {
             )}
             <div className="flex gap-2">
               <button
-                type="button"
+                type="submit"
                 disabled={!password || disable.isPending}
-                onClick={() => disable.mutate(password, { onSuccess: () => { setShowDisable(false); setPassword(""); } })}
                 className="rounded-lg bg-dnd px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
               >
                 {disable.isPending ? "Turning off…" : "Turn off"}
@@ -104,7 +114,7 @@ export function MfaSetup() {
                 Cancel
               </button>
             </div>
-          </div>
+          </form>
         )}
       </div>
     );
@@ -171,7 +181,22 @@ export function MfaSetup() {
           Set up
         </button>
       ) : (
-        <div className="space-y-3 rounded-lg border border-hairline bg-base-900 p-3">
+        // A <form>, not a bare input+button: without it, pressing Enter after typing the code —
+        // the reflexive way to submit a single-field form — did nothing at all. Same bug already
+        // found and fixed elsewhere this session (StaffVideosRoute, StaffTicketsRoute).
+        <form
+          className="space-y-3 rounded-lg border border-hairline bg-base-900 p-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (code.replace(/\D/g, "").length < 6 || confirm.isPending) return;
+            confirm.mutate(code, {
+              onSuccess: (data) => {
+                setBackupCodes(data.backupCodes);
+                setCode("");
+              },
+            });
+          }}
+        >
           <p className="text-xs text-signal-dim">1. Scan this with your authenticator app</p>
           {qrDataURL && <img src={qrDataURL} alt="" className="rounded bg-white p-1" width={200} height={200} />}
           {/* The secret in text as well: a desktop password manager is often where this actually
@@ -188,6 +213,7 @@ export function MfaSetup() {
               inputMode="numeric"
               autoComplete="one-time-code"
               placeholder="123456"
+              autoFocus
               className="mt-1 w-full rounded bg-base-800 px-2 py-1.5 font-mono text-sm text-signal outline-none ring-1 ring-base-500 focus:ring-accent"
             />
           </label>
@@ -199,22 +225,14 @@ export function MfaSetup() {
           )}
 
           <button
-            type="button"
+            type="submit"
             disabled={code.replace(/\D/g, "").length < 6 || confirm.isPending}
-            onClick={() =>
-              confirm.mutate(code, {
-                onSuccess: (data) => {
-                  setBackupCodes(data.backupCodes);
-                  setCode("");
-                },
-              })
-            }
             className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
             {confirm.isPending && <Loader2 size={12} className="animate-spin" />}
             Turn on
           </button>
-        </div>
+        </form>
       )}
     </div>
   );

@@ -10,6 +10,7 @@ import {
   UserCog,
   ServerCog,
   Megaphone,
+  ShieldCheck,
   BadgeCheck,
   AlertTriangle,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { usePlatformStats, useAttentionItems, usePlatformHealth, useEngagement } from "../queries/owner";
 import { OwnerUsersPanel, OwnerBansPanel } from "../owner/OwnerPeoplePanels";
+import { OwnerAgeReviewsPanel } from "../owner/OwnerAgeReviewsPanel";
 import { TeamPanel } from "../owner/OwnerMasterPanels";
 import { OwnerInfrastructurePanel } from "../owner/OwnerInfrastructurePanel";
 import { OwnerAdsPanel } from "../owner/OwnerAdsPanel";
@@ -26,7 +28,7 @@ import { useAuthStore } from "../store/authStore";
 import { isOwner, isMaster } from "../lib/platformRole";
 import { cn } from "../lib/cn";
 
-type Tab = "overview" | "users" | "bans" | "team" | "infrastructure" | "ads" | "official";
+type Tab = "overview" | "users" | "bans" | "ageReviews" | "team" | "infrastructure" | "ads" | "official";
 
 /**
  * Owner dashboard.
@@ -43,7 +45,7 @@ export function OwnerRoute() {
   if (!isOwner(user.platformRole)) return <Navigate to={APP_HOME} replace />;
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-base-900">
+    <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 bg-base-900">
       <div className="flex items-center gap-2 border-b border-hairline bg-base-800 px-4 py-3">
         <Crown className="h-5 w-5 text-amber" />
         <h1 className="font-display text-lg text-signal">Owner dashboard</h1>
@@ -80,6 +82,9 @@ export function OwnerRoute() {
             Official accounts
           </TabButton>
         )}
+        <TabButton active={tab === "ageReviews"} onClick={() => setTab("ageReviews")} icon={<ShieldCheck className="h-4 w-4" />}>
+          Age reviews
+        </TabButton>
         <TabButton active={tab === "ads"} onClick={() => setTab("ads")} icon={<Megaphone className="h-4 w-4" />}>
           Ads
         </TabButton>
@@ -96,6 +101,11 @@ export function OwnerRoute() {
         {tab === "overview" && <OverviewPanel />}
         {tab === "users" && <OwnerUsersPanel />}
         {tab === "bans" && <OwnerBansPanel />}
+        {tab === "ageReviews" && (
+          <div className="mx-auto max-w-3xl">
+            <OwnerAgeReviewsPanel />
+          </div>
+        )}
         {tab === "official" && master && (
           <div className="mx-auto max-w-3xl">
             <OwnerOfficialAccountsPanel />

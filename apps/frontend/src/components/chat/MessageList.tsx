@@ -3,6 +3,8 @@ import type { InfiniteData } from "@tanstack/react-query";
 import type { DMConversationDTO, MessageDTO } from "@lumina/shared";
 import { MessageItem } from "./MessageItem";
 import { UserAvatar } from "../common/UserAvatar";
+import { useUIStore } from "../../store/uiStore";
+import { cn } from "../../lib/cn";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -46,6 +48,9 @@ export function MessageList({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  // The compact density setting had no effect at all before this: the CSS that implements it keys
+  // off a `density-compact` class on this scroller, and nothing had ever added it.
+  const density = useUIStore((s) => s.density);
 
   // Pages are newest-first (see queries/messages.ts); reverse to oldest-first for top-to-bottom
   // chat rendering, and reverse the page order too since page 0 = newest page.
@@ -80,7 +85,11 @@ export function MessageList({
   }
 
   return (
-    <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto py-3">
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className={cn("min-h-0 flex-1 overflow-y-auto py-3", density === "compact" && "density-compact")}
+    >
       {isLoading ? (
         <div className="flex h-full items-center justify-center text-sm text-signal-faint">Loading messages…</div>
       ) : ordered.length === 0 ? (

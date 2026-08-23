@@ -39,6 +39,15 @@ export function UpdateBanner() {
     };
   }, []);
 
+  // A Google Play build must never offer to update itself: Play's Device and Network Abuse
+  // policy reserves updating to Play's own mechanism, and the Play flavor strips both the
+  // AppUpdater plugin and REQUEST_INSTALL_PACKAGES. The flag is set by MainActivity before the
+  // web layer renders. Play delivers app updates; the web-stale prompt is equally pointless
+  // there, since the assets are bundled in the APK rather than fetched.
+  if (typeof window !== "undefined" && (window as unknown as { __LUMINA_PLAY_BUILD__?: boolean }).__LUMINA_PLAY_BUILD__) {
+    return null;
+  }
+
   const available = android.available || webStale;
   if (!available || dismissed) return null;
 

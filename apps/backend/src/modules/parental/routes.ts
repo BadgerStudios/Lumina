@@ -6,10 +6,13 @@ import { serializeMessage, serializeUser } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
 import {
   approveContact,
+  ensureFamilyCode,
   ensurePairingCode,
   getMinorState,
   listChildren,
+  redeemFamilyCode,
   redeemPairingCode,
+  regenerateFamilyCode,
   requireActiveLink,
   revokeApprovedContact,
   revokeLink,
@@ -57,7 +60,7 @@ export default async function parentalRoutes(fastify: FastifyInstance) {
     return ensurePairingCode(request.userId!);
   });
 
-  /** An adult redeems a child's code. */
+  /** An adult redeems a child's code (child-generated direction). */
   fastify.post(
     "/redeem",
     { schema: { body: redeemSchema }, preHandler: [requireAuth] },
@@ -65,6 +68,29 @@ export default async function parentalRoutes(fastify: FastifyInstance) {
       const { code } = request.body as z.infer<typeof redeemSchema>;
       const link = await redeemPairingCode(request.userId!, code);
       return { linkId: link.id, child: link.child };
+    },
+  );
+
+  // ---------------------------------------------------------------- family code (adult direction)
+
+  /** The adult's own persistent family code, minted lazily on first read. Shown in Family Settings
+   * so a parent can hand it to a minor to link them. */
+  fastify.get("/me/family-code", { preHandler: [requireAuth] }, async (request) => {
+    return ensureFamilyCode(request.userId!);
+  });
+
+  /** Rotate the family code (leaked / over-shared). Does not unlink existing children. */
+  fastify.post("/me/family-code/regenerate", { preHandler: [requireAuth] }, async (request) => {
+    return regenerateFamilyCode(request.userId!);
+  });
+
+  /** A locked minor submits an adult's family code to link their own account to that adult. */
+  fastify.post(
+    "/me/link-parent",
+    { schema: { body: redeemSchema }, preHandler: [requireAuth] },
+    async (request) => {
+      const { code } = request.body as z.infer<typeof redeemSchema>;
+      return redeemFamilyCode(request.userId!, code);
     },
   );
 

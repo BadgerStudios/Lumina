@@ -42,6 +42,23 @@ function subscriptionIdFromInvoice(invoice: Stripe.Invoice): string | null {
   return null;
 }
 
+/** The PaymentIntent that paid an invoice, read across Stripe API-version shapes — legacy
+ * `invoice.payment_intent`, or the newer `invoice.payments[].payment.payment_intent`. Stored on the
+ * revenue event so a `charge.refunded` webhook (whose `charge.payment_intent` is this same id) can
+ * find the membership earning to reverse. */
+function paymentIntentIdFromInvoice(invoice: Stripe.Invoice): string | null {
+  const direct = (invoice as unknown as { payment_intent?: string | { id: string } | null }).payment_intent;
+  if (typeof direct === "string") return direct;
+  if (direct && typeof direct === "object") return direct.id;
+  const payments = (invoice as unknown as {
+    payments?: { data?: Array<{ payment?: { payment_intent?: string | { id: string } | null } }> };
+  }).payments;
+  const nested = payments?.data?.[0]?.payment?.payment_intent;
+  if (typeof nested === "string") return nested;
+  if (nested && typeof nested === "object") return nested.id;
+  return null;
+}
+
 /** Mirror one Stripe subscription's state onto the membership row. Called from the billing
  * webhook for subscriptions carrying `metadata.kind === "membership"`. */
 export async function syncMembershipFromSubscription(sub: Stripe.Subscription): Promise<void> {
@@ -100,6 +117,23 @@ export async function handleMembershipInvoicePaid(invoice: Stripe.Invoice): Prom
   const membership = await prisma.creatorMembership.findUnique({ where: { stripeSubscriptionId: subId } });
   if (!membership) return;
 
+  // Capture the PaymentIntent so a later refund/dispute (whose webhook carries the PI, not the invoice
+  // id) can find and reverse this earning. CRITICAL: the pinned Stripe API version removed the
+  // top-level `invoice.payment_intent`, and the only remaining route — `invoice.payments` — is a
+  // sub-resource NOT included in the raw webhook payload. So the webhook object almost always yields
+  // null here; we must re-fetch the invoice with `payments` expanded. Without this, membership
+  // refunds silently never reverse the creator earning (money leak). Best-effort: a null PI just
+  // means that specific refund needs manual handling, never a failed invoice.
+  let paymentIntentId = paymentIntentIdFromInvoice(invoice);
+  if (!paymentIntentId && invoice.id && isBillingConfigured()) {
+    try {
+      const full = await getStripe()!.invoices.retrieve(invoice.id, { expand: ["payments"] });
+      paymentIntentId = paymentIntentIdFromInvoice(full);
+    } catch {
+      /* leave null — refund of this invoice would fall to manual review, logged at reversal time */
+    }
+  }
+
   const event = await recordRevenueEvent({
     eventType: "membership.invoice_paid",
     idempotencyKey: `meminv:${invoice.id ?? `${subId}:${invoice.created}`}`,
@@ -110,6 +144,7 @@ export async function handleMembershipInvoicePaid(invoice: Stripe.Invoice): Prom
     creatorId: membership.creatorId,
     contentRef: `membership:${membership.id}`,
     externalRef: invoice.id ?? subId,
+    paymentIntentId,
   });
   await qualifyAndPost(event.id);
 }

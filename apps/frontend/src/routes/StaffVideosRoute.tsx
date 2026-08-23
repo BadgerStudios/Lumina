@@ -151,24 +151,34 @@ function ReviewCard({ video, status }: { video: VideoDTO; status: StaffQueueStat
         <ProvenanceSection videoId={video.id} />
 
         {mode !== "none" && (
-          <div className="space-y-2">
+          // A <form> rather than a bare input+button: without it, pressing Enter after typing a
+          // reason — the reflexive way to submit a single-line text field — did nothing at all,
+          // since only the Confirm button's own onClick ran the mutation. That silent no-op is
+          // indistinguishable from "the takedown button is broken" to whoever is using it.
+          <form
+            className="space-y-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!reason.trim() || busy) return;
+              const args = { videoId: video.id, reason: reason.trim() };
+              // Reset only on success, not right after firing: resetting unconditionally made a
+              // failed submit look identical to a successful one — the form vanished either way.
+              const onSuccess = () => { setMode("none"); setReason(""); };
+              if (mode === "reject") reject.mutate(args, { onSuccess });
+              else remove.mutate(args, { onSuccess });
+            }}
+          >
             <input
               value={reason}
               onChange={(e) => setReason(e.target.value.slice(0, 300))}
               placeholder={mode === "reject" ? "Why is this being rejected?" : "Why is this being removed?"}
               className="w-full rounded-lg border border-hairline bg-base-700 px-3 py-2 text-sm text-signal placeholder:text-signal-faint focus:border-accent focus:outline-none"
+              autoFocus
             />
             <div className="flex gap-2">
               <button
-                type="button"
+                type="submit"
                 disabled={!reason.trim() || busy}
-                onClick={() => {
-                  const args = { videoId: video.id, reason: reason.trim() };
-                  if (mode === "reject") reject.mutate(args);
-                  else remove.mutate(args);
-                  setMode("none");
-                  setReason("");
-                }}
                 className="rounded-lg bg-flare px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
                 Confirm
@@ -187,7 +197,7 @@ function ReviewCard({ video, status }: { video: VideoDTO; status: StaffQueueStat
             {/* The reason is shown verbatim to the uploader, so it should read as an explanation
                 rather than an internal note. */}
             <p className="text-xs text-signal-faint">The uploader will see this reason.</p>
-          </div>
+          </form>
         )}
 
         {mode === "none" && (

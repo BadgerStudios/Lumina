@@ -25,7 +25,7 @@ export function UserProfileCard({
   return (
     <div className="w-72 overflow-hidden rounded-lg bg-base-600 shadow-lg">
       <div
-        className="h-16 w-full bg-base-900"
+        className="aspect-[3/1] w-full bg-base-900"
         style={
           user.bannerUrl
             ? { backgroundImage: `url(${resolveAssetUrl(user.bannerUrl)})`, backgroundSize: "cover", backgroundPosition: "center" }

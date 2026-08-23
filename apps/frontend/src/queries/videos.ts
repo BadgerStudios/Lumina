@@ -82,6 +82,18 @@ export function useMyVideos() {
   return useQuery({
     queryKey: queryKeys.myVideos(),
     queryFn: () => api.get<VideoDTO[]>("/videos/mine"),
+    // Poll while anything is still moving through the pipeline, so "Processing" becomes "Awaiting
+    // review" and "Awaiting review" becomes "Live" on its own. Without this the tile is frozen at
+    // whatever it showed on the last full page load — the transcode and the review both happen
+    // entirely out of view of a tab that's just sitting open. Stops itself the moment nothing left
+    // is PROCESSING/PENDING_REVIEW, so a page full of already-decided videos costs nothing.
+    refetchInterval: (query) => {
+      const videos = query.state.data;
+      const stillMoving = videos?.some(
+        (v) => v.status === "PROCESSING" || v.status === "PENDING_REVIEW",
+      );
+      return stillMoving ? 3000 : false;
+    },
   });
 }
 
@@ -209,28 +221,29 @@ export function recordView(videoId: string): void {
   void api.post(`/feed/${videoId}/view`, {}).catch(() => undefined);
 }
 
-/** Patches one video wherever it appears across both paginated feed caches, so a like registers on
- * the card the user tapped regardless of which tab it lives in. */
+/** Patches one video wherever it appears across every paginated feed cache — "For You", Following,
+ * and any per-tag feed — so a like registers on the card the user tapped regardless of which one is
+ * on screen. A fixed two-key list here previously missed tag-filtered feeds (queryKeys.feed(tag)),
+ * so liking a video while browsing a hashtag silently patched a cache the screen wasn't reading
+ * from. Matching on the "feed" key prefix covers every current and future feed variant instead. */
 function patchFeedVideo(
   queryClient: ReturnType<typeof useQueryClient>,
   videoId: string,
   update: (v: VideoDTO) => VideoDTO,
 ): void {
-  for (const key of [queryKeys.feed(), queryKeys.feedFollowing()]) {
-    queryClient.setQueryData<{ pages: Array<{ videos: VideoDTO[] }>; pageParams: unknown[] }>(
-      key,
-      (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page) => ({
-            ...page,
-            videos: page.videos.map((v) => (v.id === videoId ? update(v) : v)),
-          })),
-        };
-      },
-    );
-  }
+  queryClient.setQueriesData<{ pages: Array<{ videos: VideoDTO[] }>; pageParams: unknown[] }>(
+    { queryKey: ["feed"] },
+    (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          videos: page.videos.map((v) => (v.id === videoId ? update(v) : v)),
+        })),
+      };
+    },
+  );
 }
 
 /**

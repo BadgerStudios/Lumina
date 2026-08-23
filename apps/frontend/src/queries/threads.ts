@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ThreadDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
+import { reportError } from "../store/toastStore";
 
 export function useThreads(channelId: string | undefined, archived = false) {
   return useQuery({
@@ -31,6 +32,7 @@ export function useCreateThread(channelId: string) {
       // the message it hangs off was fetched before the thread existed.
       void queryClient.invalidateQueries({ queryKey: queryKeys.messages(channelId) });
     },
+    onError: (e) => reportError(e, "Couldn't create that thread"),
   });
 }
 
@@ -47,6 +49,7 @@ export function useSetThreadJoined(threadId: string) {
       );
       void queryClient.invalidateQueries({ queryKey: ["threads"] });
     },
+    onError: (e) => reportError(e, "That didn't go through"),
   });
 }
 
@@ -59,5 +62,6 @@ export function useSetThreadArchived(threadId: string) {
       // Both lists, not just the one it moved to — it also left the other.
       void queryClient.invalidateQueries({ queryKey: ["threads"] });
     },
+    onError: (e) => reportError(e, "Couldn't update that thread"),
   });
 }

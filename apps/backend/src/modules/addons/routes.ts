@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { timingSafeEqual } from "node:crypto";
 import { Permissions } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
@@ -7,6 +8,14 @@ import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from ".
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { manifestSchema, compareVersions, requiresBot, type AddonManifest } from "./manifest.js";
 import { invalidateServerAddons } from "./runtime.js";
+
+/** Constant-time equality for two hex hash strings of expected-equal length. */
+function safeHashEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
 
 /**
  * Addons. Mounted under /api/addons, plus the per-server install routes.
@@ -56,9 +65,11 @@ export default async function addonRoutes(fastify: FastifyInstance) {
     // get a secret they only need for publishing, is the kind of step that makes a feature feel
     // hostile. The bot token is per-application and revocable in exactly the same way.
     const presented = hashRefreshToken(clientSecret);
-    const authorized =
-      (app?.clientSecretHash && presented === app.clientSecretHash) ||
-      (app?.botTokenHash && presented === app.botTokenHash);
+    // Constant-time compare, matching the timingSafeEqual convention used for the OAuth/webhook
+    // credential checks elsewhere (both hashes are equal-length hex).
+    const secretMatch = !!app?.clientSecretHash && safeHashEqual(presented, app.clientSecretHash);
+    const botMatch = !!app?.botTokenHash && safeHashEqual(presented, app.botTokenHash);
+    const authorized = secretMatch || botMatch;
     if (!app || !authorized) {
       // One message for both "no such app" and "wrong secret", so this can't be used to enumerate
       // which client ids exist.

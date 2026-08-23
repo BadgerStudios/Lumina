@@ -110,13 +110,26 @@ export default async function reportRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError("Another moderator is already working this ticket");
     }
 
-    const updated = await prisma.videoReport.update({
-      where: { id },
+    // Conditional claim, not a plain update: the assignee check above is a read-time snapshot, so
+    // two moderators claiming the same UNASSIGNED ticket at once would both pass it and both write,
+    // the second silently stealing the assignment. Only claim a ticket that is still unassigned (or
+    // already ours) and not closed; count===0 means someone else won the race.
+    const claimed = await prisma.videoReport.updateMany({
+      where: {
+        id,
+        OR: [{ assignedToId: null }, { assignedToId: request.userId! }],
+        status: { notIn: ["COMPLETED", "DISMISSED"] },
+      },
       data: {
         status: parsed.data.status,
         assignedToId: request.userId!,
         assignedAt: report.assignedAt ?? new Date(),
       },
+    });
+    if (claimed.count === 0) throw new ForbiddenError("Another moderator is already working this ticket");
+
+    const updated = await prisma.videoReport.findUniqueOrThrow({
+      where: { id },
       include: { assignedTo: { select: { id: true, username: true, displayName: true } } },
     });
 
@@ -138,6 +151,13 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const report = await prisma.videoReport.findUnique({ where: { id } });
     if (!report) throw new NotFoundError("Report not found");
+    // Without this, releasing a ticket the same moderator had already completed (still "assigned"
+    // to them per the /complete route's own comment) silently reopened it — flipping status back to
+    // OPEN and clearing assignedToId/assignedAt while the resolution note, resolvedBy and resolvedAt
+    // stayed behind, un-resolving a closed ticket with no trace of why.
+    if (report.status === "COMPLETED" || report.status === "DISMISSED") {
+      throw new BadRequestError("This ticket is already closed");
+    }
     if (report.assignedToId !== request.userId) {
       throw new ForbiddenError("This ticket isn't assigned to you");
     }

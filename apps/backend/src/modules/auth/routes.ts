@@ -8,6 +8,9 @@ import { signAccessToken } from "../../lib/jwt.js";
 import { serializeMe, serializeSession } from "../../lib/serialize.js";
 import { ConflictError, NotFoundError, UnauthorizedError } from "../../lib/errors.js";
 import { requireAuth } from "../../plugins/authenticate.js";
+import { clearLoginFailures, noteLoginFailure, requireTurnstile, requireTurnstileForLogin } from "../../plugins/turnstile.js";
+import { recordDeviceSignal } from "../verification/service.js";
+import { requestPasswordReset, resetPassword } from "./passwordReset.js";
 import { env } from "../../config/env.js";
 import {
   clearRefreshCookie,
@@ -19,6 +22,7 @@ import {
 import { checkIdentifierBans } from "../bans/service.js";
 import { BannedError, BadRequestError, BlockedError } from "../../lib/errors.js";
 import { checkAge } from "../age/service.js";
+import { refreshMinorStatus } from "../parental/service.js";
 import { hasPlatformRole } from "../../lib/platformRole.js";
 import { requestCountry } from "../site/routes.js";
 import { recordFlag, isSignupBlocked } from "../flags/service.js";
@@ -69,6 +73,19 @@ const registerSchema = z.object({
     required_error: "Please select your age range",
   }),
   birthDate: z.string().min(1, "Please enter your date of birth"),
+  // Optional native age band from the app (Apple Declared Age Range / Google Play Age Signals),
+  // attached at signup so every account gets the best free assurance available. Only trusted if its
+  // attestation verifies — see modules/verification. Absent for web/desktop, which fall back to the
+  // self-declared birthday as before.
+  deviceSignal: z
+    .object({
+      platform: z.enum(["android", "ios"]),
+      band: z.string().min(1).max(40),
+      attestationToken: z.string().min(1).max(20000).optional(),
+    })
+    .optional(),
+  // Cloudflare Turnstile token (when the challenge is enabled); ignored when unconfigured.
+  turnstileToken: z.string().max(4000).optional(),
 });
 
 const loginSchema = z.object({
@@ -77,6 +94,9 @@ const loginSchema = z.object({
   // real part of a password, and silently altering it would reject a correct one.
   emailOrUsername: z.string().min(1).transform((s) => s.trim()),
   password: z.string().min(1),
+  // Declared, not incidental: zod strips unknown keys, so an undeclared token would be discarded
+  // during validation and never reach requireTurnstileForLogin in the preHandler.
+  turnstileToken: z.string().max(4000).optional(),
 });
 
 function parseEmailList(raw: string): string[] {
@@ -168,6 +188,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // the one route where a flood is pure abuse (account-creation spam), no legitimate client
       // ever needs anywhere near this often. Keyed by IP (the plugin's own default keyGenerator).
       config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+      // Bot challenge on signup (no-op until Turnstile is configured).
+      preHandler: [requireTurnstile],
     },
     async (request, reply) => {
     const body = request.body as z.infer<typeof registerSchema>;
@@ -242,6 +264,24 @@ export default async function authRoutes(fastify: FastifyInstance) {
       },
     });
 
+      // If the app supplied a native age band, reconcile it now (attestation-gated inside). A band
+      // that says "minor" locks the account immediately; one that says "adult" only strengthens
+      // assurance — it can't override the self-declared minor path. Awaited so the response reflects
+      // the final locked/adult state the client should render.
+      if (body.deviceSignal) {
+        try {
+          const outcome = await recordDeviceSignal(
+            user.id,
+            body.deviceSignal.platform,
+            body.deviceSignal.band,
+            body.deviceSignal.attestationToken,
+          );
+          if (outcome.accepted) user.isMinor = outcome.isMinor;
+        } catch {
+          // A signal failure must never fail a signup — the self-declared age already stands.
+        }
+      }
+
       // Fire-and-forget, severity INFO: using a VPN is not misconduct, and this is only ever
       // context for a later decision. Never awaited — a signup must not get slower, or fail,
       // because a reputation lookup was slow.
@@ -253,6 +293,39 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const tokens = await issueTokenPair(user.id, request);
       reply.code(201);
       sendTokenResponse(reply, request, serializeMe(user), tokens);
+    },
+  );
+
+  /**
+   * Password reset — request a link. Enumeration-safe (always 200, whether or not the email exists)
+   * and Turnstile-gated (a no-op until configured). Tightly rate-limited: this sends email.
+   */
+  fastify.post(
+    "/password/forgot",
+    {
+      schema: { body: z.object({ email: z.string().email(), turnstileToken: z.string().max(4000).optional() }) },
+      config: { rateLimit: { max: 5, timeWindow: "10 minutes" } },
+      preHandler: [requireTurnstile],
+    },
+    async (request) => {
+      const { email } = request.body as { email: string };
+      await requestPasswordReset(email);
+      // Never reveal whether the address matched.
+      return { ok: true };
+    },
+  );
+
+  /** Password reset — set a new password via the emailed link's token. Single-use by construction. */
+  fastify.post(
+    "/password/reset",
+    {
+      schema: { body: z.object({ token: z.string().min(1), password: z.string().min(8).max(128) }) },
+      config: { rateLimit: { max: 10, timeWindow: "10 minutes" } },
+    },
+    async (request) => {
+      const { token, password } = request.body as { token: string; password: string };
+      await resetPassword(token, password);
+      return { ok: true };
     },
   );
 
@@ -277,6 +350,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
           },
         },
       },
+      // Arms only after repeated failures for this IP+account pair, so a normal sign-in is never
+      // challenged but a credential-stuffing run is. See requireTurnstileForLogin.
+      preHandler: [requireTurnstileForLogin],
     },
     async (request, reply) => {
     const body = request.body as z.infer<typeof loginSchema>;
@@ -325,6 +401,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         },
         "login rejected",
       );
+      await noteLoginFailure(request.ip, body.emailOrUsername);
       throw new UnauthorizedError("Invalid credentials");
     }
 
@@ -341,9 +418,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
         },
         "login rejected",
       );
+      await noteLoginFailure(request.ip, body.emailOrUsername);
       throw new UnauthorizedError("Invalid credentials");
     }
 
+    await clearLoginFailures(request.ip, body.emailOrUsername);
     request.log.warn(
       { event: "login_ok", username: user.username, ip: request.ip },
       "login succeeded",
@@ -374,9 +453,16 @@ export default async function authRoutes(fastify: FastifyInstance) {
         };
       }
 
+      // Re-derive isMinor from birthDate on every session issue — the documented "refreshed on
+      // login" behaviour that was never actually implemented, so a minor who turned 18 stayed a
+      // minor forever. Also ends parental supervision on the minor→adult transition (see
+      // refreshMinorStatus). The per-request gates (requireAdult, getMinorState) read isMinor fresh
+      // from the DB, so writing it here is what lifts the restrictions; a daily worker sweep covers
+      // dormant accounts that never log in.
+      const isMinorNow = await refreshMinorStatus(user.id);
       const reconciled = await reconcilePlatformRole(user);
       const tokens = await issueTokenPair(user.id, request);
-      sendTokenResponse(reply, request, serializeMe(reconciled), tokens);
+      sendTokenResponse(reply, request, serializeMe({ ...reconciled, isMinor: isMinorNow }), tokens);
     },
   );
 
@@ -421,9 +507,16 @@ export default async function authRoutes(fastify: FastifyInstance) {
         deviceFingerprint: readDeviceFingerprint(request),
       });
 
+      // Re-derive isMinor from birthDate on every session issue — the documented "refreshed on
+      // login" behaviour that was never actually implemented, so a minor who turned 18 stayed a
+      // minor forever. Also ends parental supervision on the minor→adult transition (see
+      // refreshMinorStatus). The per-request gates (requireAdult, getMinorState) read isMinor fresh
+      // from the DB, so writing it here is what lifts the restrictions; a daily worker sweep covers
+      // dormant accounts that never log in.
+      const isMinorNow = await refreshMinorStatus(user.id);
       const reconciled = await reconcilePlatformRole(user);
       const tokens = await issueTokenPair(user.id, request);
-      sendTokenResponse(reply, request, serializeMe(reconciled), tokens);
+      sendTokenResponse(reply, request, serializeMe({ ...reconciled, isMinor: isMinorNow }), tokens);
     },
   );
 
@@ -519,9 +612,16 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // No second factor prompt: a platform passkey already required the device's biometric or PIN,
       // so demanding a TOTP code on top is asking for two factors the user has just provided one
       // stronger form of. This mirrors how every major platform treats passkeys.
+      // Re-derive isMinor from birthDate on every session issue — the documented "refreshed on
+      // login" behaviour that was never actually implemented, so a minor who turned 18 stayed a
+      // minor forever. Also ends parental supervision on the minor→adult transition (see
+      // refreshMinorStatus). The per-request gates (requireAdult, getMinorState) read isMinor fresh
+      // from the DB, so writing it here is what lifts the restrictions; a daily worker sweep covers
+      // dormant accounts that never log in.
+      const isMinorNow = await refreshMinorStatus(user.id);
       const reconciled = await reconcilePlatformRole(user);
       const tokens = await issueTokenPair(user.id, request);
-      sendTokenResponse(reply, request, serializeMe(reconciled), tokens);
+      sendTokenResponse(reply, request, serializeMe({ ...reconciled, isMinor: isMinorNow }), tokens);
     },
   );
 
@@ -567,9 +667,29 @@ export default async function authRoutes(fastify: FastifyInstance) {
       where: { tokenHash, revokedAt: null },
     });
 
-    if (!row || row.expiresAt.getTime() < Date.now()) {
+    if (!row) {
+      // A prior version of this route treated a hash matching an ALREADY-REVOKED row as proof of
+      // stolen-token replay and revoked every active session for the user. Reverted: the refresh
+      // cookie is one HttpOnly cookie shared by every tab/window in the browser, not a per-tab
+      // token, so two tabs racing to refresh at the same moment is a completely normal, frequent,
+      // non-malicious event — exactly the shape an admin running several console tabs hits
+      // constantly — and it is indistinguishable from real theft under a same-second check like
+      // this one. The false-positive cost (mass, repeated, self-inflicted logout) was far worse in
+      // practice than the theoretical gain, and it was live: this is why. A real fix needs a grace
+      // window or a proper token-family column, not a same-instant check; going back to the
+      // original safe behavior — an invalid/expired token just fails, nothing else — until that's
+      // designed and tested properly rather than shipped again under incident pressure.
       throw new UnauthorizedError("Refresh token invalid or expired");
     }
+    if (row.expiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedError("Refresh token invalid or expired");
+    }
+
+    // Every other token-issuing route (/login, /login/verify-mfa, /passkeys/login/finish)
+    // re-checks the ban list; this one didn't, so a banned account could still mint a fresh access
+    // token here even though requireAuth's own per-request check blocks it from doing anything
+    // with that token on the very next call. Consistency, not a live bypass — but a needless gap.
+    await assertNotBanned({ userId: row.userId });
 
     // Rotate: revoke the old row, issue + persist a new one.
     await prisma.refreshToken.update({

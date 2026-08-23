@@ -3,6 +3,7 @@ import type { ChannelDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
 import { upsertChannel } from "../socket/cachePatches";
+import { reportError } from "../store/toastStore";
 
 export function useChannels(serverId: string | undefined) {
   return useQuery({
@@ -26,6 +27,7 @@ export function useCreateChannel(serverId: string) {
       // by id regardless of which one runs first.
       queryClient.setQueryData<ChannelDTO[]>(queryKeys.channels(serverId), (old) => upsertChannel(old, channel));
     },
+    onError: (e) => reportError(e, "Couldn't create that channel"),
   });
 }
 
@@ -49,6 +51,7 @@ export function useUpdateChannel(serverId: string) {
         old ? old.map((c) => (c.id === channel.id ? channel : c)) : old,
       );
     },
+    onError: (e) => reportError(e, "Couldn't save that channel"),
   });
 }
 
@@ -59,6 +62,7 @@ export function useDeleteChannel(serverId: string) {
     onSuccess: (_data, channelId) => {
       queryClient.setQueryData<ChannelDTO[]>(queryKeys.channels(serverId), (old) => old?.filter((c) => c.id !== channelId));
     },
+    onError: (e) => reportError(e, "Couldn't delete that channel"),
   });
 }
 
@@ -70,6 +74,7 @@ export function useReorderChannels(serverId: string) {
     onSuccess: (channels) => {
       queryClient.setQueryData(queryKeys.channels(serverId), channels);
     },
+    onError: (e) => reportError(e, "Couldn't save that channel order"),
   });
 }
 
@@ -108,6 +113,7 @@ export function useSetChannelOverwrite(serverId: string, channelId: string) {
       // own sidebar too, not just everyone else's.
       void queryClient.invalidateQueries({ queryKey: queryKeys.channels(serverId) });
     },
+    onError: (e) => reportError(e, "Couldn't save that permission override"),
   });
 }
 
@@ -119,5 +125,6 @@ export function useClearChannelOverwrite(serverId: string, channelId: string) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.channelOverwrites(channelId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.channels(serverId) });
     },
+    onError: (e) => reportError(e, "Couldn't clear that permission override"),
   });
 }

@@ -36,6 +36,7 @@ import {
   formatMoney,
 } from "./OwnerBusinessPanels";
 import { OwnerUsersPanel, OwnerBansPanel } from "./OwnerPeoplePanels";
+import { OwnerAgeReviewsPanel } from "./OwnerAgeReviewsPanel";
 import { TeamPanel, ConfigPanel, BrandKitPanel } from "./OwnerMasterPanels";
 import { DesignLab } from "./designs/DesignLab";
 import { OwnerReasonsPanel } from "./OwnerReasonsPanel";
@@ -79,6 +80,7 @@ type Section =
   | "activity"
   | "ads"
   | "infrastructure"
+  | "ageReviews"
   | "official";
 
 /**
@@ -119,6 +121,7 @@ const NAV_GROUPS: Array<{
     items: [
       { key: "users", label: "Users", icon: Users },
       { key: "bans", label: "Bans & appeals", icon: Gavel },
+      { key: "ageReviews", label: "Age reviews", icon: ShieldCheck },
       { key: "team", label: "Team & access", icon: UserCog },
       // Staff-visible: they are the ones answering "why am I blocked".
       { key: "reasons", label: "Block reasons", icon: BookLock },
@@ -157,6 +160,7 @@ const SECTION_LABELS: Record<Section, string> = {
   activity: "Activity",
   ads: "Advertising",
   infrastructure: "Infrastructure — Lumina Control",
+  ageReviews: "Age reviews",
   official: "Official accounts",
 };
 
@@ -385,6 +389,7 @@ export function OwnerApp() {
               {section === "system" && <SystemSection />}
               {section === "users" && <OwnerUsersPanel />}
               {section === "bans" && <OwnerBansPanel />}
+              {section === "ageReviews" && <OwnerAgeReviewsPanel />}
               {section === "team" && <TeamPanel />}
               {section === "reasons" && <OwnerReasonsPanel />}
               {section === "activity" && <OwnerActivityPanel />}
@@ -463,8 +468,20 @@ function OverviewSection({ onNavigate }: { onNavigate: (s: Section) => void }) {
             onClick={() => onNavigate("users")}
           />
           <Metric
-            label="Servers"
+            label="Online now"
+            value={stats.users.online.toLocaleString()}
+            sub={
+              stats.users.total > 0
+                ? `${Math.round((stats.users.online / stats.users.total) * 100)}% of ${stats.users.total.toLocaleString()}${
+                    stats.users.onlineBots > 0 ? ` · ${stats.users.onlineBots} bot${stats.users.onlineBots === 1 ? "" : "s"}` : ""
+                  }`
+                : undefined
+            }
+          />
+          <Metric
+            label="Spaces"
             value={stats.servers.total.toLocaleString()}
+            sub="created by members"
           />
           <Metric
             label="Messages"

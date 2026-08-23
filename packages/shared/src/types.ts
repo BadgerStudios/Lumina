@@ -40,6 +40,11 @@ export interface UserDTO {
   isMinor?: boolean;
   /** Own-record only. Presentational — drives the "confirm your email" banner and gates nothing. */
   emailVerified?: boolean;
+  /** Own-record only. True once the account cleared a document/selfie identity step (Persona or an
+   * admin selfie review) — the client hint for the creator-payout gate. Server enforces it too. */
+  identityVerified?: boolean;
+  /** Own-record only. Strongest age signal on file: SELF_DECLARED | DEVICE_DECLARED | DOCUMENT_VERIFIED. */
+  assuranceLevel?: "SELF_DECLARED" | "DEVICE_DECLARED" | "DOCUMENT_VERIFIED";
   /** A first-party Lumina account. Rendered as a badge — deliberately a server-set flag rather
    * than anything a user can put in their own profile, since the whole point is that it cannot be
    * copied by someone claiming to be staff. */
@@ -87,7 +92,30 @@ export interface OAuthAuthorizeInfoDTO {
   name: string;
   iconUrl: string | null;
   scope: string;
-  redirectUri: string;
+  /** null for scope=bot, which has no redirect leg — approving adds the bot and stops there. */
+  redirectUri: string | null;
+  /** Present only for scope=bot: what the link is asking for and where it may be added. */
+  bot?: OAuthBotAuthorizeInfoDTO;
+}
+
+/** The bot-install half of an authorize screen. `permissions` is a bitfield serialized as a
+ * decimal string because it exceeds Number.MAX_SAFE_INTEGER once the set grows. */
+export interface OAuthBotAuthorizeInfoDTO {
+  botUserId: string;
+  botUsername: string;
+  requestedPermissions: string;
+  servers: OAuthBotTargetServerDTO[];
+}
+
+export interface OAuthBotTargetServerDTO {
+  id: string;
+  name: string;
+  iconUrl: string | null;
+  /** The bot is already a member here — approving again would be a no-op. */
+  alreadyPresent: boolean;
+  /** Permissions the AUTHORIZER holds here. The grant is intersected with this, so nobody can
+   * hand a bot authority they do not have themselves. */
+  grantablePermissions: string;
 }
 
 /** A channel-scoped incoming webhook (see modules/webhooks) — Discord-style: external services
@@ -219,6 +247,8 @@ export interface ServerDTO {
   rulesChannelId: string | null;
   discoverable: boolean;
   minecraftHost: string | null;
+  /// True only for the first-party Lumina community. MASTER-only; see Server.isOfficial.
+  isOfficial: boolean;
 }
 
 export interface AttachmentDTO {
@@ -595,4 +625,7 @@ export interface VideoDTO {
   status?: VideoStatus;
   rejectionReason?: string | null;
   failureReason?: string | null;
+  /** 0-100 while status is "PROCESSING"; meaningless (and not necessarily present) otherwise.
+   * Owner/staff form only, same as status itself. */
+  progressPct?: number;
 }

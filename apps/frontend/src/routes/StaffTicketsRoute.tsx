@@ -199,24 +199,33 @@ function TicketCard({ ticket }: { ticket: Ticket }) {
         )}
 
         {mode !== "none" && (
-          <div className="lm-enter space-y-2">
+          // A <form>, not a bare input+button: without it, pressing Enter after typing a note —
+          // the reflexive way to submit a single-line text field — did nothing, since only the
+          // Confirm button's own onClick fired the mutation. Same bug as StaffVideosRoute's
+          // takedown-reason field.
+          <form
+            className="lm-enter space-y-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!note.trim() || busy) return;
+              complete.mutate(
+                { id: ticket.id, outcome: mode === "complete" ? "COMPLETED" : "DISMISSED", note: note.trim() },
+                { onSuccess: () => { setMode("none"); setNote(""); } },
+              );
+            }}
+          >
             <input
               value={note}
               onChange={(e) => setNote(e.target.value.slice(0, 1000))}
               placeholder="What did you do, and why?"
               className="w-full rounded-lg border border-hairline bg-base-700 px-3 py-2 text-sm text-signal placeholder:text-signal-faint focus:border-accent focus:outline-none"
+              autoFocus
             />
             <p className="text-xs text-signal-faint">The person who reported this will see your note.</p>
             <div className="flex gap-2">
               <button
-                type="button"
+                type="submit"
                 disabled={!note.trim() || busy}
-                onClick={() =>
-                  complete.mutate(
-                    { id: ticket.id, outcome: mode === "complete" ? "COMPLETED" : "DISMISSED", note: note.trim() },
-                    { onSuccess: () => { setMode("none"); setNote(""); } },
-                  )
-                }
                 className="lm-press rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
                 Confirm
@@ -229,7 +238,7 @@ function TicketCard({ ticket }: { ticket: Ticket }) {
                 Cancel
               </button>
             </div>
-          </div>
+          </form>
         )}
 
         {mode === "none" && !closed && (

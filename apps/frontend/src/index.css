@@ -106,6 +106,14 @@
 
   /* Tailwind-consumed aliases — keep component class names (bg-base-900, text-accent, ...)
      completely unchanged; only what they resolve to changes. */
+  /* One step deeper than the page itself — code blocks and "copy this now" secret boxes.
+     Three components already asked for `bg-base-950` (the developer portal's code blocks and its
+     bot-token panel, plus the game console) and the token did not exist, so Tailwind emitted
+     nothing and all three rendered with no fill at all.
+     Derived rather than hand-picked per theme so it stays correct for all seven: mixing the page
+     colour toward black darkens a dark theme and, on the light themes where --void is nearly
+     white, still yields the slightly-recessed grey a code block wants. */
+  --base-950: color-mix(in srgb, var(--void) 92%, #000 8%);
   --base-900: var(--void);
   --base-800: var(--nebula);
   --base-700: var(--nebula-2);
@@ -347,31 +355,20 @@ body {
 }
 
 /* ============ DENSITY ============
-   Toggled by adding "density-compact" to the message list scroll container (see
-   store/uiStore.ts `density` + components/chat/MessageList.tsx). Targets small stable class
-   hooks placed alongside the normal Tailwind utility classes in MessageItem.tsx — a two-class
-   selector like this reliably outranks a single Tailwind utility class regardless of source
-   order, so no !important is needed. */
-.density-compact .message-row {
-  padding-top: 0.05rem;
-  padding-bottom: 0.05rem;
-}
-.density-compact .message-row.message-row--header {
-  margin-top: 0.35rem;
-  padding-top: 0.15rem;
-}
-.density-compact .message-line {
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-.density-compact .message-avatar-slot {
-  width: 1.75rem;
-}
+   Toggled by adding "density-compact" to the message list scroll container (see store/uiStore.ts
+   `density` + components/chat/MessageList.tsx). The rules live with the message timeline below
+   (`.density-compact .lx-msg`).
 
-/* ============ MOBILE DRAWER ============ */
-.mobile-drawer-backdrop {
-  background: rgba(6, 4, 16, 0.6);
-}
+   Note for anyone git-blaming this: the block that used to be here targeted `.message-row`,
+   `.message-row--header`, `.message-line` and `.message-avatar-slot` — none of which MessageItem
+   ever actually rendered. The whole density setting was inert. It now hangs off the timeline's
+   real class hooks and does something. */
+
+/* The old `.mobile-drawer-backdrop` lived here. Every drawer it dimmed is gone (the two left
+   rails merged into one deck, the member column became the aside), and its replacement is
+   `.lx-scrim` in the components layer below — one definition shared by the deck sheet, the aside
+   sheet, the activity sheet, the command palette and every modal, which the four hand-rolled
+   backdrops it served never were. */
 
 /* ============ FULL SURFACE THEMES ============
    Where accent themes re-tint only the brand hue, these replace the whole neutral surface family —
@@ -534,4 +531,348 @@ body {
   color: inherit !important;
   cursor: auto;
   user-select: auto;
+}
+
+/* ============================================================================
+   LUMINA DECK — the app's own design language
+   ============================================================================
+   Replaces the three flush, full-bleed grey columns the app used to have (a
+   72px icon rail, a 240px channel list, a 240px member list) with a single
+   navigation "deck" and a canvas of floating panes.
+
+   The structural reasons, since they are what the classes below encode:
+
+   1. ONE nav column, not two. Communities and the rooms inside them are the
+      same kind of thing — a place you go — so they live in one continuously
+      scrolling outline where a space expands in place to reveal its rooms.
+      Two nested rails forced every navigation to be a two-step act (pick the
+      icon, then read an unlabelled list that just changed under you).
+   2. PANES FLOAT on the canvas. Each surface is a rounded, hairlined card
+      with the window background visible between them, so the eye can see
+      where one region ends. Flush columns of near-identical greys cannot.
+   3. NO `#`. Room type is carried by a small mark that also encodes state
+      (unread/active), which a glyph borrowed from IRC never did.
+
+   Everything resolves from the existing token set (--void, the --nebula tones, the --signal
+   tiers, --accent), so all seven surface themes and five accent themes keep working with no
+   per-theme additions. */
+
+:root {
+  --pane-radius: 1rem;
+  --row-radius: 0.625rem;
+  --deck-w: 17rem;
+  --deck-w-collapsed: 4.25rem;
+  /* A hairline that reads as an edge on both dark and light surfaces. --hairline
+     alone is tuned for dark and disappears on the light themes' white panels. */
+  --edge: color-mix(in srgb, var(--signal) 10%, transparent);
+  --pane-shadow: 0 1px 0 0 color-mix(in srgb, var(--signal) 4%, transparent) inset,
+                 0 12px 32px -20px rgba(0, 0, 0, 0.75);
+}
+
+/* Wrapped in Tailwind's `components` layer so utilities still win.
+   Without this, `.lx-pane` (defined after `@tailwind utilities` in source order) would beat a
+   `bg-base-900` on the same element, and any pane that wants a different fill — the feed, for one
+   — could not state it in JSX. Inside the layer, a utility always overrides these. */
+@layer components {
+  /* Canvas: the window itself. Panes sit on it with a visible gap. */
+  .lx-canvas {
+    background: var(--void);
+  }
+
+  /* A floating surface. Used for the deck, the chat column, the aside, and every
+     full-page route surface, so a route no longer has to invent its own frame. */
+  .lx-pane {
+    background: var(--nebula);
+    border: 1px solid var(--edge);
+    border-radius: var(--pane-radius);
+    box-shadow: var(--pane-shadow);
+    overflow: hidden;
+  }
+
+  /* Same surface one step raised — popovers, the command palette, modals.
+     The two percentages MUST sum to 100. color-mix puts any shortfall into the alpha channel, so
+     `92% + 2%` silently produced a 6%-transparent panel and the nav rows behind a popover read
+     through it. */
+  .lx-raised {
+    background: color-mix(in srgb, var(--nebula-2) 96%, var(--signal) 4%);
+    border: 1px solid var(--edge);
+    border-radius: var(--pane-radius);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Translucent bar that reads as hovering over the content beneath it. Kept in
+     normal flow rather than absolutely positioned: it looks detached but cannot
+     overlap the first message, which an overlay does at every zoom level. */
+  .lx-capsule {
+    background: color-mix(in srgb, var(--nebula-2) 74%, transparent);
+    border: 1px solid var(--edge);
+    border-radius: 0.875rem;
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  }
+
+  /* The nav deck's own width. Not an inline style: an inline width beats every class, so the
+     phone sheet was silently rendering at the desktop column width. */
+  .lx-deck {
+    width: var(--deck-w);
+  }
+  .lx-deck[data-collapsed="true"] {
+    width: var(--deck-w-collapsed);
+  }
+  @media (max-width: 767.98px), (max-height: 499.98px) {
+    .lx-deck,
+    .lx-deck[data-collapsed="true"] {
+      width: min(19rem, 86vw);
+    }
+  }
+
+  /* ---- Deck rows -----------------------------------------------------------
+     A row is never full-bleed: the highlight is an inset rounded block, so the
+     deck reads as a list of objects rather than a stack of coloured bands. The
+     active marker is a short accent bar tucked inside the row's left padding. */
+  .lx-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    min-width: 0;
+    border-radius: var(--row-radius);
+    padding: 0.4rem 0.5rem;
+    text-align: left;
+    color: var(--signal-dim);
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .lx-row:hover {
+    background: color-mix(in srgb, var(--signal) 6%, transparent);
+    color: var(--signal);
+  }
+  .lx-row[data-active="true"] {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--signal);
+    font-weight: 600;
+  }
+  .lx-row[data-active="true"]::before {
+    content: "";
+    position: absolute;
+    left: -0.3rem;
+    top: 50%;
+    height: 1.05rem;
+    width: 3px;
+    transform: translateY(-50%);
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  /* Unread but not active: the name goes full-strength and gains a leading dot.
+     Discord signalled this with a white pill on the server icon, which said
+     "something happened somewhere in here" and nothing more. */
+  .lx-row[data-unread="true"] {
+    color: var(--signal);
+    font-weight: 600;
+  }
+
+  /* Room type mark. Replaces the `#` / speaker-icon pair: one 6px shape whose
+     FILL carries state, so type and unreadness are readable in the same glance
+     without a second badge. */
+  .lx-mark {
+    position: relative;
+    flex: none;
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 2px;
+    border: 1.5px solid var(--signal-faint);
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+  .lx-mark--voice {
+    border-radius: 999px;
+  }
+  .lx-row:hover .lx-mark,
+  .lx-row[data-active="true"] .lx-mark {
+    border-color: var(--accent);
+  }
+  .lx-row[data-active="true"] .lx-mark,
+  .lx-row[data-unread="true"] .lx-mark {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .lx-row[data-live="true"] .lx-mark {
+    background: var(--pulse);
+    border-color: var(--pulse);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--pulse) 22%, transparent);
+  }
+
+  /* Section label. Mono + wide tracking is the app's "meta" voice (timestamps,
+     status) — reusing it here ties the chrome together. */
+  .lx-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.5625rem;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--signal-faint);
+  }
+
+  /* The tree spine under an expanded space. A single hairline the child rows
+     hang off, so nesting is visible without indenting them off the edge. */
+  .lx-branch {
+    position: relative;
+    margin-left: 1.15rem;
+    padding-left: 0.55rem;
+    border-left: 1px solid var(--edge);
+  }
+
+  /* ---- Message timeline ----------------------------------------------------
+     The old row was Discord's: 40px avatar column, name and time on one baseline,
+     body beneath. The new one keeps the avatar column but hangs a spine off it,
+     moves the timestamp to a right-hand gutter where it aligns down the whole
+     list, and puts the hover actions on the right EDGE rather than in a notch
+     overlapping the message above. */
+  .lx-msg {
+    position: relative;
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+    gap: 0 0.75rem;
+    padding: 0.1rem 0.9rem;
+  }
+  .lx-msg:hover {
+    background: color-mix(in srgb, var(--signal) 3.5%, transparent);
+  }
+  .lx-msg--head {
+    margin-top: 0.45rem;
+    padding-top: 0.35rem;
+  }
+  /* Spine: connects the avatar to the rest of its author group. Drawn on the
+     group's rows rather than the avatar so it stops exactly at the last one. */
+  .lx-msg .lx-spine {
+    position: absolute;
+    left: 1.98rem;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--edge);
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .lx-msg:hover .lx-spine,
+  .lx-msg-group:hover .lx-spine {
+    opacity: 1;
+  }
+  .lx-gutter {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    line-height: 1.4rem;
+    /* --signal-dim, not --signal-faint: the faint tier measured 2.99:1 against the slate theme's
+       white pane, and a timestamp you cannot read is just noise in the gutter. */
+    color: var(--signal-dim);
+    text-align: right;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .lx-msg--head .lx-gutter,
+  .lx-msg:hover .lx-gutter {
+    opacity: 1;
+  }
+  /* Own messages get a quiet accent tick on the spine rather than a coloured
+     bubble — bubbles read as SMS and halve the usable line length. */
+  .lx-msg--own.lx-msg--head .lx-spine {
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+    opacity: 1;
+  }
+
+  /* Hover action bar, pinned to the right edge and vertically centred. */
+  .lx-msg-actions {
+    position: absolute;
+    right: 0.75rem;
+    top: -0.6rem;
+    display: none;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.125rem;
+    border-radius: 0.625rem;
+    background: color-mix(in srgb, var(--nebula-2) 96%, transparent);
+    border: 1px solid var(--edge);
+    box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.8);
+    z-index: 5;
+  }
+  .lx-msg:hover .lx-msg-actions,
+  .lx-msg:focus-within .lx-msg-actions,
+  /* While a popover launched from this bar is open the pointer is ON THE POPOVER, so the row is no
+     longer hovered and the bar would go display:none — taking the popover's anchor with it and
+     sending it to the top-left corner of the window. Radix marks the open trigger with
+     data-state="open"; keeping the bar laid out for as long as that is true is what stops it. */
+  .lx-msg-actions:has([data-state="open"]) {
+    display: flex;
+  }
+
+  .density-compact .lx-msg {
+    padding-top: 0.02rem;
+    padding-bottom: 0.02rem;
+    grid-template-columns: 1.85rem minmax(0, 1fr) auto;
+  }
+  .density-compact .lx-msg--head {
+    margin-top: 0.3rem;
+    padding-top: 0.15rem;
+  }
+  .density-compact .lx-msg .lx-spine {
+    left: 1.6rem;
+  }
+  .density-compact .lx-body {
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+
+  /* ---- Floating dock (voice) ---------------------------------------------- */
+  .lx-dock {
+    background: color-mix(in srgb, var(--nebula-2) 88%, transparent);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* ---- Off-canvas sheets (deck, aside) ------------------------------------
+     A fixed sheet is positioned against the VIEWPORT, which means it does not inherit the app
+     shell's status-bar padding and does not know about the bottom tab bar. Left as `inset-y-0` the
+     deck's header sat under the Android clock and its user chip sat behind the tab bar. Both ends
+     are stated here rather than as utilities because the values are only correct below the layout
+     breakpoint. `--keyboard-inset` matches what the tab bar itself does when the keyboard opens. */
+  /* The aside becomes a sheet below 1024px, not below 768px like the deck. Three columns need
+     roughly 1024px: at tablet-portrait width the deck (272) plus the aside (264) plus gutters left
+     about 250px for the conversation, and the room header's breadcrumb and actions collapsed on
+     top of each other. */
+  @media (max-width: 1023.98px) {
+    .lx-sheet--aside {
+      top: max(env(safe-area-inset-top), var(--android-safe-top, 0px));
+      bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + var(--keyboard-inset));
+    }
+  }
+  @media (min-width: 768px) and (min-height: 500px) and (max-width: 1023.98px) {
+    /* Between the two breakpoints there is no bottom tab bar to clear. */
+    .lx-sheet--aside {
+      bottom: 0;
+    }
+  }
+
+  @media (max-width: 767.98px), (max-height: 499.98px) {
+    .lx-sheet {
+      top: max(env(safe-area-inset-top), var(--android-safe-top, 0px));
+      bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + var(--keyboard-inset));
+    }
+  }
+
+  /* ---- Scrim for deck / aside sheets on small screens ---------------------- */
+  .lx-scrim {
+    background: color-mix(in srgb, var(--void) 72%, transparent);
+    backdrop-filter: blur(2px);
+  }
+
+  /* Focus ring used across the new chrome — one definition so every interactive
+     element in the deck agrees, which the old per-component classes did not. */
+  .lx-focus:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--row-radius);
+  }
 }

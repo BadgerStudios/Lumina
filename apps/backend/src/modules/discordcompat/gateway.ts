@@ -9,6 +9,7 @@ import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord } from "./shapes.js
 import { computeEffectiveChannelPermissions } from "../../permissions/permissionService.js";
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
+import { parseBigIntId } from "../../lib/parseBigIntId.js";
 
 /**
  * Discord-gateway-compatible websocket at /discord/gateway.
@@ -178,7 +179,9 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
   const messageLocation = new Map<string, { channelId: string; serverId: string | null } | null>();
   const locate = async (messageId: string) => {
     if (messageLocation.has(messageId)) return messageLocation.get(messageId);
-    const row = await prisma.message.findUnique({ where: { id: BigInt(messageId) }, select: { channelId: true, channel: { select: { serverId: true } } } });
+    const mid = parseBigIntId(messageId);
+    if (mid === null) { messageLocation.set(messageId, null); return null; }
+    const row = await prisma.message.findUnique({ where: { id: mid }, select: { channelId: true, channel: { select: { serverId: true } } } });
     const loc = row?.channelId ? { channelId: row.channelId, serverId: row.channel?.serverId ?? null } : null;
     messageLocation.set(messageId, loc);
     return loc;
@@ -239,7 +242,9 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
             ...(!isCommand && i.messageId
               ? {
                   message: await (async () => {
-                    const row = await prisma.message.findUnique({ where: { id: BigInt(i.messageId!) }, include: messageInclude });
+                    const mid = parseBigIntId(i.messageId);
+                    if (mid === null) return undefined;
+                    const row = await prisma.message.findUnique({ where: { id: mid }, include: messageInclude });
                     return row ? await mapMessage(serializeMessage(row, null), i.serverId) : undefined;
                   })(),
                 }

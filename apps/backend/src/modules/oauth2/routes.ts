@@ -1,21 +1,27 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../../plugins/authenticate.js";
-import { UnauthorizedError } from "../../lib/errors.js";
-import { approveAuthorization, exchangeCodeForToken, getAuthorizeInfo, identifyFromToken } from "./service.js";
+import { BadRequestError, UnauthorizedError } from "../../lib/errors.js";
+import { approveAuthorization, BOT_SCOPE, exchangeCodeForToken, getAuthorizeInfo, identifyFromToken, installBot } from "./service.js";
 
+// redirect_uri is optional because scope=bot has no redirect leg — approving installs the bot and
+// the flow ends there. The service still rejects a missing redirect_uri for every other scope.
 const authorizeQuerySchema = z.object({
   client_id: z.string().min(1),
-  redirect_uri: z.string().url(),
+  redirect_uri: z.string().url().optional(),
   scope: z.string().min(1),
   state: z.string().optional(),
+  permissions: z.string().optional(),
+  guild_id: z.string().optional(),
 });
 
 const authorizeBodySchema = z.object({
   clientId: z.string().min(1),
-  redirectUri: z.string().url(),
+  redirectUri: z.string().url().optional(),
   scope: z.string().min(1),
   state: z.string().optional(),
+  permissions: z.string().optional(),
+  guildId: z.string().optional(),
 });
 
 const tokenBodySchema = z.object({
@@ -37,11 +43,31 @@ export default async function oauth2Routes(fastify: FastifyInstance) {
   // approving, same as any Login-with-X provider's own authorize endpoint.
   fastify.get("/authorize", { schema: { querystring: authorizeQuerySchema }, preHandler: [requireAuth] }, async (request) => {
     const query = request.query as z.infer<typeof authorizeQuerySchema>;
-    return getAuthorizeInfo({ clientId: query.client_id, redirectUri: query.redirect_uri, scope: query.scope });
+    return getAuthorizeInfo({
+      clientId: query.client_id,
+      redirectUri: query.redirect_uri,
+      scope: query.scope,
+      permissions: query.permissions,
+      userId: request.userId!,
+    });
   });
 
   fastify.post("/authorize", { schema: { body: authorizeBodySchema }, preHandler: [requireAuth] }, async (request) => {
     const body = request.body as z.infer<typeof authorizeBodySchema>;
+
+    // scope=bot approves an INSTALL, not a delegated-access grant: there is no code to mint and
+    // no redirect to follow, so it returns the install result instead of a redirectUrl.
+    if (body.scope === BOT_SCOPE) {
+      if (!body.guildId) throw new BadRequestError("guildId is required to install a bot");
+      return installBot({
+        userId: request.userId!,
+        clientId: body.clientId,
+        guildId: body.guildId,
+        permissions: body.permissions,
+      });
+    }
+
+    if (!body.redirectUri) throw new BadRequestError("redirectUri is required for this scope");
     const redirectUrl = await approveAuthorization({
       userId: request.userId!,
       clientId: body.clientId,

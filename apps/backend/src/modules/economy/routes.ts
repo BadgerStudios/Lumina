@@ -3,12 +3,13 @@ import { z } from "zod";
 import type Stripe from "stripe";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth } from "../../plugins/authenticate.js";
-import { requireAdult } from "../age/guard.js";
+import { requireAdult, requireVerifiedAdult } from "../age/guard.js";
+import { requireTurnstile } from "../../plugins/turnstile.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../../lib/errors.js";
 import { getStripe, isBillingConfigured } from "../billing/stripe.js";
 import { env } from "../../config/env.js";
 import { COIN_VALUE_MINOR, PRODUCTS, recordRevenueEvent, qualifyAndPost } from "./service.js";
-import { getBalance } from "../store/service.js";
+import { getBalance, lockUserCoins } from "../store/service.js";
 import { pushInboxNotification } from "../inbox/service.js";
 
 /**
@@ -18,6 +19,13 @@ import { pushInboxNotification } from "../inbox/service.js";
  * existing minor regime and the master spec's §27 default agree, and the gate is at the route so
  * no later refactor can accidentally open it.
  */
+
+/** A Stripe reference field is either the id string or an expanded object carrying `.id`; normalize
+ * to the id string (or null) so we can store the PaymentIntent id regardless of expansion. */
+function stripeIdOf(ref: string | { id: string } | null | undefined): string | null {
+  if (!ref) return null;
+  return typeof ref === "string" ? ref : ref.id;
+}
 
 const tipSchema = z.object({
   creatorId: z.string().min(1),
@@ -61,6 +69,7 @@ export async function handleTipCompleted(session: Stripe.Checkout.Session): Prom
     creatorId,
     contentRef: contentRef || null,
     externalRef: session.id,
+    paymentIntentId: stripeIdOf(session.payment_intent),
   });
   await qualifyAndPost(event.id);
 }
@@ -161,7 +170,11 @@ export default async function economyRoutes(fastify: FastifyInstance) {
     }));
   });
 
-  fastify.post("/creator/payouts/onboard", { preHandler: [requireAuth, requireAdult] }, async () => {
+  // requireVerifiedAdult (not requireAdult): receiving real money requires a cleared document/selfie
+  // identity step, not just a self-declared adult birthday. Money-IN routes (tips/gifts/memberships)
+  // deliberately stay on requireAdult so the live spending economy is unaffected — only cashing OUT
+  // demands KYC-grade proof. Safe to add now: this endpoint is already gated behind Stripe Connect.
+  fastify.post("/creator/payouts/onboard", { preHandler: [requireAuth, requireVerifiedAdult] }, async () => {
     if (!env.STRIPE_CONNECT_ENABLED) {
       // Not a placeholder: the flow is built and gated. The message tells the operator exactly
       // which one-time step turns it on, per the autonomy contract's SETUP_ONCE model.
@@ -178,7 +191,7 @@ export default async function economyRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     "/tips",
-    { schema: { body: tipSchema }, config: { rateLimit: { max: 10, timeWindow: "1 minute" } }, preHandler: [requireAuth, requireAdult] },
+    { schema: { body: tipSchema }, config: { rateLimit: { max: 10, timeWindow: "1 minute" } }, preHandler: [requireAuth, requireAdult, requireTurnstile] },
     async (request) => {
       const body = request.body as z.infer<typeof tipSchema>;
       if (body.creatorId === request.userId) throw new BadRequestError("You can't tip yourself");
@@ -236,6 +249,9 @@ export default async function economyRoutes(fastify: FastifyInstance) {
       // transaction that writes the debit, so two simultaneous sends can't both pass. The unique
       // GiftSend row is created in the same transaction — a crash between them is a rollback.
       const send = await prisma.$transaction(async (tx) => {
+        // Same per-user coin lock the store purchase takes — otherwise two concurrent gift sends,
+        // or a gift racing a store purchase, each read the same balance and both overspend.
+        await lockUserCoins(tx, request.userId!);
         const balance = await getBalance(request.userId!, tx);
         if (balance < gift.priceCoins) {
           throw new BadRequestError(`Not enough sparks — this gift costs ${gift.priceCoins} and you have ${balance}`);

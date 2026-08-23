@@ -84,6 +84,9 @@ export function RoleEditorModal() {
 
   async function handleDelete() {
     if (!editingRole) return;
+    // Confirm first — deleting a role is destructive (it drops the role from every member who has
+    // it) and one stray click shouldn't do it. ChannelSettings confirms the equivalent action.
+    if (!confirm(`Delete the "${editingRole.name}" role? Everyone with it loses it. This can't be undone.`)) return;
     await deleteRole.mutateAsync(editingRole.id);
     closeModal();
   }

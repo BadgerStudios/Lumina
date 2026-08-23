@@ -19,6 +19,33 @@ export function getIO(): SocketIOServer {
   return io;
 }
 
+/**
+ * Force every live socket of `userId` out of a server's realtime rooms — the server room and all of
+ * its channel rooms — after a kick or ban.
+ *
+ * Room membership is computed once at connect time (joinInitialRooms) and never revisited, so
+ * without this a kicked/banned member's still-open socket keeps receiving that server's messages,
+ * presence and member/role updates until it happens to reconnect. REST is already blocked on the
+ * next request; this closes the realtime stream to match. socketsLeave runs cluster-wide through
+ * the Redis adapter, so it reaches the target's sockets wherever they're connected. Best-effort and
+ * swallowed: a moderation action must never fail because a realtime eviction hiccuped.
+ */
+export async function evictUserFromServer(userId: string, serverId: string): Promise<void> {
+  if (!io) return;
+  try {
+    const { prisma } = await import("../db/prisma.js");
+    const channels = await prisma.channel.findMany({ where: { serverId }, select: { id: true } });
+    // Voice uses its own `voice:${channelId}` room namespace (handlers/voice.ts), separate from the
+    // text `channel:` rooms — leave both, or a kicked/banned member stays in an active voice call,
+    // still hearing and (since they remain a room member) still able to send signaling.
+    const rooms = [`server:${serverId}`, ...channels.flatMap((c) => [`channel:${c.id}`, `voice:${c.id}`])];
+    io.in(`user:${userId}`).socketsLeave(rooms);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[realtime] failed to evict user ${userId} from server ${serverId}:`, err);
+  }
+}
+
 export async function initIO(httpServer: HTTPServer): Promise<SocketIOServer> {
   const origins = env.CORS_ORIGIN.split(",").map((s) => s.trim());
 

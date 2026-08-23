@@ -430,7 +430,7 @@ export function BrandKitPanel() {
           <Upload className="h-7 w-7" />
           <span className="text-sm">Upload brand assets</span>
           <span className="text-xs text-signal-faint">
-            Logos, fonts, palettes, style guides · up to 100MB each
+            Logos, fonts, palettes, style guides · up to 1GB each
           </span>
         </button>
 

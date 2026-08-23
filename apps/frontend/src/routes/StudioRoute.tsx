@@ -3,6 +3,7 @@ import { Wallet, Clock, Lock, CheckCircle2, Circle, BadgeDollarSign, Landmark, U
 import { cn } from "../lib/cn";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { useCreatorStatus, useCreatorWallet, useCreatorEarnings, useMyTier, useSaveTier, useSupporters } from "../queries/economy";
+import { VerifyIdentityPanel } from "../components/VerifyIdentityPanel";
 
 /** The supporter-tier editor + supporter roll. Form state resyncs when the server answer
  * arrives — same stale-form lesson every entity-editing modal in this app has learned. */
@@ -53,7 +54,12 @@ function MembershipSection() {
             /mo
           </div>
           <label className="flex cursor-pointer items-center gap-1.5 text-sm text-signal">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+              className="h-4 w-4 shrink-0 accent-[var(--accent)]"
+            />
             Open to new supporters
           </label>
         </div>
@@ -107,8 +113,12 @@ export function StudioRoute() {
   const { data: earnings } = useCreatorEarnings();
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-4xl flex-col gap-8 p-4 md:p-8">
+    <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 overflow-y-auto">
+      {/* w-full is load-bearing, not decoration: this div is a flex ITEM (its parent pane is a
+          flex column), and `mx-auto` on a flex item disables the default stretch — so without an
+          explicit width it shrink-wraps to its own min-content and can end up WIDER than the pane.
+          At 390px that put the right-hand column of cards off the screen. */}
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 p-4 md:p-8">
         <header className="flex items-center gap-3">
           <BadgeDollarSign className="text-accent" size={26} />
           <div>
@@ -126,7 +136,7 @@ export function StudioRoute() {
             { label: "Reserved", hint: "Held against refunds per policy", value: wallet?.reserved.display, icon: Lock },
             { label: "Paid lifetime", hint: "Everything ever paid out", value: wallet?.paidLifetime.display, icon: Landmark },
           ].map((c) => (
-            <div key={c.label} className="rounded-xl bg-base-800 p-4 ring-1 ring-base-600">
+            <div key={c.label} className="h-full rounded-xl bg-base-800 p-4 ring-1 ring-base-600">
               <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase text-signal-dim">
                 <c.icon size={12} /> {c.label}
               </p>
@@ -152,6 +162,11 @@ export function StudioRoute() {
                 setup to complete before real payouts open.
               </p>
             )}
+            {/* Identity verification is the gate on withdrawing money (requireVerifiedAdult). Shown
+                here so a creator can clear it ahead of payouts opening. */}
+            <div className="mt-4">
+              <VerifyIdentityPanel />
+            </div>
           </div>
         </section>
 

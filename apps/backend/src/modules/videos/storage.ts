@@ -81,6 +81,22 @@ export async function safeUnlink(filePath: string): Promise<void> {
   }
 }
 
+/**
+ * Unlink for a caller whose contract is "this file is now really gone", not "best-effort
+ * cleanup" — staff's purge-media route promises a permanent deletion, and safeUnlink's swallow-
+ * everything behaviour let a real failure (permissions, a read-only mount, a disk error) go
+ * completely unreported while the route still nulled the DB keys and claimed success. ENOENT is
+ * still treated as success — the file being already gone is exactly what "purged" looks like.
+ */
+export async function unlinkOrThrow(filePath: string): Promise<void> {
+  try {
+    await fs.unlink(filePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+}
+
 export async function statSize(filePath: string): Promise<number | null> {
   try {
     const s = await fs.stat(filePath);

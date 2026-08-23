@@ -3,6 +3,7 @@ import { z } from "zod";
 import os from "node:os";
 import { statfs } from "node:fs/promises";
 import { prisma } from "../../db/prisma.js";
+import { getIO } from "../../realtime/io.js";
 import { redis } from "../../db/redis.js";
 import { env } from "../../config/env.js";
 import { requireAuth, requireOwner } from "../../plugins/authenticate.js";
@@ -38,6 +39,38 @@ const appealResolveSchema = z.object({
  */
 export default async function ownerRoutes(fastify: FastifyInstance) {
   /** Headline platform statistics. Every number here is measured, never estimated. */
+/**
+ * Who is connected right now, counted from the live socket table rather than from
+ * `User.presence`.
+ *
+ * The column is the wrong source for this. It is written on connect and on a debounced disconnect
+ * (see realtime/handlers/presence.ts), and the debounce is per-process — so a backend restart, a
+ * crash, or a socket that dies without a clean close leaves rows reading ONLINE with nobody behind
+ * them, and an owner dashboard that only ever counts up is worse than no number at all. The socket
+ * table cannot drift: if the connection is gone, the entry is gone.
+ *
+ * `fetchSockets()` is used rather than the local `sockets` map because it goes through the adapter,
+ * so this stays correct if a second backend instance is ever added.
+ */
+async function countOnline(): Promise<{ users: number; bots: number }> {
+  let sockets;
+  try {
+    sockets = await getIO().fetchSockets();
+  } catch {
+    // Socket.IO not initialised (or no adapter yet) — report nobody rather than failing the whole
+    // stats call, which also carries every other tile on the dashboard.
+    return { users: 0, bots: 0 };
+  }
+
+  const ids = [...new Set(sockets.map((sock) => sock.data?.userId).filter((v): v is string => typeof v === "string"))];
+  if (ids.length === 0) return { users: 0, bots: 0 };
+
+  // Bots hold sockets too (the Discord-compat gateway is a socket like any other). Counting them
+  // as people would quietly inflate the headline number.
+  const bots = await prisma.user.count({ where: { id: { in: ids }, isBot: true } });
+  return { users: ids.length - bots, bots };
+}
+
   fastify.get("/stats", { preHandler: [requireAuth, requireOwner] }, async () => {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -59,6 +92,7 @@ export default async function ownerRoutes(fastify: FastifyInstance) {
       recentMessages,
       recentVideos,
       ageBlocks,
+      online,
     ] = await Promise.all([
       prisma.user.count({ where: { isBot: false } }),
       prisma.user.count({ where: { isBot: false, createdAt: { gte: dayAgo } } }),
@@ -87,6 +121,7 @@ export default async function ownerRoutes(fastify: FastifyInstance) {
         select: { createdAt: true },
       }),
       prisma.accountFlag.count({ where: { reasonCode: { startsWith: "AGE_" } } }),
+      countOnline(),
     ]);
 
     const userSeries = bucketByDay(recentUsers.map((u) => u.createdAt), 30);
@@ -94,7 +129,14 @@ export default async function ownerRoutes(fastify: FastifyInstance) {
     const videoSeries = bucketByDay(recentVideos.map((v) => v.createdAt), 30);
 
     return {
-      users: { total: totalUsers, newToday: newUsersDay, newThisWeek: newUsersWeek, series: userSeries },
+      users: {
+        total: totalUsers,
+        online: online.users,
+        onlineBots: online.bots,
+        newToday: newUsersDay,
+        newThisWeek: newUsersWeek,
+        series: userSeries,
+      },
       servers: { total: totalServers },
       messages: { total: totalMessages, today: messagesDay, series: messageSeries },
       videos: {

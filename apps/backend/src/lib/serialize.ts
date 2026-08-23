@@ -61,6 +61,8 @@ type MeLike = UserLike & {
   isMinor: boolean;
   ageRecordedAt: Date | null;
   emailVerifiedAt: Date | null;
+  identityVerifiedAt?: Date | null;
+  ageAssuranceLevel?: string;
 };
 
 /** Only for "this is the logged-in user's own record" responses (auth/routes.ts,
@@ -85,6 +87,10 @@ export function serializeMe(user: MeLike): UserDTO {
     // Own-record only, and purely presentational: it drives the "confirm your email" banner.
     // Nothing is gated on it — see modules/auth/emailVerification.ts.
     emailVerified: user.emailVerifiedAt !== null,
+    // Own-record only. Drives the verification UI and the payout-surface gate hint. The server
+    // enforces requireVerifiedAdult independently — this is presentation only.
+    identityVerified: user.identityVerifiedAt != null,
+    assuranceLevel: (user.ageAssuranceLevel as UserDTO["assuranceLevel"]) ?? "SELF_DECLARED",
   };
 }
 
@@ -182,6 +188,7 @@ type ServerLike = {
   rulesChannelId?: string | null;
   discoverable?: boolean;
   minecraftHost?: string | null;
+  isOfficial?: boolean;
 };
 
 export function serializeServer(server: ServerLike): ServerDTO {
@@ -210,6 +217,7 @@ export function serializeServer(server: ServerLike): ServerDTO {
     rulesChannelId: server.rulesChannelId ?? null,
     discoverable: server.discoverable ?? false,
     minecraftHost: server.minecraftHost ?? null,
+    isOfficial: server.isOfficial ?? false,
   };
 }
 

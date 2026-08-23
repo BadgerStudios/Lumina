@@ -23,16 +23,21 @@ import { StaffVideosRoute } from "./routes/StaffVideosRoute";
 import { StaffTicketsRoute } from "./routes/StaffTicketsRoute";
 import { StaffAdsRoute } from "./routes/staff/StaffAdsRoute";
 import { StaffAuditRoute } from "./routes/staff/StaffAuditRoute";
+import { StaffVerificationRoute } from "./routes/staff/StaffVerificationRoute";
 import { OwnerRoute } from "./routes/OwnerRoute";
 import { BanScreen } from "./components/BanScreen";
+import { TurnstileChallengeModal } from "./components/TurnstileChallengeModal";
 import { CrashTest } from "./components/common/CrashTest";
 import { UploadRoute } from "./routes/UploadRoute";
 import { PrivacyRoute } from "./routes/PrivacyRoute";
 import { TermsRoute } from "./routes/TermsRoute";
+import { ChildSafetyRoute } from "./routes/ChildSafetyRoute";
 import { FeaturesRoute } from "./routes/FeaturesRoute";
 import { InstallRoute } from "./routes/InstallRoute";
 import { DevPortalRoute } from "./routes/dev/DevPortalRoute";
 import { VerifyEmailRoute } from "./routes/VerifyEmailRoute";
+import { ForgotPassword } from "./routes/ForgotPassword";
+import { ResetPassword } from "./routes/ResetPassword";
 import { LandingRoute } from "./routes/LandingRoute";
 import { CLIENT_TYPE } from "./lib/platform";
 
@@ -77,6 +82,9 @@ export function App() {
       {/* Rendered above the router: a ban can land on the login screen or mid-session, and both
           must end at the same explanation rather than a route-specific error. */}
       <BanScreen />
+      {/* Global bot-challenge overlay: pops on demand when a protected request needs a Turnstile
+          token, then the apiClient retries transparently. Covers every surface without a per-form widget. */}
+      <TurnstileChallengeModal />
       <Routes>
         {/* The public landing page, web only.
             On mobile/desktop builds CLIENT_TYPE is set at build time and `/` is the app itself —
@@ -91,6 +99,10 @@ export function App() {
         <Route path="/upload" element={<UploadRoute />} />
         <Route path="/privacy" element={<PrivacyRoute />} />
         <Route path="/terms" element={<TermsRoute />} />
+        {/* Play requires published CSAE standards at a public URL; /child-safety is that URL.
+            /csae is an alias so either form in Play Console resolves. */}
+        <Route path="/child-safety" element={<ChildSafetyRoute />} />
+        <Route path="/csae" element={<ChildSafetyRoute />} />
         <Route path="/features" element={<FeaturesRoute />} />
         <Route path="/install" element={<InstallRoute />} />
         {/* Docs are public by design — a developer evaluating the platform has no account yet. */}
@@ -99,6 +111,9 @@ export function App() {
         {/* Signed-out on purpose: the link is often opened on a different device from the one that
             signed up, and requiring a session would fail exactly where it matters. */}
         <Route path="/verify-email" element={<VerifyEmailRoute />} />
+        {/* Signed-out on purpose, same reasoning as verify-email: reset links open anywhere. */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route element={<RequireAuth />}>
           <Route element={<AppShell />}>
             {/* Native builds have no landing page, so `/` stays the app home exactly as before —
@@ -122,6 +137,7 @@ export function App() {
               <Route path="reports" element={<StaffTicketsRoute />} />
               <Route path="ads" element={<StaffAdsRoute />} />
               <Route path="audit" element={<StaffAuditRoute />} />
+              <Route path="verification" element={<StaffVerificationRoute />} />
             </Route>
             <Route path="/owner" element={<OwnerRoute />} />
             {/* Dev only — the target for verify-error-boundary.mjs. `import.meta.env.DEV` is

@@ -6,6 +6,7 @@ import { isStaff } from "../../lib/platformRole.js";
 import { env } from "../../config/env.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { requireAdult } from "../age/guard.js";
+import { requireTurnstileForRisky } from "../../plugins/turnstile.js";
 import { assertTrustedOrigin } from "../risk/service.js";
 import { extractMediaUserId } from "../../lib/mediaAuth.js";
 import { sendFileWithRange } from "../../lib/sendFile.js";
@@ -19,6 +20,7 @@ import { resolveTags, attachTags, MAX_TAGS_PER_VIDEO } from "../tags/service.js"
 import { extractHashtags } from "../../lib/textTokens.js";
 import { readDeviceFingerprint } from "../auth/service.js";
 import { MAX_STITCH_MS, MIN_STITCH_MS } from "./remix.js";
+import { parseBigIntId } from "../../lib/parseBigIntId.js";
 
 /** Container formats a browser can plausibly produce from a file picker or MediaRecorder. The
  * worker re-probes and re-encodes regardless, so this is a cheap early reject to avoid spending
@@ -36,7 +38,7 @@ export default async function videoRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/",
     {
-      preHandler: [requireAuth, requireAdult],
+      preHandler: [requireAuth, requireAdult, requireTurnstileForRisky],
       // Uploads are the most expensive request this server accepts (disk + a transcode slot), so
       // they get a far tighter budget than the app-wide 300/min default in plugins/rateLimit.ts.
       // This is the abuse brake; the per-day quota below is the fairness one.
@@ -301,12 +303,8 @@ function rangeLength(header: string | undefined, size: number): number {
 }
 
 async function loadVideo(rawId: string) {
-  let id: bigint;
-  try {
-    id = BigInt(rawId);
-  } catch {
-    throw new NotFoundError("Video not found");
-  }
+  const id = parseBigIntId(rawId);
+  if (id === null) throw new NotFoundError("Video not found");
   const video = await prisma.video.findUnique({
     where: { id },
     include: { author: { select: VIDEO_AUTHOR_SELECT }, ...VIDEO_TAGS_INCLUDE, ...VIDEO_SOURCE_INCLUDE },
@@ -316,20 +314,34 @@ async function loadVideo(rawId: string) {
 }
 
 /**
- * Media bytes follow the same visibility rule as the metadata: APPROVED is public to any logged-in
- * user, anything else is uploader-or-staff only. Enforced here rather than only on the metadata
- * route, because the playback URL is a guessable sequential id — without this check, a pending or
- * rejected video would still be fully streamable by anyone who incremented an id.
+ * Media bytes follow the same visibility rule as the metadata AND the same age gate as the feed
+ * that lists them. The video feed is adults-only (requireAdult on every /feed route), but the
+ * playback/thumbnail URLs are hit directly by native <video>/<img> elements and so cannot carry a
+ * preHandler — the age check has to live here, or it doesn't exist for the bytes at all. Without
+ * it a minor account (permitted to exist, blocked from the feed) could stream the entire
+ * adults-only library by incrementing the sequential video id, defeating the whole point of the
+ * age separation.
+ *
+ * Order matters: the uploader always sees their own media (any status, any age), staff see
+ * anything, and only then is a non-owner held to "APPROVED and you're a confirmed adult". Unknown
+ * age fails exactly like requireAdult — an unanswered age is never permission. 404 rather than 403
+ * throughout so a probing id can't tell "exists but blocked" apart from "doesn't exist".
  */
 async function assertCanViewMedia(
   video: { status: string; authorId: string | null },
   userId: string,
 ): Promise<void> {
-  if (video.status === "APPROVED") return;
   if (video.authorId === userId) return;
-  const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { platformRole: true } });
+
+  const viewer = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true, isMinor: true, ageRecordedAt: true },
+  });
   if (isStaff(viewer?.platformRole)) return;
-  throw new NotFoundError("Video not found");
+
+  // Non-owner, non-staff: only APPROVED media is visible at all, and only to a confirmed adult.
+  if (video.status !== "APPROVED") throw new NotFoundError("Video not found");
+  if (!viewer || viewer.ageRecordedAt === null || viewer.isMinor) throw new NotFoundError("Video not found");
 }
 
 /** Rolling 24-hour window rather than a calendar day, so the cap can't be doubled by uploading
@@ -370,12 +382,8 @@ async function resolveRemix(
     throw new BadRequestError("A video can be either a stitch or a duet, not both");
   }
 
-  let sourceId: bigint;
-  try {
-    sourceId = BigInt(raw);
-  } catch {
-    throw new BadRequestError("That isn't a valid video id");
-  }
+  const sourceId = parseBigIntId(raw);
+  if (sourceId === null) throw new BadRequestError("That isn't a valid video id");
 
   const source = await prisma.video.findUnique({
     where: { id: sourceId },

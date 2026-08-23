@@ -264,7 +264,7 @@ export function useSocketEvents(): void {
       queryClient.invalidateQueries({ queryKey: queryKeys.friends() });
     };
 
-    // Server-wide voice roster (realtime/handlers/voice.ts) — lets ChannelSidebar show who's in
+    // Server-wide voice roster (realtime/handlers/voice.ts) — lets the deck show who's in
     // a voice channel without the viewer having joined it themselves.
     const onVoiceRosterUpdate = (payload: { channelId: string; participants: VoiceParticipantDTO[] }) => {
       useVoiceStore.getState().setChannelRoster(payload.channelId, payload.participants);

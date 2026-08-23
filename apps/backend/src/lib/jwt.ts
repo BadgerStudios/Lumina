@@ -17,7 +17,12 @@ export function signAccessToken(userId: string): string {
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET);
+  // Pin the algorithm explicitly. signAccessToken uses HS256 (jsonwebtoken's default for a string
+  // secret), so verification must accept ONLY HS256 — never trust the token header's `alg`. Without
+  // this, jsonwebtoken accepts any algorithm in its default set; the classic break is a token forged
+  // with `alg: none` or an asymmetric-vs-symmetric confusion. The secret here is symmetric so that
+  // confusion isn't reachable today, but pinning removes the whole class rather than relying on it.
+  const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ["HS256"] });
   if (typeof decoded === "string" || !decoded.sub) {
     throw new Error("Invalid access token payload");
   }

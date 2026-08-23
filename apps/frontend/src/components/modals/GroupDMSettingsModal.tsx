@@ -69,7 +69,8 @@ export function GroupDMSettingsModal() {
       <div className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-bold uppercase text-signal-dim">Group name</span>
-          <div className="flex gap-2">
+          {/* A form, so Enter in the name field saves — previously only the Save button's click did. */}
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (!renameDM.isPending) void handleRename(); }}>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -77,13 +78,13 @@ export function GroupDMSettingsModal() {
               className="min-w-0 flex-1 rounded bg-base-900 px-3 py-2 text-signal outline-none ring-1 ring-base-500 focus:ring-2 focus:ring-accent"
             />
             <button
-              onClick={() => void handleRename()}
+              type="submit"
               disabled={renameDM.isPending}
               className="rounded bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
             >
               Save
             </button>
-          </div>
+          </form>
         </label>
 
         <div>

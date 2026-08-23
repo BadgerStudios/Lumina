@@ -1,0 +1,57 @@
+#!/bin/bash
+# Builds a seamless ~5-minute purple-graded nebula loop from real public-domain NASA/ESA/STScI
+# imagery (see sources.txt). Slow Ken Burns over each nebula, cross-dissolved.
+#
+# SEAMLESS LOOP: Orion's camera move is SPLIT in half. The video opens on the second half of that
+# move (zoom 1.12 -> 1.24) and closes on the first half (1.00 -> 1.12). The final frame therefore
+# matches the opening frame exactly — same image, same zoom — so the wrap is an invisible cut with
+# no crossfade needed at the seam.
+set -e
+FPS=25; D=46; X=4; FR=$((D*FPS))
+
+# zoompan renders at 2560x1440 and is then downscaled to 1080p: zoompan snaps its crop origin to
+# whole pixels, and halving that step on the way down is what keeps a slow push from visibly
+# stair-stepping.
+ken() { # src  zfrom  zto  panx  pany  out
+  ffmpeg -v error -y -loop 1 -i "$1.jpg" -filter_complex \
+    "[0:v]crop=iw:iw*9/16:0:(ih-iw*9/16)/2,scale=3840:2160:flags=lanczos,\
+zoompan=z='$2+($3-$2)*on/($FR-1)':x='iw/2-(iw/zoom/2)+($4)*(on/$FR)':y='ih/2-(ih/zoom/2)+($5)*(on/$FR)':d=$FR:s=2560x1440:fps=$FPS,\
+scale=1920:1080:flags=lanczos,format=yuv420p[v]" \
+    -map "[v]" -t $D -c:v libx264 -crf 18 -preset veryfast "$6"
+  echo "  seg $6"
+}
+echo "== Ken Burns segments =="
+ken orion     1.12 1.24  -140  -60  s0.mp4    # Orion, second half of the move (opens the loop)
+ken fireworks 1.00 1.17   180   70  s1.mp4
+ken lagoon    1.05 1.22  -160   90  s2.mp4
+ken tarantula 1.00 1.16   150  -80  s3.mp4
+ken helix     1.08 1.26    90  -50  s4.mp4
+ken cygnus    1.00 1.18  -170   60  s5.mp4
+ken orion     1.00 1.12  -140  -60  s6.mp4    # Orion, first half — ends exactly where s0 begins
+
+echo "== crossfade chain + purple grade =="
+# Duotone: luma mapped from --void #0a0714 to a saturated ion violet #b794ff, with G held below R
+# and B so the result can never drift to grey. hue=s=0.12 keeps a trace of the original chroma so
+# the gas structure still reads as gas.
+GRADE="hue=s=0.12,eq=contrast=1.16:brightness=-0.03,lutrgb=r='clip((10+val*0.678)*0.62,0,255)':g='clip((7+val*0.553)*0.62,0,255)':b='clip((20+val*0.922)*0.62,0,255)'"
+ffmpeg -v error -y -i s0.mp4 -i s1.mp4 -i s2.mp4 -i s3.mp4 -i s4.mp4 -i s5.mp4 -i s6.mp4 -filter_complex \
+"[0][1]xfade=transition=fade:duration=$X:offset=42[a];\
+[a][2]xfade=transition=fade:duration=$X:offset=84[b];\
+[b][3]xfade=transition=fade:duration=$X:offset=126[c];\
+[c][4]xfade=transition=fade:duration=$X:offset=168[d];\
+[d][5]xfade=transition=fade:duration=$X:offset=210[e];\
+[e][6]xfade=transition=fade:duration=$X:offset=252[f];\
+[f]$GRADE,format=yuv420p[v]" -map "[v]" -c:v libx264 -crf 16 -preset medium master.mp4
+echo "  master: $(ffprobe -v error -show_entries format=duration -of csv=p=0 master.mp4)s  $(du -h master.mp4|cut -f1)"
+
+echo "== delivery encodes =="
+# A background loop can be graded far more aggressively than normal footage: it is slow, dark and
+# soft, so a high CRF costs almost nothing visually and everything in bytes.
+ffmpeg -v error -y -i master.mp4 -an -c:v libvpx-vp9 -crf 44 -b:v 0 -row-mt 1 -cpu-used 3 -g 240 -pix_fmt yuv420p nebula-1080.webm &
+ffmpeg -v error -y -i master.mp4 -an -c:v libx264 -crf 30 -preset slow -g 240 -pix_fmt yuv420p -movflags +faststart nebula-1080.mp4 &
+ffmpeg -v error -y -i master.mp4 -an -vf scale=1280:720 -c:v libvpx-vp9 -crf 46 -b:v 0 -row-mt 1 -cpu-used 3 -g 240 -pix_fmt yuv420p nebula-720.webm &
+ffmpeg -v error -y -i master.mp4 -an -vf scale=1280:720 -c:v libx264 -crf 31 -preset slow -g 240 -pix_fmt yuv420p -movflags +faststart nebula-720.mp4 &
+wait
+ffmpeg -v error -y -i master.mp4 -frames:v 1 -q:v 6 -vf scale=1920:1080 nebula-poster.jpg
+echo "== done =="
+ls -la nebula-*.webm nebula-*.mp4 nebula-poster.jpg

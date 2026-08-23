@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { VideoDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
+import { reportError } from "../store/toastStore";
 
 export type StaffQueueStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "REMOVED" | "FAILED";
 
@@ -50,6 +51,9 @@ function useStaffAction<TArgs>(fn: (args: TArgs) => Promise<VideoDTO>) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.staffVideoCounts() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.staffAudit() });
     },
+    // Without this, a failed moderation action (e.g. two staff racing to decide the same video)
+    // looked identical to success — the confirm dialog closed either way with nothing on screen.
+    onError: (e) => reportError(e, "That action didn't go through"),
   });
 }
 

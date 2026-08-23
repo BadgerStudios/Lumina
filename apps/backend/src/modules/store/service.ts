@@ -17,6 +17,22 @@ import { BadRequestError } from "../../lib/errors.js";
  * the fix is a cached projection alongside the ledger — not a mutable column.
  */
 
+/**
+ * Serialize every coin-balance mutation for ONE user, held until the surrounding transaction ends.
+ *
+ * Deriving the balance as SUM(delta) stops a stored column drifting, but on its own it does NOT stop
+ * two concurrent spends of DIFFERENT items (or a store purchase racing a gift send) from each reading
+ * the same pre-debit balance under READ COMMITTED and both committing — the per-item unique constraint
+ * only blocks buying the same item twice. Taking a per-user advisory xact lock at the top of each
+ * spending transaction makes them actually serial: the second transaction blocks until the first
+ * commits, then re-derives a balance that already reflects the first debit. Every path that debits
+ * coins (store purchase, gift send) must take this lock, or the ones that don't can still race the
+ * ones that do.
+ */
+export async function lockUserCoins(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+}
+
 export async function getBalance(userId: string, tx: Prisma.TransactionClient = prisma): Promise<number> {
   const result = await tx.coinLedgerEntry.aggregate({
     where: { userId },
@@ -72,6 +88,10 @@ export async function credit(params: {
  */
 export async function purchase(userId: string, itemId: string) {
   return prisma.$transaction(async (tx) => {
+    // First thing in the tx: serialize this user's spends so a concurrent purchase of a different
+    // item (or a gift send) can't read the same balance and overspend into the negative.
+    await lockUserCoins(tx, userId);
+
     const item = await tx.storeItem.findUnique({ where: { id: itemId } });
     if (!item || !item.active) throw new BadRequestError("That item isn't available");
 

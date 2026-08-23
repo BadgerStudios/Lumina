@@ -1,4 +1,5 @@
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { CLIENT_TYPE } from "./platform";
 
 /**
  * Bridge to the native Android updater (apps/mobile/android/.../AppUpdaterPlugin.java).
@@ -15,6 +16,8 @@ export interface AppUpdaterPlugin {
   openInstallSettings(): Promise<void>;
   /** Downloads the APK, verifies the digest, and opens the system installer. */
   downloadAndInstall(options: { url: string; sha256?: string }): Promise<void>;
+  /** The installed app's real version, read from the package at runtime (always current). */
+  getVersion(): Promise<{ versionName: string | null; versionCode: number }>;
   addListener(
     eventName: "downloadProgress",
     listener: (progress: { loaded: number; total: number }) => void,
@@ -22,6 +25,20 @@ export interface AppUpdaterPlugin {
 }
 
 export const AppUpdater = registerPlugin<AppUpdaterPlugin>("AppUpdater");
+
+/**
+ * The installed app's real version from the native package, or null off-native / if the plugin isn't
+ * present (an older APK running a newer web bundle). Always reflects the ACTUAL running build — never
+ * a stale build-time constant — so the About screen can't show the wrong version.
+ */
+export async function getInstalledVersion(): Promise<{ versionName: string | null; versionCode: number } | null> {
+  if (CLIENT_TYPE !== "mobile") return null;
+  try {
+    return await AppUpdater.getVersion();
+  } catch {
+    return null;
+  }
+}
 
 /** Thrown back as a rejection message by the plugin when "install unknown apps" is not granted. */
 export const PERMISSION_REQUIRED = "PERMISSION_REQUIRED";

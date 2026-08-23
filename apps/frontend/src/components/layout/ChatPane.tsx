@@ -4,10 +4,10 @@ import type { DMConversationDTO, MessageDTO } from "@lumina/shared";
 import { MessageList } from "../chat/MessageList";
 import { Composer } from "../chat/Composer";
 import { TypingIndicator } from "../chat/TypingIndicator";
-import { PinnedMessagesPanel } from "../chat/PinnedMessagesPanel";
 import { SearchResultsPanel } from "../chat/SearchResultsPanel";
-import { TopBar } from "./TopBar";
+import { RoomHeader } from "./RoomHeader";
 import { useAuthStore } from "../../store/authStore";
+import { useUIStore, selectAsideOpen } from "../../store/uiStore";
 import {
   useEditMessage,
   useDeleteMessage,
@@ -18,6 +18,14 @@ import {
   type RichSendPayload,
 } from "../../queries/messages";
 
+/**
+ * A conversation, framed as a floating pane on the shell's canvas.
+ *
+ * Structurally this is where the app stopped looking like a chat client with a header bar bolted
+ * on: the room's context is a translucent capsule inset from the pane's own edges, and the things
+ * that used to hover over the messages (pins) moved out to the contextual aside instead, so the
+ * conversation itself is never covered by its own chrome.
+ */
 export function ChatPane({
   title,
   topic,
@@ -66,20 +74,25 @@ export function ChatPane({
   const addReaction = useAddReaction();
   const removeReaction = useRemoveReaction();
   const togglePin = useTogglePinMessage();
+  const openAsideTab = useUIStore((s) => s.openAsideTab);
+  const asideTab = useUIStore((s) => s.asideTab);
+  const asideOpen = useUIStore(selectAsideOpen);
   const [replyTo, setReplyTo] = useState<{ id: string; authorLabel: string } | null>(null);
-  const [showPins, setShowPins] = useState(false);
-  // Owned here rather than threaded down from each route: ChatPane already renders the TopBar that
+  // Owned here rather than threaded down from each route: ChatPane already renders the header that
   // holds the input, and requiring every caller to pass an `onSearch` is precisely why the search
   // box never rendered anywhere — one route forgetting to wire it made the feature invisible.
   const [searchQuery, setSearchQuery] = useState("");
-  // Fetched regardless of panel visibility so the TopBar badge count is accurate even before
-  // the user has ever opened the panel; usePinnedMessages inside PinnedMessagesPanel shares
-  // this same cache entry (identical query key), so opening the panel doesn't double-fetch.
+  // Fetched regardless of panel visibility so the header's badge count is accurate even before the
+  // aside has ever been opened; PinnedList shares this exact cache entry (identical query key), so
+  // opening the tab doesn't double-fetch.
   const { data: pins } = usePinnedMessages(target.channelId, !!target.channelId);
+  // Pins live in the aside, and the aside only exists inside a space — a DM has no third column to
+  // put them in, and no pins either.
+  const canShowPins = Boolean(serverId && target.channelId);
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-base-700">
-      <TopBar
+    <div className="lx-pane relative flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0">
+      <RoomHeader
         title={title}
         topic={topic}
         onSearch={
@@ -91,12 +104,10 @@ export function ChatPane({
             : onSearch
         }
         serverId={serverId}
-        pinnedCount={pins?.length}
-        onTogglePins={target.channelId ? () => setShowPins((s) => !s) : undefined}
+        pinnedCount={canShowPins ? pins?.length : undefined}
+        onTogglePins={canShowPins ? () => openAsideTab("pins") : undefined}
+        pinsOpen={canShowPins && asideTab === "pins" && asideOpen}
       />
-      {showPins && target.channelId ? (
-        <PinnedMessagesPanel channelId={target.channelId} canManage={canManageMessages} onClose={() => setShowPins(false)} />
-      ) : null}
       {serverId && searchQuery.trim().length > 1 ? (
         <SearchResultsPanel serverId={serverId} query={searchQuery.trim()} onClose={() => setSearchQuery("")} />
       ) : null}

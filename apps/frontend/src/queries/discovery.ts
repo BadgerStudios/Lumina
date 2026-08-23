@@ -10,6 +10,7 @@ export interface DiscoverServerDTO {
   description: string | null;
   memberCount: number;
   createdAt: string;
+  isOfficial: boolean;
 }
 
 export interface DiscoveryDTO {

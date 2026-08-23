@@ -2,6 +2,7 @@ import type { NotificationKind } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { emitToRoom } from "../../realtime/emitBridge.js";
 import { ServerEvents } from "@lumina/shared";
+import { parseBigIntId } from "../../lib/parseBigIntId.js";
 
 /**
  * The unified Activity inbox.
@@ -61,8 +62,10 @@ export async function pushInboxNotification(params: {
 }
 
 export async function listInbox(userId: string, before?: string) {
+  // Guard the cursor: a non-numeric or out-of-range `before` used to throw (500). null → no filter.
+  const cursor = parseBigIntId(before);
   return prisma.notification.findMany({
-    where: { userId, ...(before ? { id: { lt: BigInt(before) } } : {}) },
+    where: { userId, ...(cursor !== null ? { id: { lt: cursor } } : {}) },
     include: { actor: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
     orderBy: { updatedAt: "desc" },
     take: 40,

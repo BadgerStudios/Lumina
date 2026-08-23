@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ChildContactDTO, LinkedChildDTO, MessageDTO, MinorStateDTO, ServerDTO, UserDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { useAuthStore } from "../store/authStore";
+import { reportError } from "../store/toastStore";
 
 /** The signed-in account's own supervision state. Cheap, and read on nearly every screen that has
  * to decide whether to show a lock — so it is deliberately a long-lived query rather than a
@@ -32,6 +33,40 @@ export function useRedeemPairingCode() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (code: string) => api.post<{ linkId: string; child: LinkedChildDTO["child"] }>("/parental/redeem", { code }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["parental"] }),
+  });
+}
+
+// ---- family code (adult-held, reverse direction) ----
+
+/** The adult's own persistent family code, minted lazily server-side on first read. */
+export function useFamilyCode(enabled: boolean) {
+  return useQuery({
+    queryKey: ["parental", "familyCode"],
+    queryFn: () => api.get<{ familyCode: string }>("/parental/me/family-code"),
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
+export function useRegenerateFamilyCode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ familyCode: string }>("/parental/me/family-code/regenerate"),
+    onSuccess: (data) => queryClient.setQueryData(["parental", "familyCode"], data),
+    onError: (e) => reportError(e, "Couldn't regenerate your family code"),
+  });
+}
+
+/** A locked minor (or their parent, on the minor's device) submits an adult's family code to link. */
+export function useLinkParent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) =>
+      api.post<{ parent: { id: string; username: string; displayName: string | null; avatarUrl: string | null } }>(
+        "/parental/me/link-parent",
+        { code },
+      ),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["parental"] }),
   });
 }

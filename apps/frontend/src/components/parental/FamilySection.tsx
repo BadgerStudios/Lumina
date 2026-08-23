@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UserPlus, ShieldCheck, Trash2, AlertTriangle, MessagesSquare, Users, Server as ServerIcon } from "lucide-react";
+import { UserPlus, ShieldCheck, Trash2, AlertTriangle, MessagesSquare, Users, Server as ServerIcon, Copy, Check, RefreshCw } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { UserAvatar } from "../common/UserAvatar";
 import {
@@ -12,7 +12,10 @@ import {
   useChildFriends,
   useApproveContact,
   useRevokeApprovedContact,
+  useFamilyCode,
+  useRegenerateFamilyCode,
 } from "../../queries/parental";
+import { useAuthStore } from "../../store/authStore";
 import type { LinkedChildDTO } from "@lumina/shared";
 
 /**
@@ -33,11 +36,13 @@ export function FamilySection() {
 
   return (
     <div className="flex flex-col gap-6">
+      <FamilyCodeBlock />
+
       <div>
         <span className="text-xs font-bold uppercase text-signal-dim">Link a child's account</span>
         <p className="mb-2 text-sm text-signal-faint">
-          Ask them for the pairing code shown on their screen, then enter it here. You'll be able to see
-          their messages, contacts and servers.
+          Ask them for the pairing code shown on their screen, then enter it here — or give them your own
+          family code above. Either way you'll be able to see their messages, contacts and servers.
         </p>
         <div className="flex gap-2">
           <input
@@ -96,6 +101,62 @@ export function FamilySection() {
           No linked accounts yet.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * The adult's own persistent family code. A parent hands this to a minor (or types it on the
+ * minor's locked screen) to link them — the reverse of asking the child for their pairing code.
+ * Only shown for adult accounts; a minor account has no family code and the query is gated off.
+ */
+function FamilyCodeBlock() {
+  const user = useAuthStore((s) => s.user);
+  const isAdult = !!(user && !user.isMinor && user.ageVerified);
+  const { data } = useFamilyCode(isAdult);
+  const regenerate = useRegenerateFamilyCode();
+  const [copied, setCopied] = useState(false);
+
+  if (!isAdult) return null;
+  const code = data?.familyCode ?? null;
+
+  return (
+    <div className="rounded-xl bg-base-900 p-4">
+      <span className="text-xs font-bold uppercase text-signal-dim">Your family code</span>
+      <p className="mb-2 text-sm text-signal-faint">
+        Give this to a child so they (or you, on their device) can link their account to yours. It stays
+        the same until you regenerate it.
+      </p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 select-all rounded bg-base-800 px-3 py-2 font-mono text-xl tracking-widest text-signal">
+          {code ?? "………"}
+        </code>
+        {code && (
+          <button
+            onClick={() => {
+              void navigator.clipboard?.writeText(code);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+            className="rounded p-2 text-signal-dim hover:bg-base-800 hover:text-signal"
+            title="Copy code"
+          >
+            {copied ? <Check size={16} className="text-online" /> : <Copy size={16} />}
+          </button>
+        )}
+        <button
+          onClick={() => {
+            if (confirm("Regenerate your family code? The old one stops working, but children already linked stay linked.")) {
+              regenerate.mutate();
+            }
+          }}
+          disabled={regenerate.isPending}
+          className="rounded p-2 text-signal-dim hover:bg-base-800 hover:text-signal disabled:opacity-50"
+          title="Regenerate"
+        >
+          <RefreshCw size={16} className={regenerate.isPending ? "animate-spin" : ""} />
+        </button>
+      </div>
     </div>
   );
 }

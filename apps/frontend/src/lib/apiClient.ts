@@ -5,6 +5,7 @@ import { USES_BODY_REFRESH_TOKEN, CLIENT_TYPE } from "./platform";
 import { getStoredRefreshToken, setStoredRefreshToken, clearStoredRefreshToken } from "./mobileRefreshToken";
 import { getDeviceFingerprint } from "./deviceFingerprint";
 import { useBanStore, type BanDetails } from "../store/banStore";
+import { requestTurnstileToken } from "../store/turnstileChallengeStore";
 
 // Defaults to a relative "/api" so both the Vite dev-server proxy (see
 // ../../vite.config.ts) and the production nginx same-origin setup (see
@@ -53,7 +54,20 @@ interface TokenResponseBody {
 
 async function persistMobileRefreshToken(data: TokenResponseBody): Promise<void> {
   if (USES_BODY_REFRESH_TOKEN && data.refreshToken) {
-    await setStoredRefreshToken(data.refreshToken);
+    // Awaited from inside login/register's own request, so a wedged or slow native storage
+    // bridge (Capacitor Preferences on Android, its localStorage fallback under Electron)
+    // previously meant the login promise itself never settled — the button sat on "Logging in…"
+    // forever with no error shown, since nothing had actually rejected. Time-boxed and swallowed
+    // so a storage failure can never hang login: worst case the session survives only in memory
+    // and won't outlast this app launch, which just means a normal re-login, not a stuck screen.
+    try {
+      await Promise.race([
+        setStoredRefreshToken(data.refreshToken),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error("refresh token storage timed out")), 5000)),
+      ]);
+    } catch {
+      /* best-effort — see above */
+    }
   }
 }
 
@@ -76,7 +90,15 @@ interface RequestOptions {
   isFormData?: boolean;
   // Internal: prevents infinite refresh loops.
   _isRetry?: boolean;
+  // Internal: a solved Turnstile token to attach, and a bounded attempt counter. Bounded (not a
+  // single boolean) so a request that loses a single-use token to a CONCURRENT challenged request —
+  // Turnstile tokens are one-time, and coalesced waiters share one token — can obtain a fresh one on
+  // a second challenge rather than failing outright. Capped to prevent an infinite challenge loop.
+  _turnstileToken?: string;
+  _turnstileAttempts?: number;
 }
+
+const MAX_TURNSTILE_ATTEMPTS = 2;
 
 let refreshInFlight: Promise<boolean> | null = null;
 
@@ -127,7 +149,12 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-const TOKEN_ISSUING_PATHS = new Set(["/auth/login", "/auth/register"]);
+// Every route that can hand back a real session, not just the two most common ones — a login
+// completed via 2FA or a passkey returns tokens exactly like a plain password login does, but
+// neither path was in this set, so a mobile/desktop client finishing sign-in through either one
+// got a working access token with no refresh token ever persisted: fine for ~15 minutes, then a
+// silent, unrecoverable logout with nothing to explain it.
+const TOKEN_ISSUING_PATHS = new Set(["/auth/login", "/auth/register", "/auth/login/verify-mfa", "/auth/passkeys/login/finish"]);
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, isFormData = false, _isRetry = false } = options;
@@ -137,6 +164,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   if (body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
   if (CLIENT_TYPE) headers["X-Client-Type"] = CLIENT_TYPE;
+  // A Turnstile token solved by the on-demand challenge modal, sent in Cloudflare's canonical field.
+  if (options._turnstileToken) headers["cf-turnstile-response"] = options._turnstileToken;
   // Only on the auth routes that create a session — that's where the backend records it against
   // the RefreshToken row. Sending it on every request would leak a tracking identifier to routes
   // with no use for it, and computing the fingerprint is not free.
@@ -158,7 +187,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   // a PQ handshake route itself. Multipart uploads keep their own framing; the handshake must be
   // in the clear to bootstrap. A failed handshake silently means plain JSON over TLS.
   const pqEligible = !isFormData && !path.startsWith("/pq/");
-  const pq = pqEligible ? await pqSession(API_BASE_URL) : null;
+  // Reassigned by retryWithoutPq below to whichever session (or none) actually sealed the retried
+  // response — the unseal step after it must key off the session that was really used, not the
+  // one this request started with.
+  let pq = pqEligible ? await pqSession(API_BASE_URL) : null;
 
   let fetchBody: BodyInit | undefined;
   if (effectiveBody === undefined) {
@@ -182,39 +214,75 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     body: fetchBody,
   });
 
-  // The session lapsed (traffic-key rotation): drop it, re-handshake, and retry ONCE in the clear
-  // path so the caller never sees a 428. This is the rotation working, not an error.
-  if (res.status === 428 && pqEligible) {
+  // Drops the current PQ session and retries this exact request ONCE outside the shield — fresh
+  // session if the handshake still works, plain JSON if it doesn't. Used for two distinct
+  // failures that both mean "this session's keys are no good anymore": the server rejecting with
+  // 428 (explicit rotation), and the client failing to decrypt a 200 response under the session it
+  // just used to seal the request (a desync the server has no way to signal, since as far as it's
+  // concerned the request already succeeded). The docblock's "must never be the reason someone
+  // can't log in" promise only actually held for a failed *handshake* — a mid-session decrypt
+  // failure had no fallback at all: it silently produced an empty body, which a JSON parse then
+  // turned into a generic, unexplained failure on whatever call it hit, login included.
+  async function retryWithoutPq(): Promise<Response> {
     pqInvalidate();
     const retryHeaders = { ...headers };
     delete retryHeaders["X-PQ-Session"];
     const fresh = await pqSession(API_BASE_URL);
+    pq = fresh; // the unseal step below must key off whatever this retry actually used
     if (fresh && !isFormData && effectiveBody !== undefined) {
       retryHeaders["Content-Type"] = "application/x-lumina-pq";
       retryHeaders["X-PQ-Session"] = fresh.sessionId;
-      res = await fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: pqSeal(fresh, JSON.stringify(effectiveBody)) as unknown as BodyInit });
+      return fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: pqSeal(fresh, JSON.stringify(effectiveBody)) as unknown as BodyInit });
     } else if (fresh) {
       retryHeaders["X-PQ-Session"] = fresh.sessionId;
-      res = await fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: fetchBody });
+      return fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: fetchBody });
     } else {
       // Shield unavailable now — plain retry so the request still succeeds.
       delete retryHeaders["Content-Type"];
       if (!isFormData && effectiveBody !== undefined) retryHeaders["Content-Type"] = "application/json";
-      res = await fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: effectiveBody === undefined ? undefined : isFormData ? (effectiveBody as FormData) : JSON.stringify(effectiveBody) });
+      return fetch(`${API_BASE_URL}${path}`, { method, headers: retryHeaders, credentials: "include", body: effectiveBody === undefined ? undefined : isFormData ? (effectiveBody as FormData) : JSON.stringify(effectiveBody) });
     }
   }
 
+  // The session lapsed (traffic-key rotation): drop it, re-handshake, and retry ONCE in the clear
+  // path so the caller never sees a 428. This is the rotation working, not an error.
+  if (res.status === 428 && pqEligible) {
+    res = await retryWithoutPq();
+  }
+
   // If the response came back sealed, transparently unseal it into a normal JSON-bearing Response
-  // so every line below this is untouched.
-  if (pq && res.headers.get("x-pq") === "1") {
+  // so every line below this is untouched. Tries at most twice: once with whatever session sealed
+  // this response, and — only on a decrypt failure — once more against a fresh session after
+  // retryWithoutPq (which reassigns `pq` to match). A second failure is treated as genuinely
+  // unrecoverable rather than retried forever.
+  // A sealed response is recognised by EITHER signal, not just the custom header: `x-pq` is not a
+  // CORS-safelisted response header, so a cross-origin client (the Android/desktop WebViews) can
+  // only read it if the server's Access-Control-Expose-Headers names it — which it didn't until
+  // tonight, making every sealed response invisible ciphertext to the apps ("Login failed" with a
+  // clean 200 server-side). The server-side expose fix is the root cure; content-type (always
+  // readable cross-origin) is the belt-and-suspenders so a proxy stripping x-pq, or a future CORS
+  // regression, can never silently reintroduce this.
+  const isSealed = (r: Response) =>
+    r.headers.get("x-pq") === "1" || (r.headers.get("content-type") ?? "").includes("application/x-lumina-pq");
+  for (let attempt = 0; attempt < 2 && pq && isSealed(res); attempt++) {
     const sealedBuf = new Uint8Array(await res.arrayBuffer());
-    let plain = "";
+    let plain: string | null = null;
     try {
       plain = pqUnseal(pq, sealedBuf);
     } catch {
-      plain = "";
+      plain = null;
     }
-    res = new Response(plain, { status: res.status, statusText: res.statusText, headers: { "content-type": "application/json" } });
+    if (plain !== null) {
+      res = new Response(plain, { status: res.status, statusText: res.statusText, headers: { "content-type": "application/json" } });
+      break;
+    }
+    if (attempt === 0) {
+      res = await retryWithoutPq();
+    } else {
+      // Still sealed and still failing to decrypt even after a fresh handshake — genuinely
+      // unrecoverable (not a session desync), so surface it as the empty body it is.
+      res = new Response("", { status: res.status, statusText: res.statusText, headers: { "content-type": "application/json" } });
+    }
   }
 
   if (USES_BODY_REFRESH_TOKEN && path === "/auth/logout" && res.ok) {
@@ -243,20 +311,40 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (!res.ok) {
     let message = res.statusText;
     let code: string | undefined;
+    let reasonCode: string | undefined;
     let details: unknown;
     try {
       const data = await res.json();
       message = data?.error ?? message;
       code = data?.code;
+      reasonCode = data?.reasonCode;
       details = data?.details;
     } catch {
       /* body wasn't json */
+    }
+    // A bot challenge: the server wants a Turnstile token. Pop the challenge modal, and on a solved
+    // token retry this exact request once with it attached — so every protected surface is covered
+    // without a widget baked into each form. A cancelled/failed challenge falls through to the throw.
+    if (res.status === 403 && reasonCode === "TURNSTILE_REQUIRED" && (options._turnstileAttempts ?? 0) < MAX_TURNSTILE_ATTEMPTS) {
+      const token = await requestTurnstileToken();
+      if (token) {
+        return apiRequest<T>(path, { ...options, _turnstileToken: token, _turnstileAttempts: (options._turnstileAttempts ?? 0) + 1 });
+      }
     }
     // A platform ban is routed to a single global screen rather than surfaced as an error toast on
     // whichever call happened to hit it — it can arrive from a login attempt or mid-session on any
     // authenticated request, and both need the same explanation and appeal route.
     if (code === "PLATFORM_BANNED") {
       useBanStore.getState().setBan(details as BanDetails);
+    }
+    // Reaching here with a Turnstile reason means the challenge could not be solved - dismissed, or
+    // the widget never loaded. The server's wording for that is "Access denied", which reads as an
+    // account problem and gives the user nothing to act on. Say what actually happened.
+    if (reasonCode === "TURNSTILE_REQUIRED" || reasonCode === "TURNSTILE_FAILED") {
+      message =
+        reasonCode === "TURNSTILE_FAILED"
+          ? "The security check didn't pass. Please try again."
+          : "This action needs a quick security check, and it couldn't be completed. If you use an ad blocker or privacy extension, allow challenges.cloudflare.com and try again.";
     }
     throw new ApiError(res.status, message, code, details);
   }

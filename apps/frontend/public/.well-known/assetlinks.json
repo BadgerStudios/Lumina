@@ -1,0 +1,14 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.luxffa.lumina",
+      "sha256_cert_fingerprints": [
+        "28:0C:AE:9F:41:D3:4A:71:95:EE:FF:C0:3C:66:6B:B7:64:85:A7:21:C0:9C:B0:5E:C3:81:12:BE:3F:50:7A:97",
+        "9D:32:EA:60:25:B7:BC:AB:1B:7B:B3:25:39:1E:49:83:9B:E7:92:FD:F3:58:6C:9F:F1:BB:61:90:18:81:8D:0B",
+        "A6:D6:58:C2:C7:EA:6B:49:CC:25:4E:5C:64:AB:24:0B:77:69:36:0D:FB:39:40:EC:B7:A5:E9:2E:6A:1D:C4:18"
+      ]
+    }
+  }
+]

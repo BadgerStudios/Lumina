@@ -32,6 +32,7 @@ export function useCreateServer() {
       // members joining, channel/role changes) for the server they just created.
       reconnectSocket();
     },
+    onError: (e) => reportError(e, "Couldn't create that server"),
   });
 }
 
@@ -102,6 +103,7 @@ export function useDeleteServer(serverId: string) {
     onSuccess: () => {
       queryClient.setQueryData<ServerDTO[]>(queryKeys.servers(), (old) => old?.filter((s) => s.id !== serverId));
     },
+    onError: (e) => reportError(e, "Couldn't delete that server"),
   });
 }
 
@@ -112,5 +114,6 @@ export function useLeaveServer(serverId: string) {
     onSuccess: () => {
       queryClient.setQueryData<ServerDTO[]>(queryKeys.servers(), (old) => old?.filter((s) => s.id !== serverId));
     },
+    onError: (e) => reportError(e, "Couldn't leave that server"),
   });
 }

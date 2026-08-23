@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { handleTipCompleted } from "../economy/routes.js";
 import { syncMembershipFromSubscription, handleMembershipInvoicePaid } from "../economy/memberships.js";
+import { reverseEarningsForPaymentIntent } from "../economy/service.js";
 // Minors get no billing surface at all — see modules/parental/service.ts.
 import { requireAdult } from "../age/guard.js";
+import { requireTurnstile } from "../../plugins/turnstile.js";
 import { primaryAppOrigin } from "../../lib/appOrigin.js";
 import type Stripe from "stripe";
 import { z } from "zod";
@@ -71,7 +73,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
    * Starts a Stripe Checkout session. The client never handles card details — Stripe's hosted page
    * does, which keeps this server entirely out of PCI scope.
    */
-  fastify.post("/checkout", { preHandler: [requireAuth, requireAdult] }, async (request) => {
+  fastify.post("/checkout", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }, preHandler: [requireAuth, requireAdult, requireTurnstile] }, async (request) => {
     const stripe = getStripe();
     if (!stripe) throw new BadRequestError("Billing is not configured on this server");
 
@@ -115,7 +117,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
   /** Stripe's hosted billing portal — cancellations, card updates, invoice history. Far better than
    * reimplementing any of that, and it keeps card data off this server entirely. */
-  fastify.post("/portal", { preHandler: [requireAuth, requireAdult] }, async (request) => {
+  fastify.post("/portal", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }, preHandler: [requireAuth, requireAdult] }, async (request) => {
     const stripe = getStripe();
     if (!stripe) throw new BadRequestError("Billing is not configured on this server");
 
@@ -285,6 +287,8 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
 
     case "charge.refunded": {
       const charge = event.data.object as Stripe.Charge;
+      const paymentIntentId =
+        typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id ?? null;
       await recordTransaction({
         eventId: event.id,
         userId: await userIdForCustomer(charge.customer),
@@ -292,8 +296,33 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
         amountCents: charge.amount_refunded ?? 0,
         currency: charge.currency ?? "usd",
         description: "Refund",
-        paymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : null,
+        paymentIntentId,
       });
+      // The display refund above never touches the creator's earning — reverse that too, or the
+      // platform pays out on money it gave back. Only on a FULL refund: a partial refund's
+      // proportional creator share is a policy call, so it's logged for manual handling instead.
+      const chargeAmount = charge.amount ?? 0;
+      const fullyRefunded = chargeAmount > 0 && (charge.amount_refunded ?? 0) >= chargeAmount;
+      if (paymentIntentId && fullyRefunded) {
+        await reverseCreatorEarnings(paymentIntentId, `refund:${charge.id}`, "refund");
+      } else if (paymentIntentId) {
+        console.error(
+          `[refund-reversal] PARTIAL refund on PI ${paymentIntentId} (charge ${charge.id}) — creator earning NOT auto-reversed; manual review`,
+        );
+      }
+      break;
+    }
+
+    case "charge.dispute.created": {
+      // A chargeback: the money is being pulled back. Protective hold — don't let disputed money
+      // mature into a payout. Pending earnings are reversed; matured/paid ones are logged so a
+      // human decides (and can re-grant if the dispute is later won).
+      const dispute = event.data.object as Stripe.Dispute;
+      const paymentIntentId =
+        typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id ?? null;
+      if (paymentIntentId) {
+        await reverseCreatorEarnings(paymentIntentId, `dispute:${dispute.id}`, "dispute");
+      }
       break;
     }
 
@@ -386,6 +415,28 @@ async function userIdForCustomer(customer: string | Stripe.Customer | Stripe.Del
  * more than once — the unique constraint on stripeEventId is what stops a retry from double-counting
  * revenue. A duplicate is a normal outcome here, not an error.
  */
+/**
+ * Reverse every creator earning funded by one PaymentIntent, and surface the ones a human must
+ * finish. `reverseEarningsForPaymentIntent` is ledger-safe by construction: it only unwinds
+ * still-PENDING earnings and reports matured/paid ones as `requires-manual` rather than corrupt the
+ * ledger or silently claw back money a creator was already paid. Those land as a loud, greppable
+ * operator log — the automation fixes the common fast-refund case; the rare matured case is visible.
+ */
+async function reverseCreatorEarnings(paymentIntentId: string, reason: string, kind: string): Promise<void> {
+  const outcomes = await reverseEarningsForPaymentIntent(paymentIntentId, reason);
+  for (const o of outcomes) {
+    if (o.status === "requires-manual") {
+      console.error(
+        `[refund-reversal] MANUAL REVIEW: ${kind} on PI ${paymentIntentId} — earning ${o.eventId} is ${o.earningStatus} (${o.amountMinor} minor units); already matured/paid, NOT auto-clawed back`,
+      );
+    } else if (o.status === "reversed") {
+      console.log(
+        `[refund-reversal] reversed ${kind} earning ${o.eventId} (${o.amountMinor} minor units) on PI ${paymentIntentId}`,
+      );
+    }
+  }
+}
+
 async function recordTransaction(params: {
   eventId: string;
   userId: string | null;

@@ -1,0 +1,11 @@
+Nebula loop source imagery — ALL PUBLIC DOMAIN (NASA / ESA / STScI / JPL-Caltech).
+Public domain means no attribution obligation; credited here and on the page because it is right.
+
+orion      Orion Nebula, Hubble 2006 mosaic (18000x18000)  NASA, ESA, M. Robberto (STScI/ESA)
+fireworks  Westerlund 2 / Hubble 25th Anniversary          NASA, ESA, Hubble Heritage Team (STScI/AURA)
+lagoon     Lagoon Nebula, visible light (2018)             NASA, ESA, STScI
+tarantula  30 Doradus / Tarantula Nebula                   NASA, ESA, ESO, D. Lennon, E. Sabbi (ESA/STScI)
+helix      Helix Nebula NGC 7293 (2004)                    NASA, ESA, STScI (HST proposal 9700)
+cygnus     Cygnus Loop, ultraviolet                        NASA/JPL-Caltech
+
+Retrieved from Wikimedia Commons; each verified "Public domain" via the Commons imageinfo API.

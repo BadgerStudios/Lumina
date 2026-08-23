@@ -1,0 +1,370 @@
+/* Cinematic landing page styles — scoped under .landing-cosmic so nothing leaks into the app.
+ *
+ * The landing page COMMITS to the dark cosmic brand look (decided with the owner): the block
+ * below re-declares the theme tokens with the Nebula-dark values, so every token-driven Tailwind
+ * class inside (bg-base-900, text-signal, border-hairline…) resolves dark even when the visitor's
+ * chosen app theme is light. The app itself keeps all seven themes — this scope ends at the
+ * landing page's root div. */
+.landing-cosmic {
+  --void: #0a0714;
+  --nebula: #150f26;
+  --nebula-2: #1e1636;
+  --nebula-3: #2a1f4a;
+  --hairline: #2e2350;
+  --ion: #8b5cf6;
+  --aurora: #22d3ee;
+  --signal: #f2eefc;
+  --signal-dim: #b3a8d4;
+  --signal-faint: #7a6fa0;
+  --pulse: #33d6a6;
+  --flare: #ff5c72;
+  --amber: #f5b942;
+  --base-900: var(--void);
+  --base-800: var(--nebula);
+  --base-700: var(--nebula-2);
+  --base-600: var(--nebula-3);
+  --base-500: var(--hairline);
+  --base-400: var(--hairline);
+  --accent: var(--ion);
+  --accent-hover: #7c4ce8;
+  color-scheme: dark;
+}
+
+/* ---- scroll reveals ---------------------------------------------------------------------- */
+/* Elements start shifted+transparent and ease in when useReveal flips data-revealed. The
+ * transition lives on the base class so it also plays if a reveal is toggled again. Stagger is
+ * per-child via --reveal-delay set inline. */
+.landing-cosmic .reveal {
+  opacity: 0;
+  transform: translateY(28px) scale(0.985);
+  transition:
+    opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+/* NOT `will-change` on `.reveal` itself. The browser keeps a promoted layer for as long as the
+   declaration stands, so declaring it here promoted every reveal on the page for the whole visit
+   — including the ones below the fold that had not animated yet. useLanding.ts adds `is-arming`
+   for the length of the transition and takes it off again, so only what is genuinely moving
+   right now costs a layer. See armAndReveal(). */
+.landing-cosmic .reveal.is-arming {
+  will-change: opacity, transform;
+}
+.landing-cosmic [data-revealed="true"] .reveal,
+.landing-cosmic .reveal[data-revealed="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---- hero -------------------------------------------------------------------------------- */
+/* Gradient shimmer sweeping across the headline's gradient text. */
+@keyframes landing-shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.landing-cosmic .hero-gradient-text {
+  /* Violet and cyan only. An earlier version carried a --flare stop, which meant the shimmer
+     parked the headline on pink for part of its cycle — off-brand for a page whose whole identity
+     is the purple nebula. */
+  background-image: linear-gradient(
+    100deg,
+    var(--ion) 0%,
+    #a78bfa 22%,
+    var(--aurora) 44%,
+    #c4b5fd 62%,
+    var(--ion) 82%,
+    #a78bfa 100%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: landing-shimmer 9s ease-in-out infinite;
+}
+
+@keyframes landing-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+.landing-cosmic .float-slow { animation: landing-float 7s ease-in-out infinite; }
+.landing-cosmic .float-slower { animation: landing-float 10s ease-in-out infinite reverse; }
+
+/* Scroll-down indicator */
+@keyframes landing-scroll-dot {
+  0% { transform: translateY(0); opacity: 1; }
+  70% { transform: translateY(14px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 0; }
+}
+.landing-cosmic .scroll-indicator-dot { animation: landing-scroll-dot 2s ease-in-out infinite; }
+
+/* ---- 3D tilt frames ---------------------------------------------------------------------- */
+/* JS (useTilt) writes --rx/--ry; CSS owns the transform so it composes with hover lift and
+ * transitions smoothly back to rest when the pointer leaves. */
+.landing-cosmic .tilt-wrap { perspective: 1400px; }
+.landing-cosmic .tilt-card {
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-style: preserve-3d;
+}
+/* Promoted only while the pointer is actually on the card — useTilt adds and removes this. */
+.landing-cosmic .tilt-card.is-tilting {
+  will-change: transform;
+}
+
+/* ---- feature-card cursor spotlight -------------------------------------------------------- */
+/* JS writes --mx/--my (pointer position within the card); the ::after paints a radial glow that
+ * follows the cursor. Zero layout cost, GPU-composited. */
+.landing-cosmic .spotlight-card { position: relative; overflow: hidden; }
+.landing-cosmic .spotlight-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background: radial-gradient(
+    360px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--ion) 14%, transparent),
+    transparent 70%
+  );
+}
+.landing-cosmic .spotlight-card:hover::after { opacity: 1; }
+
+/* ---- marquee ------------------------------------------------------------------------------ */
+@keyframes landing-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.landing-cosmic .marquee-track {
+  display: flex;
+  width: max-content;
+  animation: landing-marquee 36s linear infinite;
+}
+
+/* ---- CTA aurora border ------------------------------------------------------------------- */
+@keyframes landing-border-spin { to { transform: rotate(360deg); } }
+.landing-cosmic .aurora-border {
+  position: relative;
+  overflow: hidden;
+}
+.landing-cosmic .aurora-border::before {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  background: conic-gradient(from 0deg, transparent 0 60deg, var(--ion) 90deg, var(--aurora) 150deg, transparent 210deg 360deg);
+  animation: landing-border-spin 7s linear infinite;
+}
+/* The inner panel is the CONTENT div itself, carrying an opaque background — not a separate
+ * absolutely-positioned cover. The cover version painted over the card's own radial glow: a
+ * `-z-10` background inside a `position:relative; z-index:auto` parent escapes to the root
+ * stacking context and lands BEHIND the cover, which flattened the card and left a visible
+ * seam where the conic gradient crossed it. An opaque background on the content masks the
+ * gradient everywhere except the 1px padding ring, with no stacking assumptions at all. */
+.landing-cosmic .aurora-border > * { position: relative; }
+
+/* ---- nebula backdrop -------------------------------------------------------------------------
+ * The real-nebula loop, fixed behind the whole page. The poster and the video are the same
+ * picture, so the video simply fades up over the still once it starts — there is no visible swap,
+ * and a visitor who never gets the video (reduced motion, Save-Data, slow link) sees a background
+ * that looks finished rather than one that is missing something.
+ *
+ * The slight scale(1.08) gives the parallax drift room to move without exposing an edge. */
+.landing-cosmic .nebula-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--void);
+}
+.landing-cosmic .nebula-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.08) translate3d(0, var(--drift, 0%), 0);
+  will-change: transform;
+}
+.landing-cosmic .nebula-video {
+  opacity: 0;
+  transition: opacity 1.4s ease;
+}
+.landing-cosmic .nebula-video.is-ready { opacity: 1; }
+
+/* Once the video is up, the poster underneath it is a second full-viewport 1920x1080 layer that
+   nobody can see — the video covers exactly the same box, opaquely. It was being composited for
+   the whole visit anyway. Hide it, but only AFTER the 1.4s fade has finished, so nothing shows
+   through mid-crossfade: both properties are stepped, with a delay equal to the fade, rather
+   than transitioned. Hiding is reversible — dropping the attribute (the video errors or stalls,
+   see CosmicBackdrop) brings the still straight back with no reload. */
+.landing-cosmic .nebula-backdrop[data-video="playing"] .nebula-poster {
+  opacity: 0;
+  visibility: hidden;
+  will-change: auto;
+  transition:
+    opacity 0s linear 1.4s,
+    visibility 0s linear 1.4s;
+}
+
+/* ---- editorial type system ----------------------------------------------------------------
+ * The page's personality lives in SCALE CONTRAST: enormous tight display type set against tiny
+ * wide-tracked mono labels, with almost nothing in between. Sizes are clamp()-based so the
+ * headline is genuinely huge on a large screen without a pile of breakpoint overrides. */
+.landing-cosmic .display-xl {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.6rem, min(8.2vw, 10.5vh), 6.75rem);
+  line-height: 0.86;
+  letter-spacing: -0.045em;
+}
+.landing-cosmic .display-lg {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2rem, 5.2vw, 3.9rem);
+  line-height: 0.94;
+  letter-spacing: -0.035em;
+}
+.landing-cosmic .display-num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(2.4rem, 6vw, 4.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+/* The counterweight to the display type: everything structural is small, mono and wide-tracked. */
+.landing-cosmic .label-mono {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  line-height: 1;
+}
+
+/* The headline sits IN the nebula, so it is lit by it — a violet bloom rather than a flat fill. */
+.landing-cosmic .lit {
+  text-shadow:
+    0 0 28px color-mix(in srgb, var(--ion) 45%, transparent),
+    0 0 90px color-mix(in srgb, var(--ion) 22%, transparent);
+}
+
+/* ---- section rail --------------------------------------------------------------------------
+ * A fixed index of the page down the left edge. This is navigation, not ornament: on a page this
+ * long the reader genuinely needs to know where they are and how much is left, and the rail
+ * doubles as the "descent" readout for the journey through the cosmos. Desktop only — on a phone
+ * it would be a bar stealing width from the content it indexes. */
+.landing-cosmic .rail { position: fixed; left: 1.75rem; top: 50%; transform: translateY(-50%); z-index: 40; }
+.landing-cosmic .rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.3rem 0;
+  color: var(--signal-faint);
+  transition: color 0.35s ease;
+}
+.landing-cosmic .rail-tick {
+  display: block;
+  width: 1.4rem;
+  height: 1px;
+  background: currentColor;
+  transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.35s ease;
+}
+.landing-cosmic .rail-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  white-space: nowrap;
+}
+.landing-cosmic .rail-item[data-active="true"] { color: var(--signal); }
+.landing-cosmic .rail-item[data-active="true"] .rail-tick { width: 2.6rem; background: var(--ion); }
+.landing-cosmic .rail-item[data-active="true"] .rail-label { opacity: 1; transform: none; }
+.landing-cosmic .rail:hover .rail-label { opacity: 1; transform: none; }
+
+/* ---- hairline rule -------------------------------------------------------------------------- */
+.landing-cosmic .rule {
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ion) 55%, transparent), transparent 65%);
+}
+
+/* ---- nav, floating ---------------------------------------------------------------------------
+ * On the landing page the header floats over open space instead of sitting on a bar: the solid
+ * background and bottom border read as a "document chrome" edge that fights the sense of depth.
+ * A top-down scrim keeps the links legible over a bright nebula patch, and dropping the
+ * backdrop-blur also removes a full-width blur recomposited over a canvas that repaints every
+ * frame. Scoped to the landing page — /features keeps the standard bar. */
+.landing-cosmic > header {
+  background: linear-gradient(to bottom, rgba(10, 7, 20, 0.92), rgba(10, 7, 20, 0.55) 55%, transparent);
+  border-bottom-color: transparent;
+  backdrop-filter: none;
+}
+
+/* ---- glass panels ------------------------------------------------------------------------- */
+/* With the cosmos running behind the WHOLE page, sections become panels floating in it. Mostly
+ * opaque nebula tint — enough transparency for stars to glimmer through, no backdrop-filter: a
+ * blur over a canvas that repaints every frame would force full-panel recomposition per frame. */
+.landing-cosmic .cosmic-panel {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--hairline) 85%, transparent);
+  background: color-mix(in srgb, var(--nebula) 82%, transparent);
+  border-radius: 1.5rem;
+  box-shadow: 0 30px 80px -20px rgba(6, 4, 16, 0.7);
+}
+/* A hairline highlight along the top edge — the light of the nebula catching the pane. */
+.landing-cosmic .cosmic-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ion) 60%, transparent) 30%, color-mix(in srgb, var(--aurora) 45%, transparent) 70%, transparent);
+}
+
+/* ---- film grain --------------------------------------------------------------------------- */
+/* A fixed, faint SVG-noise layer over everything — the "shot on film" texture every cinematic
+ * site uses. data: URI is allowed by the CSP's img-src. */
+.landing-cosmic .film-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+  background-size: 240px 240px;
+}
+
+/* ---- section beams ------------------------------------------------------------------------ */
+/* A thin gradient light-line used as a section divider, brighter in the middle. */
+.landing-cosmic .beam {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ion) 65%, transparent) 35%, color-mix(in srgb, var(--aurora) 75%, transparent) 65%, transparent);
+}
+
+/* Video device frames: cover their box; poster shows until playback starts. */
+.landing-cosmic .device-video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Respect reduced motion everywhere at once: kill the decorative loops, keep content visible. */
+@media (prefers-reduced-motion: reduce) {
+  .landing-cosmic .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .landing-cosmic .hero-gradient-text,
+  .landing-cosmic .float-slow,
+  .landing-cosmic .float-slower,
+  .landing-cosmic .scroll-indicator-dot,
+  .landing-cosmic .marquee-track,
+  .landing-cosmic .aurora-border::before {
+    animation: none !important;
+  }
+  .landing-cosmic .tilt-card { transform: none !important; }
+}

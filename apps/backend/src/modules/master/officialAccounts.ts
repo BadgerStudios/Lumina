@@ -162,3 +162,26 @@ export async function setOfficial(userId: string, isOfficial: boolean) {
   });
   return user;
 }
+
+/** The server-level twin of setOfficial. Same tier, same reasoning: the badge is what an
+ * imitation community cannot copy, so granting it is MASTER-only.
+ *
+ * Deliberately not "the official account's servers are official". Ownership is transferable and a
+ * badge that rides along with a transfer is a badge that can be handed over by accident; this has
+ * to be an explicit act, recorded in the staff audit log. */
+export async function setServerOfficial(serverId: string, isOfficial: boolean) {
+  return prisma.server.update({
+    where: { id: serverId },
+    data: { isOfficial },
+    select: { id: true, name: true, isOfficial: true },
+  });
+}
+
+/** Every server currently wearing the badge — normally exactly one. */
+export async function listOfficialServers() {
+  return prisma.server.findMany({
+    where: { isOfficial: true },
+    select: { id: true, name: true, iconUrl: true, vanityCode: true, isOfficial: true },
+    orderBy: { createdAt: "asc" },
+  });
+}

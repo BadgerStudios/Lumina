@@ -3,7 +3,10 @@ import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
-import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket } from "lucide-react";
+import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket, Flag, Info, ChevronRight } from "lucide-react";
+import { MyReportsPanel } from "../feed/MyReportsPanel";
+import { CLIENT_TYPE } from "../../lib/platform";
+import { getInstalledVersion } from "../../lib/appUpdater";
 import { MfaSetup } from "./MfaSetup";
 import {
   biometricAvailability,
@@ -11,7 +14,7 @@ import {
   requestBiometricUnlock,
   setBiometricLockEnabled,
 } from "../../lib/biometricLock";
-import { useUIStore, ACCENT_THEMES, THEMES, LIGHT_THEMES, type AccentTheme, type Theme } from "../../store/uiStore";
+import { useUIStore, ACCENT_THEMES, THEMES, LIGHT_THEMES, THEME_META, type AccentTheme } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import { useVoiceStore, vadThresholdFor, type MicMode } from "../../store/voiceStore";
 import {
@@ -52,13 +55,14 @@ import { useMinorState } from "../../queries/parental";
 
 const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND"];
 
-type Section = "account" | "sessions" | "appearance" | "privacy" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice";
+type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "account", label: "My Account", icon: User },
   { key: "sessions", label: "Devices & Sessions", icon: Monitor },
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "privacy", label: "Privacy & Safety", icon: ShieldCheck },
+  { key: "reports", label: "My Reports", icon: Flag },
   { key: "family", label: "Family", icon: Users },
   { key: "connections", label: "Connections", icon: Gamepad2 },
   { key: "notifications", label: "Notifications", icon: Bell },
@@ -66,6 +70,7 @@ const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "advertising", label: "Advertising", icon: Megaphone },
   { key: "developer", label: "Developer Portal", icon: Code2 },
   { key: "voice", label: "Voice & Video", icon: Mic },
+  { key: "about", label: "About", icon: Info },
 ];
 
 function UsernameEditor() {
@@ -318,7 +323,12 @@ function AccountSection() {
         onClick={() => bannerInputRef.current?.click()}
         disabled={uploadBanner.isPending}
         aria-label={user.bannerUrl ? "Change your banner" : "Add a banner"}
-        className="group relative flex h-24 w-full items-center justify-center overflow-hidden rounded-lg bg-base-900"
+        className={cn(
+          "group relative flex aspect-[3/1] w-full items-center justify-center overflow-hidden rounded-xl bg-base-900",
+          // No banner yet: this is an empty box the size of a banner, and it has to say so. It used
+          // to label itself on hover only — which is never, on a phone.
+          !user.bannerUrl && "border border-dashed border-hairline",
+        )}
         style={user.bannerUrl ? { backgroundImage: `url(${resolveAssetUrl(user.bannerUrl)})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
       >
         {/* The upload is re-encoded server-side (crop + compress), so a large photo takes a
@@ -329,7 +339,16 @@ function AccountSection() {
             Fitting your banner...
           </span>
         ) : (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-xs font-medium text-transparent group-hover:bg-black/50 group-hover:text-white">
+          <span
+            className={cn(
+              "absolute inset-0 flex items-center justify-center text-xs font-medium transition",
+              user.bannerUrl
+                // Over a real banner the label would cover the thing you are judging, so it stays
+                // hidden until you go looking for it.
+                ? "bg-black/0 text-transparent group-hover:bg-black/50 group-hover:text-white"
+                : "text-signal-faint group-hover:text-signal",
+            )}
+          >
             {user.bannerUrl ? "Change banner" : "Add a banner"}
           </span>
         )}
@@ -342,6 +361,7 @@ function AccountSection() {
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) uploadBanner.mutate(file);
+          e.target.value = "";
         }}
       />
 
@@ -376,6 +396,7 @@ function AccountSection() {
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) uploadAvatar.mutate(file);
+            e.target.value = "";
           }}
         />
         <div>
@@ -643,16 +664,6 @@ const ACCENT_THEME_SWATCH: Record<AccentTheme, [string, string]> = {
 
 /** Label, one-line rationale, and a swatch of each theme's actual surface colours (mirroring the
  * values in index.css) so the picker previews the theme rather than naming it. */
-const THEME_META: Record<Theme, { label: string; note: string; bg: string; panel: string; raised: string; accent: string }> = {
-  dark: { label: "Nebula", note: "The default violet-cast dark", bg: "#0c0a17", panel: "#16121f", raised: "#2a2340", accent: "#5b7cfa" },
-  midnight: { label: "Midnight", note: "True black — best on OLED", bg: "#000000", panel: "#0a0a0d", raised: "#1c1c23", accent: "#5b7cfa" },
-  carbon: { label: "Carbon", note: "Neutral grey, no colour cast", bg: "#0d0f12", panel: "#14171b", raised: "#262b33", accent: "#5b7cfa" },
-  moss: { label: "Moss", note: "Warm green, easiest on the eyes", bg: "#0a1010", panel: "#101917", raised: "#1f2f2a", accent: "#5b7cfa" },
-  light: { label: "Daylight", note: "The default light mode", bg: "#f3f1fb", panel: "#ffffff", raised: "#e0daf3", accent: "#4a63e0" },
-  slate: { label: "Slate", note: "Cool and low-saturation", bg: "#eef1f5", panel: "#ffffff", raised: "#d6dde7", accent: "#2f6fed" },
-  parchment: { label: "Parchment", note: "Warm paper tones", bg: "#f5f1e8", panel: "#fffdf8", raised: "#e5ddcc", accent: "#4a63e0" },
-};
-
 function AppearanceSection() {
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
@@ -1055,7 +1066,11 @@ function ToggleRow({
       >
         <span
           className={cn(
-            "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+            // left-0 anchors the knob to the track's left edge; without it the <button> centers its
+            // content (buttons default to text-align:center), so the translate-x pushed the knob out
+            // past the right end of the oval. With the anchor, x=2px (off) → x=22px (on) both sit
+            // inside the 44px track.
+            "absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
             checked ? "translate-x-[22px]" : "translate-x-0.5",
           )}
         />
@@ -1597,6 +1612,62 @@ function VoiceSection() {
   );
 }
 
+function AboutSection() {
+  const closeModal = useUIStore((s) => s.closeModal);
+  const navigate = useNavigate();
+  const go = (path: string) => {
+    closeModal();
+    navigate(path);
+  };
+  // Read the REAL installed version from the native package at runtime, so this is always current —
+  // not a value baked into the web bundle at build time (which drifts stale). Null off-native.
+  const [nativeVersion, setNativeVersion] = useState<{ versionName: string | null; versionCode: number } | null>(null);
+  useEffect(() => {
+    void getInstalledVersion().then(setNativeVersion).catch(() => undefined);
+  }, []);
+  const versionLine =
+    CLIENT_TYPE === "mobile"
+      ? nativeVersion
+        ? `Version ${nativeVersion.versionName ?? "?"} (build ${nativeVersion.versionCode})`
+        : "App"
+      : CLIENT_TYPE === "desktop"
+        ? "Desktop app"
+        : "Web app";
+  const links: Array<{ label: string; path: string }> = [
+    { label: "Features", path: "/features" },
+    { label: "Terms of Service", path: "/terms" },
+    { label: "Privacy Policy", path: "/privacy" },
+    { label: "Developer Portal", path: "/developers" },
+  ];
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <img src="/icons/logo-128.png" alt="Lumina" className="h-16 w-16 rounded-xl" />
+        <div>
+          <h2 className="text-xl font-bold text-signal">Lumina</h2>
+          <p className="text-sm text-signal-dim">Built and hosted by Badger Studios.</p>
+          <p className="mt-1 text-xs text-signal-faint">{versionLine}</p>
+        </div>
+      </div>
+
+      <div className="space-y-0.5">
+        {links.map((l) => (
+          <button
+            key={l.path}
+            onClick={() => go(l.path)}
+            className="flex w-full items-center justify-between rounded px-3 py-2.5 text-left text-sm font-medium text-signal hover:bg-base-700"
+          >
+            <span>{l.label}</span>
+            <ChevronRight size={16} className="text-signal-faint" />
+          </button>
+        ))}
+      </div>
+
+      <p className="text-xs text-signal-faint">© 2026 Badger Studios. All rights reserved.</p>
+    </div>
+  );
+}
+
 export function UserSettingsModal() {
   const openModal = useUIStore((s) => s.openModal);
   const closeModal = useUIStore((s) => s.closeModal);
@@ -1620,8 +1691,28 @@ export function UserSettingsModal() {
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && closeModal()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-base-900 data-[state=open]:animate-in data-[state=open]:fade-in" />
-        <Dialog.Content className="fixed inset-0 z-50 flex focus:outline-none">
+        {/* z-[55]/z-[60] not z-40/z-50: the app's mobile bottom nav is fixed z-50, so a z-50 content
+            TIED it and the nav painted over the settings panel (and the z-40 overlay sat below it).
+            The modal must clear all app chrome (sidebars z-40, bottom nav z-50) while staying below
+            toasts (z-70) and the top-level gates. */}
+        <Dialog.Overlay className="fixed inset-0 z-[55] bg-base-900 data-[state=open]:animate-in data-[state=open]:fade-in" />
+        {/* The overlay (above) paints the full edge-to-edge background under the system bars; the
+            CONTENT is inset by the device safe areas so nothing sits under the status bar or the
+            navigation/gesture bar. The app is viewport-fit=cover, so a full-screen surface that
+            skips this collides with the system bars — the bottom used to be hidden by the
+            safe-area-aware MobileBottomNav until this modal was raised above it. Mirrors OwnerApp. */}
+        <Dialog.Content
+          className="fixed inset-0 z-[60] flex focus:outline-none"
+          style={{
+            // max(env, native var): iOS/web use env(); Android (where the status-bar env() inset is
+            // unreliable under forced edge-to-edge) uses --android-safe-* injected natively by
+            // MainActivity, so the content never sits under the status/navigation bars.
+            paddingTop: "max(env(safe-area-inset-top), var(--android-safe-top, 0px))",
+            paddingBottom: "max(env(safe-area-inset-bottom), var(--android-safe-bottom, 0px))",
+            paddingLeft: "max(env(safe-area-inset-left), var(--android-safe-left, 0px))",
+            paddingRight: "max(env(safe-area-inset-right), var(--android-safe-right, 0px))",
+          }}
+        >
           <Dialog.Title className="sr-only">User Settings</Dialog.Title>
           <div className="flex w-60 shrink-0 flex-col gap-0.5 border-r border-base-900/60 bg-base-800 p-3 max-md:w-16">
             {visibleSections.map((s) => (
@@ -1665,6 +1756,7 @@ export function UserSettingsModal() {
               {section === "sessions" && <SessionsSection />}
               {section === "appearance" && <AppearanceSection />}
               {section === "privacy" && <PrivacySection />}
+              {section === "reports" && <MyReportsPanel />}
               {section === "notifications" && <NotificationsSection />}
               {section === "billing" && <BillingSection />}
               {section === "advertising" && <AdvertisingSection />}
@@ -1672,6 +1764,7 @@ export function UserSettingsModal() {
               {section === "family" && <FamilySection />}
               {section === "connections" && <ConnectionsSection />}
               {section === "voice" && <VoiceSection />}
+              {section === "about" && <AboutSection />}
             </div>
           </div>
         </Dialog.Content>

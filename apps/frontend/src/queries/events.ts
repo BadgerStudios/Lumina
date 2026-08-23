@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/apiClient";
+import { reportError } from "../store/toastStore";
 
 export interface ServerEventDTO {
   id: string;
@@ -45,6 +46,7 @@ export function useCancelEvent(serverId: string) {
   return useMutation({
     mutationFn: (eventId: string) => api.delete(`/servers/${serverId}/events/${eventId}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["events", serverId] }),
+    onError: (e) => reportError(e, "Couldn't cancel that event"),
   });
 }
 
@@ -56,5 +58,6 @@ export function useRsvp(serverId: string) {
         ? api.delete(`/servers/${serverId}/events/${eventId}/rsvp`)
         : api.put(`/servers/${serverId}/events/${eventId}/rsvp`, { status }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["events", serverId] }),
+    onError: (e) => reportError(e, "Couldn't update your RSVP"),
   });
 }

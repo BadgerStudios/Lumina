@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { generateOfficialAccount, listOfficialAccounts, setOfficial } from "./officialAccounts.js";
+import { generateOfficialAccount, listOfficialAccounts, setOfficial, setServerOfficial, listOfficialServers } from "./officialAccounts.js";
 import { z } from "zod";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -15,6 +15,12 @@ import { assignableRoles } from "../../lib/platformRole.js";
 import { applyRoleGrant } from "../../lib/roleGrant.js";
 import { isBillingConfigured, isWebhookConfigured } from "../billing/stripe.js";
 import { searchBlockReasons } from "@lumina/shared";
+
+/** Per-file cap for a brand-kit part. Deliberately generous (1GB) — brand kits are working design
+ * assets (layered PSDs, whole font families, a zipped style guide, a screen-recording walkthrough)
+ * that dwarf the 25MB chat-attachment limit and the 100MB video cap. nginx's /api client body size
+ * must stay at or above this (apps/frontend/nginx.conf) or the request is cut off at the proxy. */
+const BRAND_KIT_MAX_BYTES = 1024 * 1024 * 1024;
 
 /**
  * Brand-kit file types: a DENYLIST, not an allowlist.
@@ -178,6 +184,31 @@ export default async function masterRoutes(fastify: FastifyInstance) {
     return updated;
   });
 
+  /** The server-level badge. Same tier as the account badge and for the same reason: an invite to
+   * a convincing fake "Lumina Official" is a ready-made phishing surface, so the one marker that
+   * proves a community is first-party must not be settable by the people who could fake the rest. */
+  fastify.patch("/official-servers/:id", { preHandler: [requireAuth, requireMaster] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { isOfficial } = request.body as { isOfficial?: boolean };
+    if (typeof isOfficial !== "boolean") throw new BadRequestError("isOfficial must be true or false");
+
+    const updated = await setServerOfficial(id, isOfficial);
+    await prisma.staffAuditLog.create({
+      data: {
+        actorId: request.userId!,
+        actionType: isOfficial ? "official.server.grant" : "official.server.revoke",
+        targetType: "server",
+        targetId: id,
+        reason: updated.name,
+      },
+    });
+    return updated;
+  });
+
+  fastify.get("/official-servers", { preHandler: [requireAuth, requireMaster] }, async () => {
+    return listOfficialServers();
+  });
+
   fastify.get("/config", { preHandler: [requireAuth, requireMaster] }, async () => {
     const configured = (v: string | undefined) => Boolean(v && v.trim());
     return {
@@ -252,7 +283,20 @@ export default async function masterRoutes(fastify: FastifyInstance) {
         part.file.resume();
       });
 
-    for await (const part of request.parts({ limits: { fileSize: 100 * 1024 * 1024, files: 20 } })) {
+    // `throwFileSizeLimit: false` is load-bearing, not incidental. @fastify/multipart v9 defaults it
+    // to TRUE, which aborts the request the instant a file crosses the limit — a mid-stream 413 that
+    // resets the connection while the browser is still uploading. That is the exact "climbs to ~20%
+    // then fails" the master saw on a large brand kit: a ~500MB file dies the moment 100MB (its old
+    // cap) is read. This whole route is written to TRUNCATE-and-report instead (it checks
+    // `part.file.truncated` below), and that path only ever runs when the throwing behaviour is off.
+    // With it off, an over-limit file is drained to the end, flagged, and reported in `rejected[]`
+    // like any other bad part — one big file no longer nukes the whole drop. The cap is also raised
+    // well past what a real brand kit (layered PSDs, font families, a zipped style guide) needs.
+    // `throwFileSizeLimit` is honored per-call at runtime (verified) and is documented on
+    // request.parts() in the plugin README, but its TS types only list it as a registration option
+    // — so it's assigned via a const (sidesteps the object-literal excess-property check) and cast.
+    const partOpts = { throwFileSizeLimit: false, limits: { fileSize: BRAND_KIT_MAX_BYTES, files: 20 } };
+    for await (const part of request.parts(partOpts as Parameters<typeof request.parts>[0])) {
       if (part.type !== "file") continue;
 
       const originalName = path.basename(part.filename || "upload").slice(0, 120);
@@ -276,7 +320,7 @@ export default async function masterRoutes(fastify: FastifyInstance) {
 
       if (part.file.truncated) {
         await fs.unlink(dest).catch(() => undefined);
-        rejected.push({ fileName: originalName, reason: "Larger than the 100MB per-file limit." });
+        rejected.push({ fileName: originalName, reason: "Larger than the 1GB per-file limit." });
         continue;
       }
 

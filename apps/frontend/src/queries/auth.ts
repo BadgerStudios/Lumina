@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SessionDTO, UserDTO, AgeBracket } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { useAuthStore } from "../store/authStore";
+import { reportError } from "../store/toastStore";
 
 interface AuthResponse {
   accessToken: string;
@@ -26,7 +27,8 @@ export function isMfaChallenge(result: LoginResult): result is MfaChallenge {
 export function useLogin() {
   const setSession = useAuthStore((s) => s.setSession);
   return useMutation({
-    mutationFn: (body: { emailOrUsername: string; password: string }) => api.post<LoginResult>("/auth/login", body),
+    mutationFn: (body: { emailOrUsername: string; password: string; turnstileToken?: string }) =>
+      api.post<LoginResult>("/auth/login", body),
     onSuccess: (data) => {
       // Deliberately does NOT set a session on the challenge branch — there is no token to set. A
       // client that stored something here would be claiming to be signed in halfway through.
@@ -82,7 +84,7 @@ export function useDisableMfa() {
 export function useRegister() {
   const setSession = useAuthStore((s) => s.setSession);
   return useMutation({
-    mutationFn: (body: { username: string; email: string; password: string; displayName?: string; ageBracket?: AgeBracket; birthDate?: string }) =>
+    mutationFn: (body: { username: string; email: string; password: string; displayName?: string; ageBracket?: AgeBracket; birthDate?: string; turnstileToken?: string; deviceSignal?: { platform: "android" | "ios"; band: string; attestationToken?: string } }) =>
       api.post<AuthResponse>("/auth/register", body),
     onSuccess: (data) => setSession(data.accessToken, data.user),
   });
@@ -127,6 +129,9 @@ export function useRevokeSession() {
     onSuccess: (_data, id) => {
       queryClient.setQueryData<SessionDTO[]>(["auth", "sessions"], (old) => old?.filter((s) => s.id !== id));
     },
+    // A failed "log out this device" previously looked identical to a successful one — nothing
+    // rendered the failure, so the session just stayed in the list with no explanation.
+    onError: (e) => reportError(e, "Couldn't log out that device"),
   });
 }
 
@@ -137,5 +142,6 @@ export function useRevokeOtherSessions() {
     onSuccess: () => {
       queryClient.setQueryData<SessionDTO[]>(["auth", "sessions"], (old) => old?.filter((s) => s.isCurrent));
     },
+    onError: (e) => reportError(e, "Couldn't log out other devices"),
   });
 }

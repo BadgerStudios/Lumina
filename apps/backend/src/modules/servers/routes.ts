@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ageVisibilityFilter } from "../parental/visibility.js";
+import { assertNotLockedMinor } from "../parental/service.js";
 import { z } from "zod";
 import { Permissions, DEFAULT_EVERYONE_PERMISSIONS } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
@@ -7,8 +8,9 @@ import { serializeMember, serializeServer } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
+import { checkRoleHierarchy, getHighestRolePosition } from "../../permissions/permissionService.js";
 import { saveProfileImage, deleteProfileImage } from "../../lib/profileImage.js";
-import { getIO } from "../../realtime/io.js";
+import { getIO, evictUserFromServer } from "../../realtime/io.js";
 import { ServerEvents } from "@lumina/shared";
 
 const createServerSchema = z.object({
@@ -62,6 +64,11 @@ const memberInclude = {
 
 export default async function serversRoutes(fastify: FastifyInstance) {
   fastify.post("/", { schema: { body: createServerSchema }, preHandler: [requireAuth] }, async (request, reply) => {
+    // Creating a server (and becoming its owner, able to mint invites and pull others in) is exactly
+    // the "put the account in front of another person" action the minor lock exists to stop — and
+    // every sibling public action already guards it (friend requests, DM creation, invite-join).
+    // Server creation was the one entry point that didn't.
+    await assertNotLockedMinor(request.userId!);
     const body = request.body as z.infer<typeof createServerSchema>;
 
     const server = await prisma.$transaction(async (tx) => {
@@ -391,6 +398,13 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       });
       if (!membership) throw new NotFoundError("Member not found");
 
+      // Every role-MANAGEMENT route checks this (checkRoleHierarchy), but kick — which is at least
+      // as consequential — never did: a member holding only KICK_MEMBERS could remove someone with
+      // a much higher role (co-admin, senior staff) entirely. Owner is already covered above;
+      // this covers everyone else's rank.
+      const targetHighest = await getHighestRolePosition(targetUserId, request.serverId!);
+      await checkRoleHierarchy(request.userId!, request.serverId!, targetHighest);
+
       await prisma.membership.delete({ where: { id: membership.id } });
 
       await recordAuditLog({
@@ -407,6 +421,10 @@ export default async function serversRoutes(fastify: FastifyInstance) {
         .to(`server:${request.serverId!}`)
         .emit(ServerEvents.MEMBER_LEAVE, { userId: targetUserId, serverId: request.serverId! });
       getIO().to(`user:${targetUserId}`).emit(ServerEvents.SERVER_DELETE, { id: request.serverId! });
+      // Actually remove their sockets from the server's rooms, not just tell the client to drop it:
+      // a client that ignores SERVER_DELETE would otherwise keep receiving the server's live stream
+      // until reconnect.
+      await evictUserFromServer(targetUserId, request.serverId!);
 
       reply.code(204).send();
     },

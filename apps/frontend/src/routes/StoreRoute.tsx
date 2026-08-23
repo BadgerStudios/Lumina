@@ -44,7 +44,10 @@ export default function StoreRoute() {
   })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-8 md:px-6">
+    // Every sibling route owns a scrolling pane; this one had neither, so a long store simply
+    // ran off the bottom of the shell with no way to reach it.
+    <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 overflow-y-auto">
+      <div className="mx-auto w-full max-w-4xl px-4 py-8 md:px-6">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-signal">Store</h1>
@@ -120,7 +123,10 @@ export default function StoreRoute() {
                       type="button"
                       disabled={item.owned || !affordable || purchase.isPending}
                       onClick={() => setConfirming(item)}
-                      className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                      // Not `disabled:opacity-40`: fading white-on-accent to 40% measured 2.13:1,
+                      // which is a label you cannot read telling you why you cannot buy. A disabled
+                      // control gets its own flat, legible treatment instead.
+                      className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:border disabled:border-hairline disabled:bg-transparent disabled:text-signal-dim"
                     >
                       {item.owned ? "Owned" : affordable ? "Buy" : "Not enough"}
                     </button>
@@ -172,6 +178,7 @@ export default function StoreRoute() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

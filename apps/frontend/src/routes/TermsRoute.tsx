@@ -27,7 +27,7 @@ export function TermsRoute() {
             ← Back to Lumina
           </Link>
           <h1 className="mt-4 font-display text-3xl">Terms of Service</h1>
-          <p className="mt-2 text-sm text-signal-faint">Last updated 12 August 2026</p>
+          <p className="mt-2 text-sm text-signal-faint">Last updated 20 August 2026</p>
         </header>
 
         <section className="rounded-xl border border-accent/40 bg-base-800 p-5">
@@ -36,19 +36,22 @@ export function TermsRoute() {
             The short version
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-signal-dim">
-            You must be 18 or over. What you upload stays yours, but you let us host and show it.
-            Don't post anything illegal or anything you don't have the right to post. Videos are
-            reviewed by a person before anyone else sees them. Break the rules and your access ends.
-            Everything below says the same things with more precision.
+            You must be 16 or over, and if you're under 18 a parent or guardian has to link their
+            account to yours before you can use Lumina. The video feed is for adults only. What you
+            upload stays yours, but you let us host and show it. Don't post anything illegal or
+            anything you don't have the right to post. Videos are reviewed by a person before anyone
+            else sees them. Break the rules and your access ends. Everything below says the same
+            things with more precision.
           </p>
         </section>
 
         <Section title="Who may use Lumina">
-          <Item label="18 and over, without exception">
-            Lumina is an adult platform. You confirm your date of birth when you register, and an
-            account with no age on record is restricted until it answers. If we learn an account
-            belongs to someone under 18 it is removed, and the device is prevented from immediately
-            signing up again with a different birthday.
+          <Item label="16 and over, with parental linking under 18">
+            You must be 16 or older to use Lumina. If you are 16 or 17, your account is created but
+            stays locked until a parent or guardian links their own account to yours; the video feed
+            is for adults only. You confirm your date of birth when you register, and an account with
+            no age on record is restricted until it answers. Anyone under 16 is refused, and the
+            device is prevented from immediately signing up again with a different birthday.
           </Item>
           <Item label="One person, one account">
             You are responsible for what happens under your account, including anything done by
@@ -157,9 +160,9 @@ export function TermsRoute() {
 
         <Section title="The service itself">
           <Item label="Provided as-is">
-            Lumina is self-hosted software operated on a small scale. We do not promise it will be
-            available without interruption, free of defects, or that data will never be lost. Keep
-            your own copies of anything you cannot afford to lose.
+            Lumina is hosted and operated by Badger Studios on a small scale. We do not promise it
+            will be available without interruption, free of defects, or that data will never be
+            lost. Keep your own copies of anything you cannot afford to lose.
           </Item>
           <Item label="Changes">
             These terms may change. Material changes will be announced in the app before they take

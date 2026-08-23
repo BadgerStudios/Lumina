@@ -64,6 +64,15 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
     // Joining a server makes the account visible in a member list, so it is gated the same way
     // messaging is.
     await assertNotLockedMinor(request.userId!);
+
+    // Bot tokens authenticate through requireAuth like anyone else, which used to make an invite
+    // code a complete bypass of consent: whoever RAN the bot could add it anywhere they had a
+    // code, and the server's admins never approved anything. A bot is admitted by someone who
+    // administers the server, through /oauth2/authorize?scope=bot, or not at all.
+    const joiner = await prisma.user.findUnique({ where: { id: request.userId! }, select: { isBot: true } });
+    if (joiner?.isBot) {
+      throw new ForbiddenError("Bots are added through an install link (/oauth2/authorize?scope=bot), not by redeeming an invite");
+    }
     const { code } = request.params as { code: string };
     const resolved = await resolveInviteCode(code);
     if (!resolved) throw new NotFoundError("Invite not found");
@@ -86,14 +95,24 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
     }
 
     const membership = await prisma.$transaction(async (tx) => {
+      // A vanity code has no Invite row; incrementing would throw on a record that does not exist.
+      if (!isVanity) {
+        // Conditional on uses still being below the cap AT WRITE TIME, not the read-time check
+        // above: two concurrent joins on a maxUses:1 invite could otherwise both pass that read
+        // and both succeed, since the read and the increment were two separate steps with no lock
+        // between them. Checked and incremented first, inside the same transaction as the
+        // membership row below, so losing the race rolls back the whole join — no membership is
+        // created for whoever missed a "single-use" invite that was already used.
+        const result = await tx.invite.updateMany({
+          where: { code, ...(invite.maxUses !== null ? { uses: { lt: invite.maxUses } } : {}) },
+          data: { uses: { increment: 1 } },
+        });
+        if (result.count === 0) throw new BadRequestError("Invite has reached its max uses");
+      }
       const created = await tx.membership.create({
         data: { userId: request.userId!, serverId: invite.serverId },
         include: memberInclude,
       });
-      // A vanity code has no Invite row; incrementing would throw on a record that does not exist.
-      if (!isVanity) {
-        await tx.invite.update({ where: { code }, data: { uses: { increment: 1 } } });
-      }
       return created;
     });
 

@@ -197,11 +197,20 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
   // socket by id (never a broadcast — signaling is always addressed to exactly one peer).
   socket.on(ClientEvents.VOICE_SIGNAL, (payload: { targetSocketId: string; data: unknown }) => {
     if (!payload?.targetSocketId) return;
-    io.to(payload.targetSocketId).emit(ServerEvents.VOICE_SIGNAL, {
-      fromSocketId: socket.id,
-      fromUserId: userId,
-      data: payload.data,
-    });
+    const channelId = socket.data.voiceChannelId as string | undefined;
+    // The sender must be in a call, and the target must be a peer in that SAME call. Socket ids are
+    // published to the whole server room via the voice roster, so without this any server member —
+    // even one not in the call — could push spoofed SDP/ICE into any in-call peer's negotiation.
+    if (!channelId) return;
+    void (async () => {
+      const peers = await io.in(voiceRoom(channelId)).fetchSockets();
+      if (!peers.some((p) => p.id === payload.targetSocketId)) return;
+      io.to(payload.targetSocketId).emit(ServerEvents.VOICE_SIGNAL, {
+        fromSocketId: socket.id,
+        fromUserId: userId,
+        data: payload.data,
+      });
+    })();
   });
 }
 

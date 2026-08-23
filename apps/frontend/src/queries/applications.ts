@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ApplicationDTO, ApplicationWithClientSecretDTO, ApplicationWithTokenDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
+import { reportError } from "../store/toastStore";
 
 /** Backs the Developer Portal section in UserSettingsModal.tsx. */
 export function useMyApplications(enabled: boolean) {
@@ -20,6 +21,7 @@ export function useCreateApplication() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
     },
+    onError: (e) => reportError(e, "Couldn't create that application"),
   });
 }
 
@@ -30,6 +32,7 @@ export function useRegenerateBotToken() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
     },
+    onError: (e) => reportError(e, "Couldn't regenerate that token"),
   });
 }
 
@@ -41,6 +44,7 @@ export function useUpdateRedirectUris() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
     },
+    onError: (e) => reportError(e, "Couldn't save those redirect URIs"),
   });
 }
 
@@ -51,6 +55,7 @@ export function useRegenerateClientSecret() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
     },
+    onError: (e) => reportError(e, "Couldn't regenerate that secret"),
   });
 }
 
@@ -62,6 +67,7 @@ export function useUpdateIntents() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
     },
+    onError: (e) => reportError(e, "Couldn't save those intents"),
   });
 }
 
@@ -72,5 +78,6 @@ export function useDeleteApplication() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
     },
+    onError: (e) => reportError(e, "Couldn't delete that application"),
   });
 }

@@ -18,7 +18,9 @@ export function Modal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in" />
+        {/* Above the mobile tab bar (z-50), not below it: at z-40 the scrim dimmed the whole app
+            except the tab bar, which stayed bright AND tappable underneath an open dialog. */}
+        <Dialog.Overlay className="lx-scrim fixed inset-0 z-[55] data-[state=open]:animate-in data-[state=open]:fade-in" />
         {/* Sized against the MEASURED viewport rather than `85vh`/`90vw`.
             `vh` is the URL-bar-retracted height on mobile, so an 85vh modal could still overflow
             the visible area, and with the dialog centred the overflow lands off BOTH ends — the
@@ -26,18 +28,18 @@ export function Modal({
             Subtracting the keyboard inset matters most here: nearly every modal in the app has a
             text field in it. */}
         <Dialog.Content
-          className={`fixed left-1/2 top-1/2 z-50 flex max-h-[calc(var(--app-height-safe)*0.90)] w-[min(90vw,calc(var(--app-width)-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-md bg-base-800 shadow-xl ${width}`}
+          className={`lx-raised fixed left-1/2 top-1/2 z-[56] flex overflow-hidden max-h-[calc(var(--app-height-safe)*0.90)] w-[min(90vw,calc(var(--app-width)-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col ${width}`}
         >
           {/* The header stays put and only the body scrolls — on a landscape phone the whole modal
               is barely taller than the header, and a scrolled-away title leaves no way to tell what
               is being confirmed. */}
-          <div className="flex shrink-0 items-center justify-between border-b border-base-900/60 px-5 py-4 short:py-2.5">
-            <Dialog.Title className="text-lg font-semibold text-signal short:text-base">
+          <div className="flex shrink-0 items-center justify-between border-b border-hairline px-5 py-4 short:py-2.5">
+            <Dialog.Title className="font-display text-base font-bold tracking-tight text-signal short:text-sm">
               {title}
             </Dialog.Title>
             <Dialog.Close asChild>
-              <button className="text-signal-dim hover:text-signal" aria-label="Close">
-                <X size={20} />
+              <button className="lx-focus rounded-lg p-1 text-signal-dim transition hover:bg-base-600 hover:text-signal" aria-label="Close">
+                <X size={18} />
               </button>
             </Dialog.Close>
           </div>

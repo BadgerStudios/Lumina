@@ -43,6 +43,13 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
         const statusCode = (err as { statusCode?: number }).statusCode;
         if (statusCode === 404 || statusCode === 410) {
           await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+        } else {
+          // Everything else (network error, 5xx, an oversized payload) previously vanished with
+          // zero trace — a systemic delivery problem (bad VAPID keys, a payload over the ~4KB
+          // web-push limit) was undebuggable from logs alone. Still best-effort: logged, not
+          // thrown, so one bad subscription still never blocks delivery to the rest.
+          // eslint-disable-next-line no-console
+          console.error(`[push] delivery failed for subscription ${sub.id}:`, statusCode ?? (err as Error)?.message ?? err);
         }
       }
     }),

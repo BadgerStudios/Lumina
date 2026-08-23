@@ -138,7 +138,12 @@ export default async function videoSocialRoutes(fastify: FastifyInstance) {
       void notifyMentions(comment.content, request.userId!, videoId);
       void (async () => {
         const video = await prisma.video.findUnique({ where: { id: videoId }, select: { authorId: true } });
-        if (video?.authorId) {
+        // notifyMentions above already refuses to notify across a block; this sibling path — the
+        // plain "someone commented" notification, sent for the exact same comment — did not, so a
+        // user blocked by the uploader could still land in their inbox by commenting without an
+        // @mention while the same comment WITH a mention would have been filtered. Same rule,
+        // applied consistently.
+        if (video?.authorId && !(await isBlockedEitherWay(video.authorId, request.userId!))) {
           await pushInboxNotification({
             userId: video.authorId,
             kind: "VIDEO_COMMENT",

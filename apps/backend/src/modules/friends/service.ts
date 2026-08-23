@@ -100,11 +100,17 @@ export async function sendFriendRequest(params: { requesterId: string; addressee
     if (reverse.status === "BLOCKED") throw new ForbiddenError("You can't send a friend request to this user");
     if (reverse.status === "ACCEPTED") throw new ConflictError("Already friends");
     if (reverse.status === "PENDING" || reverse.status === "DECLINED") {
-      const updated = await prisma.friendRequest.update({
-        where: { id: reverse.id },
+      // Conditional on the exact status just read, not a plain update-by-id: without this, two
+      // concurrent calls racing this same reverse row (e.g. both sides tapping "add friend" at
+      // once) could both pass the read-time checks above and both write, with the final state
+      // decided by write order instead of by which call actually happened first — and both would
+      // fire their own FRIEND_ACCEPT notification below regardless of which one "really" won.
+      const { count } = await prisma.friendRequest.updateMany({
+        where: { id: reverse.id, status: reverse.status },
         data: { status: "ACCEPTED", respondedAt: new Date() },
-        include: requestInclude,
       });
+      if (count === 0) throw new ConflictError("This request just changed — try again");
+      const updated = await prisma.friendRequest.findUniqueOrThrow({ where: { id: reverse.id }, include: requestInclude });
     void pushInboxNotification({
       userId: updated.requesterId,
       kind: "FRIEND_ACCEPT",
@@ -160,13 +166,19 @@ export async function resolveFriendRequest(params: { userId: string; requestId: 
   if (!request) throw new NotFoundError("Friend request not found");
   if (request.status !== "PENDING") throw new BadRequestError("This request has already been resolved");
 
+  // Both branches below write via a conditional updateMany rather than a plain update-by-id: the
+  // status check above only holds at READ time. An addressee accepting while the requester
+  // cancels in the same instant (or a double-tap) could otherwise both pass that check and both
+  // write — final state decided by write order, not by which call actually happened first, and a
+  // losing write would still fire its notification below as if it had applied.
   if (params.accept) {
     if (request.addresseeId !== params.userId) throw new ForbiddenError("Only the recipient can accept a friend request");
-    const updated = await prisma.friendRequest.update({
-      where: { id: request.id },
+    const { count } = await prisma.friendRequest.updateMany({
+      where: { id: request.id, status: "PENDING" },
       data: { status: "ACCEPTED", respondedAt: new Date() },
-      include: requestInclude,
     });
+    if (count === 0) throw new BadRequestError("This request has already been resolved");
+    const updated = await prisma.friendRequest.findUniqueOrThrow({ where: { id: request.id }, include: requestInclude });
     notifyUpdated(serializeFriendRequest(updated));
     // The requester learns their request landed; the accepter already knows — they clicked it.
     void pushInboxNotification({
@@ -180,11 +192,12 @@ export async function resolveFriendRequest(params: { userId: string; requestId: 
     if (request.addresseeId !== params.userId && request.requesterId !== params.userId) {
       throw new ForbiddenError("Not your friend request");
     }
-    const updated = await prisma.friendRequest.update({
-      where: { id: request.id },
+    const { count } = await prisma.friendRequest.updateMany({
+      where: { id: request.id, status: "PENDING" },
       data: { status: "DECLINED", respondedAt: new Date() },
-      include: requestInclude,
     });
+    if (count === 0) throw new BadRequestError("This request has already been resolved");
+    const updated = await prisma.friendRequest.findUniqueOrThrow({ where: { id: request.id }, include: requestInclude });
     notifyUpdated(serializeFriendRequest(updated));
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "Lumina",
   "short_name": "Lumina",
-  "description": "Servers, channels, voice, video and a short-video feed — on hardware you control.",
+  "description": "Servers, channels, voice, video and a short-video feed — hosted and run by Badger Studios.",
   "start_url": "/app",
   "scope": "/",
   "display": "standalone",

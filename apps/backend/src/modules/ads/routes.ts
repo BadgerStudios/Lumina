@@ -232,6 +232,25 @@ export default async function adRoutes(fastify: FastifyInstance) {
     const campaign = await prisma.adCampaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundError("Campaign not found");
 
+    // Previously neither branch checked the campaign's current status at all — staff could
+    // "approve" something already REJECTED, or, worse, reject an already-APPROVED and FUNDED
+    // campaign that was actively delivering, with nothing about the transition itself refused.
+    // Approving only ever makes sense straight out of the queue. Rejecting is also the only way
+    // staff have to pull a campaign that already went live (PAUSED included — pausing is
+    // advertiser-initiated and doesn't change the moderation status underneath it), so that stays
+    // allowed; what's guarded is APPROVING something that isn't awaiting review.
+    if (approve && campaign.status !== "PENDING_REVIEW") {
+      throw new BadRequestError(`Cannot approve a campaign that is ${campaign.status}`);
+    }
+    if (!approve && !["PENDING_REVIEW", "APPROVED", "PAUSED"].includes(campaign.status)) {
+      throw new BadRequestError(`Cannot reject a campaign that is ${campaign.status}`);
+    }
+
+    // Whether this rejection is pulling money that was already collected and not yet delivered —
+    // computed before the update below overwrites `status`.
+    const wasFundedAndUnspent =
+      !approve && campaign.fundingStatus === "FUNDED" && campaign.paidCents > campaign.spentCents;
+
     const updated = await prisma.adCampaign.update({
       where: { id },
       data: {
@@ -254,6 +273,26 @@ export default async function adRoutes(fastify: FastifyInstance) {
         reason: reason?.slice(0, 300) ?? null,
       },
     });
+
+    // Rejecting stops delivery immediately — eligibleCampaigns() only ever draws from
+    // status: "APPROVED" — but it does not touch Stripe. Issuing a refund is a real-money action
+    // this route has no business deciding on its own (full refund vs. the unspent remainder vs.
+    // none is a policy call, not a bug fix). What it must not do is let that money go untracked:
+    // this is the reconciliation trail — a second, distinctly-typed audit row recording exactly
+    // what's owed back — so a paid-and-pulled campaign is a searchable fact instead of silently
+    // indistinguishable from an unfunded rejection, which is what let this go unnoticed before.
+    if (wasFundedAndUnspent) {
+      const unrefundedCents = campaign.paidCents - campaign.spentCents;
+      await prisma.staffAuditLog.create({
+        data: {
+          actorId: request.userId!,
+          actionType: "ad.reject_funded_unrefunded",
+          targetType: "ad_campaign",
+          targetId: id,
+          reason: `$${(unrefundedCents / 100).toFixed(2)} paid and undelivered — needs a manual Stripe refund`,
+        },
+      });
+    }
 
     return serializeCampaign(updated);
   });

@@ -17,9 +17,17 @@ const execFileAsync = promisify(execFile);
  * network, argument-array exec so no filename can inject shell syntax, and a wall-clock timeout.
  * The *source* side is a file this server produced (an already-transcoded MP4), but the creator's
  * own clip is a raw upload, so the guard has to hold.
+ *
+ * Neither side is actually guaranteed to have an audio stream. The source has been through
+ * transcodeVideo, but that only encodes what's there — a silent screen recording or a camera clip
+ * with no mic access transcodes to a video-only MP4. The creator's own clip is a raw upload and was
+ * never guaranteed anything. A filter graph that references `[N:a]` on an input with no audio
+ * stream fails to build at all, which used to crash the whole composition outright. `planAudioInputs`
+ * below probes both sides and substitutes a silent `anullsrc` input for whichever one needs it.
  */
 
 const FFMPEG_TIMEOUT_MS = 12 * 60 * 1000;
+const FFPROBE_TIMEOUT_MS = 30 * 1000;
 
 /** The composed canvas. Portrait, matching the feed's own 9:16 card — a duet rendered as a wide
  * 2:1 strip would letterbox to a sliver in a feed built for phones. */
@@ -42,20 +50,20 @@ export const MIN_STITCH_MS = 500;
  */
 export async function composeDuet(sourcePath: string, ownPath: string, destPath: string): Promise<void> {
   const half = CANVAS_W / 2;
+  const { extraInputArgs, ref0, ref1 } = await planAudioInputs(sourcePath, ownPath);
   const filter =
     `[0:v]scale=${half}:${CANVAS_H}:force_original_aspect_ratio=decrease,` +
     `pad=${half}:${CANVAS_H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30[l];` +
     `[1:v]scale=${half}:${CANVAS_H}:force_original_aspect_ratio=decrease,` +
     `pad=${half}:${CANVAS_H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30[r];` +
     `[l][r]hstack=inputs=2[v];` +
-    // anullsrc is not used here: both inputs are guaranteed to have an audio stream because they
-    // have each been through transcodeVideo, which always encodes AAC.
-    `[0:a][1:a]amix=inputs=2:duration=shortest:dropout_transition=0,volume=1.4[a]`;
+    `${ref0}${ref1}amix=inputs=2:duration=shortest:dropout_transition=0,volume=1.4[a]`;
 
   await run(
     [
       "-i", sourcePath,
       "-i", ownPath,
+      ...extraInputArgs,
       "-filter_complex", filter,
       "-map", "[v]",
       "-map", "[a]",
@@ -82,27 +90,75 @@ export async function composeStitch(
 ): Promise<void> {
   const start = (startMs / 1000).toFixed(3);
   const end = (endMs / 1000).toFixed(3);
+  const { extraInputArgs, ref0, ref1 } = await planAudioInputs(sourcePath, ownPath);
   const normalise =
     `scale=${CANVAS_W}:${CANVAS_H}:force_original_aspect_ratio=decrease,` +
     `pad=${CANVAS_W}:${CANVAS_H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p`;
 
   const filter =
     `[0:v]trim=start=${start}:end=${end},setpts=PTS-STARTPTS,${normalise}[v0];` +
-    `[0:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[a0];` +
+    `${ref0}atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[a0];` +
     `[1:v]${normalise}[v1];` +
-    `[1:a]aresample=48000,aformat=channel_layouts=stereo[a1];` +
+    `${ref1}aresample=48000,aformat=channel_layouts=stereo[a1];` +
     `[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]`;
 
   await run(
     [
       "-i", sourcePath,
       "-i", ownPath,
+      ...extraInputArgs,
       "-filter_complex", filter,
       "-map", "[v]",
       "-map", "[a]",
     ],
     destPath,
   );
+}
+
+/** Whether ffprobe finds any audio stream at all in the file. Best-effort: a probe failure is
+ * treated as "no audio" rather than thrown, since the real decode happens in the ffmpeg run right
+ * after — this only decides which filter graph to build. */
+async function probeHasAudio(filePath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(
+      "ffprobe",
+      [
+        "-v", "error",
+        "-protocol_whitelist", "file",
+        "-print_format", "json",
+        "-show_entries", "stream=codec_type",
+        filePath,
+      ],
+      { timeout: FFPROBE_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
+    );
+    const parsed = JSON.parse(stdout) as { streams?: Array<{ codec_type?: string }> };
+    return parsed.streams?.some((s) => s.codec_type === "audio") ?? false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Works out which of the two inputs (0 = source, 1 = own clip) need a stand-in silent audio
+ * track, and returns the filter-graph stream references (`[0:a]`/`[1:a]`, or `[2:a]`/`[3:a]` for
+ * whichever needed an anullsrc input) alongside the extra `-i` args to append after the two real
+ * inputs. Order matters: ref0 is resolved before ref1, so an anullsrc needed for the source always
+ * lands at a lower input index than one needed for the own clip, matching the order extraInputArgs
+ * is appended in.
+ */
+async function planAudioInputs(
+  path0: string,
+  path1: string,
+): Promise<{ extraInputArgs: string[]; ref0: string; ref1: string }> {
+  const [has0, has1] = await Promise.all([probeHasAudio(path0), probeHasAudio(path1)]);
+  const extraInputArgs: string[] = [];
+  let nextIndex = 2;
+  const refFor = (has: boolean, idx: number): string => {
+    if (has) return `[${idx}:a]`;
+    extraInputArgs.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
+    return `[${nextIndex++}:a]`;
+  };
+  return { extraInputArgs, ref0: refFor(has0, 0), ref1: refFor(has1, 1) };
 }
 
 async function run(args: string[], destPath: string): Promise<void> {

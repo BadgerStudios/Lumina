@@ -178,6 +178,28 @@ export default async function usersRoutes(fastify: FastifyInstance) {
       );
     }
 
+    // A creator with money still owed (earned but not yet paid out) must not be able to make it
+    // vanish: CreatorWallet and EarningItem both cascade-delete with the user, so deletion would
+    // silently erase the liability with no payout and no record. Block it like owned servers.
+    const wallet = await prisma.creatorWallet.findFirst({
+      where: { userId: request.userId! },
+      select: { availableMinor: true, pendingMinor: true, reservedMinor: true },
+    });
+    if (wallet && wallet.availableMinor + wallet.pendingMinor + wallet.reservedMinor > 0n) {
+      throw new BadRequestError(
+        "You have an unpaid creator balance. Withdraw or resolve it before deleting your account.",
+      );
+    }
+
+    // Re-lock any minors this account was supervising, and let them re-pair. ParentLink.parent is
+    // onDelete: SetNull, which would otherwise leave those links ACTIVE with a null parent (the
+    // getMinorState guard catches the unlock, but a REVOKED link is what actually frees the child
+    // to link a new guardian — redeem refuses an ACTIVE one).
+    await prisma.parentLink.updateMany({
+      where: { parentUserId: request.userId!, status: "ACTIVE" },
+      data: { status: "REVOKED", revokedAt: new Date(), parentUserId: null },
+    });
+
     await prisma.user.delete({ where: { id: request.userId! } });
     reply.code(204).send();
   });

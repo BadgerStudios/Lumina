@@ -56,7 +56,7 @@ function EventCard({ event, serverId, canManage, viewerId }: {
         </div>
         {(canManage || event.creator?.id === viewerId) && !cancelled ? (
           <button
-            onClick={() => cancel.mutate(event.id)}
+            onClick={() => { if (confirm("Cancel this event? This can't be undone.")) cancel.mutate(event.id); }}
             title="Cancel event"
             className="shrink-0 text-signal-faint hover:text-dnd"
           >

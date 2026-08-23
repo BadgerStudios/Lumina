@@ -7,6 +7,7 @@ import { assertNotLockedMinor, checkContactWithApprovals } from "../parental/ser
 import { assertTrustedOrigin } from "../risk/service.js";
 import { recordFlag } from "../flags/service.js";
 import { requireAuth } from "../../plugins/authenticate.js";
+import { requireTurnstileForRisky } from "../../plugins/turnstile.js";
 import { serializeDMConversation } from "../../lib/serialize.js";
 import { BadRequestError, BlockedError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
@@ -61,7 +62,13 @@ export default async function dmRoutes(fastify: FastifyInstance) {
     return dtos;
   });
 
-  fastify.post("/", { schema: { body: createDMSchema }, preHandler: [requireAuth] }, async (request, reply) => {
+  fastify.post("/", { schema: { body: createDMSchema }, preHandler: [requireAuth, requireTurnstileForRisky] }, async (request, reply) => {
+    // Opening a DM puts the account in front of another person — the exact thing the minor lock
+    // prevents until a guardian accepts. assertNotLockedMinor was imported for this but never
+    // called; every sibling public action (friend request, invite-join, message send, server
+    // create) gates on it, and DM creation was the odd one out. (Send is already gated, so no
+    // content flowed, but the conversation was still created and visible in both DM lists.)
+    await assertNotLockedMinor(request.userId!);
     const body = request.body as z.infer<typeof createDMSchema>;
     const isGroup = body.isGroup ?? body.participantIds.length > 1;
     const allParticipantIds = Array.from(new Set([request.userId!, ...body.participantIds]));

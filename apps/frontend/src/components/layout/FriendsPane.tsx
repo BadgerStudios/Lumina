@@ -21,8 +21,8 @@ import { SuggestionsPanel } from "./SuggestionsPanel";
 
 type Tab = "all" | "pending" | "suggested" | "blocked" | "add";
 
-/** Rendered by FriendsRoute.tsx (top-level /friends route) — mirrors DMRoute.tsx's layout
- * (DMSidebar + main pane), same as every other primary content area in the app. */
+/** Rendered by FriendsRoute.tsx (top-level /friends route). A full pane on the shell's canvas —
+ * the conversation list that used to sit beside it now lives in the nav deck. */
 export function FriendsPane() {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab");
@@ -83,24 +83,29 @@ export function FriendsPane() {
   ];
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-base-700">
+    <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0">
       {/* Scrolls sideways rather than wrapping. Five tabs do not fit across a 390px phone, and the
           previous fixed row both clipped "Add Friend" off the right edge and broke "All Friends"
           onto two lines inside a row with a fixed height. `shrink-0` + `whitespace-nowrap` on each
           button is what actually stops the wrap — without them flex compresses them instead. */}
-      <div className="scrollbar-none flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-base-900/60 px-4">
+      <div className="relative shrink-0 border-b border-hairline">
+      <div className="scrollbar-none flex h-12 items-center gap-1 overflow-x-auto px-3">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={cn(
-              "shrink-0 whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium",
-              tab === t.key ? "bg-base-600 text-signal" : "text-signal-dim hover:bg-base-700 hover:text-signal",
-            )}
+            data-active={tab === t.key}
+            aria-pressed={tab === t.key}
+            className="lx-row lx-focus w-auto shrink-0 whitespace-nowrap px-3 text-sm"
           >
             {t.label}
           </button>
         ))}
+      </div>
+      {/* The scrollbar is hidden (it would sit under the tabs as a permanent grey line), so without
+          this the strip gives no sign it continues — at 360px "Add Friend" is entirely off-screen
+          with nothing to suggest it exists. */}
+      <span className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-base-800 to-transparent sm:hidden" />
       </div>
 
       {/* Capped and centred: at full desktop width a friend row stretched ~1200px, stranding the

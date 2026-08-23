@@ -181,7 +181,15 @@ export function FeedUploadModal({ open, onClose }: { open: boolean; onClose: () 
               // file unpickable rather than merely unvalidated.
               accept="video/*,.mp4,.m4v,.mov,.webm,.mkv,.avi,.3gp"
               className="hidden"
-              onChange={(e) => void handleSelect(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const selected = e.target.files?.[0] ?? null;
+                // Without this, picking the same file twice in a row (e.g. re-selecting after
+                // fixing nothing, or after an error) never fires a second change event at all —
+                // the native input's value doesn't change if the path doesn't, so the picker
+                // looked stuck with nothing on screen explaining why.
+                e.target.value = "";
+                void handleSelect(selected);
+              }}
             />
             <button
               type="button"

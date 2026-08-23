@@ -9,6 +9,7 @@ import { resolveAssetUrl } from "../lib/apiClient";
 import { videoMediaUrl } from "../queries/videos";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { cn } from "../lib/cn";
+import { OfficialServerBadge } from "../components/common/OfficialBadge";
 
 /**
  * Discover — new & popular videos, servers and people, for adults.
@@ -33,8 +34,12 @@ export function DiscoverRoute() {
   const refreshAt = new Date(data.rotatesAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-5xl flex-col gap-8 p-4 md:p-8">
+    <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 overflow-y-auto">
+      {/* w-full is load-bearing, not decoration: this div is a flex ITEM (its parent pane is a
+          flex column), and `mx-auto` on a flex item disables the default stretch — so without an
+          explicit width it shrink-wraps to its own min-content and can end up WIDER than the pane.
+          At 390px that put the right-hand column of cards off the screen. */}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-4 md:p-8">
         <header className="flex items-center gap-3">
           <Compass className="text-accent" size={26} />
           <div>
@@ -68,7 +73,7 @@ function VideoSection({ title, videos }: { title: string; videos: VideoDTO[] }) 
           <button
             key={v.id}
             onClick={() => navigate("/foryou")}
-            className="group overflow-hidden rounded-xl bg-base-800 text-left ring-1 ring-base-600 transition-transform hover:-translate-y-0.5"
+            className="group min-w-0 overflow-hidden rounded-xl bg-base-800 text-left ring-1 ring-base-600 transition-transform hover:-translate-y-0.5"
           >
             <div className="aspect-[9/12] w-full bg-base-900">
               {v.thumbnailUrl && (
@@ -108,7 +113,10 @@ function ServerSection({ title, servers }: { title: string; servers: DiscoverSer
       </h2>
       <div className="grid gap-3 sm:grid-cols-2">
         {servers.map((s) => (
-          <div key={s.id} className="flex items-center gap-3 rounded-xl bg-base-800 p-3 ring-1 ring-base-600">
+          // min-w-0: a grid item's default `min-width: auto` floors it at its own min-content, so
+          // without this the row refuses to shrink into its track and hangs off the right of a
+          // phone screen — the text inside truncates, but only once the row is allowed to be narrow.
+          <div key={s.id} className="flex min-w-0 items-center gap-3 rounded-xl bg-base-800 p-3 ring-1 ring-base-600">
             {s.iconUrl ? (
               <img src={resolveAssetUrl(s.iconUrl)} alt="" className="size-11 shrink-0 rounded-2xl object-cover" />
             ) : (
@@ -117,7 +125,10 @@ function ServerSection({ title, servers }: { title: string; servers: DiscoverSer
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-signal">{s.name}</p>
+              <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-signal">
+                <span className="truncate">{s.name}</span>
+                {s.isOfficial ? <OfficialServerBadge compact /> : null}
+              </p>
               <p className="truncate text-xs text-signal-faint">
                 {s.description || `${s.memberCount} ${s.memberCount === 1 ? "member" : "members"}`}
               </p>

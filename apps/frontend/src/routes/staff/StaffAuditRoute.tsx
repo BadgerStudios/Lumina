@@ -38,7 +38,12 @@ export function StaffAuditRoute() {
                 {e.actor?.displayName ?? e.actor?.username ?? "[deleted user]"}
               </span>{" "}
               <span className="text-signal-dim">{e.actionType.replace(/_/g, " ").toLowerCase()}</span>{" "}
-              <span className="text-signal-faint">video {e.targetId}</span>
+              {/* Was hardcoded to "video", which mislabeled every report and ad_campaign entry the
+                  same way — this log also records report and ad decisions, per the section header
+                  above. */}
+              <span className="text-signal-faint">
+                {e.targetType.replace(/_/g, " ")} {e.targetId}
+              </span>
             </p>
             {e.reason && <p className="text-xs text-signal-dim">"{e.reason}"</p>}
           </div>

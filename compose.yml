@@ -99,6 +99,12 @@ services:
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+      # Emergency rollback lever for the native-app Turnstile exemption. Unset/false = every client
+      # must solve the challenge. Set to "true" and restart ONLY if the packaged apps turn out not
+      # to solve the widget in-WebView, which would otherwise leave app users unable to sign up.
+      TURNSTILE_ALLOW_NATIVE_BYPASS: ${TURNSTILE_ALLOW_NATIVE_BYPASS:-}
       STRIPE_PRICE_PREMIUM_MONTHLY: ${STRIPE_PRICE_PREMIUM_MONTHLY}
       # Store coin bundles. Read by modules/store/service.ts via COIN_BUNDLES[].priceEnvVar —
       # price objects live in the Stripe dashboard and differ between test and live mode, so
@@ -107,6 +113,7 @@ services:
       STRIPE_PRICE_SPARKS_1200: ${STRIPE_PRICE_SPARKS_1200:-}
       STRIPE_PRICE_SPARKS_2600: ${STRIPE_PRICE_SPARKS_2600:-}
       PUBLIC_APP_URL: ${CORS_ORIGIN}
+      IMAGEFRAME_PUBLIC_URL: https://upload.earthai.cloud
       DOWNLOADS_DIR: /downloads
       IP_INTEL_DIR: /data/ipintel
       # Outbound mail. Absent = no email is sent and the app says so plainly rather than pretending

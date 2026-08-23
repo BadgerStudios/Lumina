@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from "react";
 import { Outlet, useLocation, useParams } from "react-router-dom";
-import { ServerRail } from "./ServerRail";
+import { NavDeck } from "./NavDeck";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { ActivityFeed } from "./ActivityFeed";
 import { VoiceVideoGrid } from "./VoiceVideoGrid";
+import { VoiceDock } from "./VoiceDock";
+import { CommandPalette } from "./CommandPalette";
 import { UpdateBanner } from "./UpdateBanner";
 import { ModalRoot } from "../modals/ModalRoot";
 import { ToastHost } from "../common/ToastHost";
@@ -11,6 +13,7 @@ import { IOSInstallHint } from "../common/IOSInstallHint";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 import { BiometricGate } from "../common/BiometricGate";
 import { AgeGateModal } from "../AgeGateModal";
+import { IdentityVerificationGate } from "../IdentityVerificationGate";
 import { useSocketEvents } from "../../socket/useSocketEvents";
 import { useRoleSync } from "../../hooks/useRoleSync";
 import { useUIStore } from "../../store/uiStore";
@@ -20,10 +23,19 @@ import { intColorToHex, mixWithWhite, mixWithBlack } from "../../lib/color";
 
 /** Mounted once for the whole authenticated app: wires the global realtime event subscription
  * (see useSocketEvents.ts — patches TanStack Query cache + zustand stores directly rather than
- * refetching), renders the always-present server rail, hosts every modal (each gates its own
+ * refetching), renders the always-present nav deck, hosts every modal (each gates its own
  * visibility off uiStore so only one instance of each ever needs to exist), and — below the
  * ~768px breakpoint the Capacitor Android WebView renders at — the bottom tab bar that replaces
- * top-anchored mobile nav (see MobileBottomNav.tsx). */
+ * top-anchored mobile nav (see MobileBottomNav.tsx).
+ *
+ * The shell is a CANVAS with panes floating on it, not a row of flush columns. The gap and padding
+ * on the content row below are what make the seams between the deck, the conversation and the
+ * aside visible; each pane draws its own rounded, hairlined edge (`.lx-pane`). Below the layout
+ * breakpoint the padding collapses and panes go full-bleed, because a phone has no width to spend
+ * on gutters.
+ *
+ * Also the home of the two global surfaces that are not routes: the voice dock (a call outlives
+ * whatever room you are reading) and the jump palette. */
 export function AppShell() {
   useSocketEvents();
   // Picks up a role or age change made elsewhere without needing a sign-out (see useRoleSync).
@@ -107,7 +119,7 @@ export function AppShell() {
   // pick that recolors --ion/--aurora/--accent-hover (see index.css) for EVERY member while
   // viewing that server, not just the person who set it. Scoped to only the Outlet subtree
   // (channel/DM content + its sidebars) via a CSS custom property override on this wrapping div
-  // — var() resolves per-element against the nearest ancestor's cascaded value, so ServerRail
+  // — var() resolves per-element against the nearest ancestor's cascaded value, so the nav deck
   // (shared across every server) and anything portalled outside this div (modals) are
   // deliberately unaffected. Only active on /channels/:serverId* routes — `serverId` is
   // undefined on /dm, /friends, etc., where useServer's `enabled: !!serverId` makes the query
@@ -130,19 +142,34 @@ export function AppShell() {
     // with `overflow-hidden` the bottom nav and composer sat permanently below the fold with no way
     // to scroll to them. The class resolves to the measured visible height minus whatever the
     // on-screen keyboard is covering (see lib/viewport.ts).
-    <div className="flex h-app-safe flex-col overflow-hidden bg-base-800 text-signal">
+    // paddingTop is the system status-bar inset. On Android 15+ (targetSdk 35+) edge-to-edge is
+    // FORCED — the WebView draws under the status bar — so whatever is topmost in this column sits
+    // beneath the clock and notification icons. That was the update banner, which is the one thing
+    // here that appears unannounced and has a tap target in it. Applied on the shell rather than on
+    // the banner so it is correct for whatever happens to be topmost (the banner renders only when
+    // an update exists), and so it cannot double-pad: the settings modals are position:fixed and
+    // carry their own inset, and MobileBottomNav insets the bottom independently.
+    //
+    // max(env(), var(--android-safe-top)) is the house pattern: iOS/web resolve env(), while Android
+    // reports the real measured bar height via MainActivity (env() is unreliably 0 there). Padding,
+    // not margin, so bg-base-800 still fills the strip behind the status bar instead of leaving a
+    // bare gap above the app.
+    <div
+      className="lx-canvas flex h-app-safe flex-col overflow-hidden text-signal"
+      style={{ paddingTop: "max(env(safe-area-inset-top), var(--android-safe-top, 0px))" }}
+    >
       {/* Above the update banner: on iPhone this is the difference between the app being a tab and
           being an installed app that can receive notifications at all. Renders nothing on every
           other platform, and nothing once installed. */}
       <IOSInstallHint />
       <UpdateBanner />
-      <div className="flex min-h-0 flex-1">
-        <ServerRail />
+      <div className="flex min-h-0 flex-1 md:gap-2 md:p-2">
+        <NavDeck />
         {/* pb reserves room for the fixed MobileBottomNav below md so it never sits on top of
-            the composer / DM list content; drawer overlays (ChannelSidebar etc.) are
-            position:fixed so this padding doesn't affect them. */}
+            the composer / conversation list content; the deck and aside sheets are position:fixed
+            below that breakpoint so this padding doesn't affect them. */}
         <div
-          className="flex h-full min-w-0 flex-1 pb-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom))] md:pb-0"
+          className="flex h-full min-w-0 flex-1 pb-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom))] md:gap-2 md:pb-0"
           style={accentStyle}
         >
           {/* Inside the rail and the bottom nav, not around them: a channel that throws should
@@ -156,8 +183,12 @@ export function AppShell() {
       {/* Above everything: an account with no age on record is restricted until it answers, so the
           prompt has to be reachable from wherever they landed. */}
       <AgeGateModal />
+      {/* Runs after AgeGateModal: age on record first, then identity. */}
+      <IdentityVerificationGate />
       <ModalRoot />
       <VoiceVideoGrid />
+      <VoiceDock />
+      <CommandPalette />
       {mobileDrawer === "activity" && <ActivityFeed />}
       <ToastHost />
       <MobileBottomNav />

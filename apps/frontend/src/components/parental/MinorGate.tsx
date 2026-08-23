@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { ShieldAlert, Copy, Check, Flag, Eye } from "lucide-react";
-import { useMinorState, useEnsurePairingCode } from "../../queries/parental";
+import { ShieldAlert, Copy, Check, Flag, Eye, Loader2 } from "lucide-react";
+import { useMinorState, useEnsurePairingCode, useLinkParent } from "../../queries/parental";
+import { ApiError } from "../../lib/apiClient";
 import { useAuthStore } from "../../store/authStore";
 
 const PROMPT_SESSION_KEY = "lumina-minor-safety-ack";
@@ -87,12 +88,65 @@ function PairingLock() {
           <li>Come back here and refresh.</li>
         </ol>
 
+        <ParentCodeEntry />
+
         <p className="mt-4 text-xs text-signal-faint">
           They'll be able to see your messages, who you talk to and the servers you join. Nobody can see
           your account until then.
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * The other direction: instead of the child reading their code out, a parent enters THEIR own
+ * family code (from their Family Settings) right here on the child's device. Same end result — a
+ * verified adult becomes responsible for the account — reached whichever way suits the household.
+ * On success useMinorState invalidates, the lock re-evaluates, and this whole screen falls away.
+ */
+function ParentCodeEntry() {
+  const linkParent = useLinkParent();
+  const [code, setCode] = useState("");
+
+  return (
+    <form
+      className="mt-5 border-t border-base-700 pt-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!code.trim() || linkParent.isPending) return;
+        linkParent.mutate(code.trim());
+      }}
+    >
+      <p className="text-xs font-bold uppercase text-signal-dim">Have a parent's family code?</p>
+      <p className="mt-1 text-xs text-signal-faint">
+        A parent can enter their own family code here instead — find it in their Settings → Family.
+      </p>
+      <div className="mt-2 flex gap-2">
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 16))}
+          placeholder="ABCD1234"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          className="flex-1 rounded-lg border border-hairline bg-base-900 px-3 py-2 font-mono tracking-widest text-signal outline-none focus:border-accent"
+        />
+        <button
+          type="submit"
+          disabled={!code.trim() || linkParent.isPending}
+          className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+        >
+          {linkParent.isPending && <Loader2 size={14} className="animate-spin" />}
+          Link
+        </button>
+      </div>
+      {linkParent.isError && (
+        <p className="mt-2 text-sm text-dnd">
+          {linkParent.error instanceof ApiError ? linkParent.error.message : "That didn't work — check the code and try again."}
+        </p>
+      )}
+    </form>
   );
 }
 

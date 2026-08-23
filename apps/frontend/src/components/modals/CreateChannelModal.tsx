@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Modal } from "./Modal";
 import { useUIStore } from "../../store/uiStore";
@@ -6,7 +6,9 @@ import { useCreateChannel } from "../../queries/channels";
 
 export function CreateChannelModal() {
   const openModal = useUIStore((s) => s.openModal);
-  const modalPayload = useUIStore((s) => s.modalPayload) as { serverId: string; parentId?: string | null } | undefined;
+  const modalPayload = useUIStore((s) => s.modalPayload) as
+    | { serverId: string; parentId?: string | null; initialType?: "TEXT" | "CATEGORY" | "VOICE" }
+    | undefined;
   const closeModal = useUIStore((s) => s.closeModal);
   const closeMobileDrawer = useUIStore((s) => s.closeMobileDrawer);
   const navigate = useNavigate();
@@ -15,6 +17,15 @@ export function CreateChannelModal() {
 
   const open = openModal === "createChannel" && !!modalPayload;
   const createChannel = useCreateChannel(modalPayload?.serverId ?? "");
+
+  // Preselect the type the opener asked for (e.g. the "Create Category" menu item passes CATEGORY),
+  // and reset the form each time the modal opens so a stale type/name from a prior open never leaks in.
+  useEffect(() => {
+    if (open) {
+      setType(modalPayload?.initialType ?? "TEXT");
+      setName("");
+    }
+  }, [open, modalPayload?.initialType]);
 
   async function handleCreate() {
     if (!name.trim() || !modalPayload) return;
@@ -30,7 +41,7 @@ export function CreateChannelModal() {
   }
 
   return (
-    <Modal open={open} onOpenChange={(o) => !o && closeModal()} title="Create Channel">
+    <Modal open={open} onOpenChange={(o) => !o && closeModal()} title={type === "CATEGORY" ? "Create Category" : "Create Channel"}>
       <div className="mb-4 flex gap-4 text-sm">
         <label className="flex items-center gap-2">
           <input type="radio" checked={type === "TEXT"} onChange={() => setType("TEXT")} /> Text
@@ -62,7 +73,7 @@ export function CreateChannelModal() {
           disabled={!name.trim() || createChannel.isPending}
           className="rounded bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
         >
-          Create Channel
+          {type === "CATEGORY" ? "Create Category" : "Create Channel"}
         </button>
       </div>
     </Modal>

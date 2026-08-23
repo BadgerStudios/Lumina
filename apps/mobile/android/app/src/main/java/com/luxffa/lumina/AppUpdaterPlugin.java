@@ -55,6 +55,30 @@ public class AppUpdaterPlugin extends Plugin {
         call.resolve(result);
     }
 
+    /**
+     * The installed app's real version, read from the package at runtime. This is the source of
+     * truth for the About screen (and could back the update check) so it is ALWAYS current — unlike
+     * a value baked into the web bundle at build time, which goes stale the moment the build number
+     * and the bundle env drift apart.
+     */
+    @PluginMethod
+    public void getVersion(PluginCall call) {
+        JSObject result = new JSObject();
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            android.content.pm.PackageInfo info = pm.getPackageInfo(getContext().getPackageName(), 0);
+            long code = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? info.getLongVersionCode()
+                : info.versionCode;
+            result.put("versionName", info.versionName);
+            result.put("versionCode", code);
+        } catch (Exception e) {
+            result.put("versionName", null);
+            result.put("versionCode", 0);
+        }
+        call.resolve(result);
+    }
+
     /** Opens the OS screen where that permission is granted, scoped to this app. */
     @PluginMethod
     public void openInstallSettings(PluginCall call) {

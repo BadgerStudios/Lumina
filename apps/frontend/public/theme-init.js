@@ -15,12 +15,11 @@
     // recognised falls back to the OS preference, so a stored "midnight" that this script
     // didn't know about would flash the default dark palette before the bundle corrected it.
     var known = ["dark", "light", "midnight", "carbon", "moss", "parchment", "slate"];
-    var theme =
-      stored && known.indexOf(stored) !== -1
-        ? stored
-        : window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
-          ? "light"
-          : "dark";
+    // No prefers-color-scheme fallback: a first-time visitor on a light-mode OS used to get the
+    // white palette on the public pages — a "flash bang" before they'd chosen anything. Everyone
+    // with no saved choice now gets the soft dark default; light is one click away in the theme
+    // menu. Must stay in sync with readStoredTheme() in store/uiStore.ts.
+    var theme = stored && known.indexOf(stored) !== -1 ? stored : "dark";
     document.documentElement.setAttribute("data-theme", theme);
   } catch (e) {
     document.documentElement.setAttribute("data-theme", "dark");

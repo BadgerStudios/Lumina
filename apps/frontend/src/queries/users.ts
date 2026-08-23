@@ -17,6 +17,7 @@ export function useUpdateProfile() {
       allowFriendRequests?: boolean;
     }) => api.patch<UserDTO>("/users/me", body),
     onSuccess: (user) => setUser(user),
+    onError: (e) => reportError(e, "Couldn't save that"),
   });
 }
 
@@ -55,6 +56,7 @@ export function useUpdatePresence() {
   return useMutation({
     mutationFn: (presence: PresenceStatus) => api.patch<UserDTO>("/users/me/presence", { presence }),
     onSuccess: (user) => setUser(user),
+    onError: (e) => reportError(e, "Couldn't update your status"),
   });
 }
 
@@ -94,5 +96,6 @@ export function useExportAccountData() {
       a.click();
       URL.revokeObjectURL(url);
     },
+    onError: (e) => reportError(e, "Couldn't export your data"),
   });
 }

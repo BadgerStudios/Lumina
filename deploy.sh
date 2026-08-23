@@ -159,7 +159,11 @@ build_owner_apk() {
 }
 
 build_desktop() {
-  (cd apps/desktop && npm run package)
+  # Builds BOTH the Linux AppImage and a portable Windows zip in one electron-builder run. The
+  # Windows *installer* (nsis) needs wine, which isn't on this box — but the `zip` target packages
+  # the Windows electron binaries with no wine at all (electron-builder 26 bundles its own
+  # signtool/rcedit). Passing --win zip overrides the config's nsis target for exactly this reason.
+  (cd apps/desktop && npm run build && npm run build:renderer && npx electron-builder --linux AppImage --win zip)
 }
 
 echo "== 3+4+5: building chat APK, owner APK and desktop AppImage IN PARALLEL =="
@@ -215,9 +219,21 @@ echo "== publishing Linux desktop AppImage =="
 #    filename exactly as recorded in latest-linux.yml, so it cannot be the renamed copy above.
 mkdir -p downloads/desktop
 cp apps/desktop/release/Lumina-"${DESKTOP_VERSION}".AppImage downloads/desktop/
-cp apps/desktop/release/latest-linux.yml downloads/desktop/
 cp apps/desktop/release/Lumina-"${DESKTOP_VERSION}".AppImage downloads/lumina-desktop.AppImage
 chmod +x downloads/lumina-desktop.AppImage downloads/desktop/*.AppImage
+
+# The versioned AppImage is NOT served from the disk copy above. apps/frontend/nginx.conf matches
+# ^/downloads/(desktop/Lumina-[^/]+\.AppImage)$ and proxies it to https://dl.badgerstudios.net
+# (R2 bucket lumina-releases) — immutable names, cached at the edge, and that is where the
+# auto-update bandwidth lives. Without this upload the manifest below advertises a version whose
+# binary 404s and every desktop client fails to update, so it runs BEFORE the manifest is flipped
+# and a failure aborts the deploy (set -e) with the old manifest still in place.
+scripts/publish-desktop-r2.py "${DESKTOP_VERSION}"
+
+# Manifest LAST and from origin disk (a stable, overwritten name — see the nginx comment on why
+# those must not go through the CDN). Until this flips, clients keep resolving the previous
+# version and never see a half-published release.
+cp apps/desktop/release/latest-linux.yml downloads/desktop/
 
 # Keep only the newest few builds in the feed. An AppImage is ~130MB and a client mid-download
 # during a deploy is still fetching the previous one, so the current build is never the only one
@@ -237,6 +253,21 @@ done
 
 echo "Published: https://lumina.luxffa.com/downloads/lumina-desktop.AppImage"
 echo "Update feed: https://lumina.badgerstudios.net/downloads/desktop/latest-linux.yml"
+
+# Windows: a PORTABLE build (extract the zip, run Lumina.exe) — not an .exe installer, because the
+# nsis installer needs wine, which isn't on this box. The zip is built by build_desktop above with
+# no wine at all. Published under a stable name so the site link never changes across versions.
+echo "== publishing Windows portable zip =="
+if [[ -f "apps/desktop/release/Lumina-${DESKTOP_VERSION}-win.zip" ]]; then
+  cp "apps/desktop/release/Lumina-${DESKTOP_VERSION}-win.zip" downloads/lumina-windows.zip
+  echo "Published: https://lumina.luxffa.com/downloads/lumina-windows.zip"
+  # Trim build residue (a win-unpacked tree + old zips are ~150MB each), keeping the two newest.
+  ls -1t apps/desktop/release/Lumina-*-win.zip 2>/dev/null | tail -n +3 | while read -r stale; do
+    rm -f -- "$stale"
+  done
+else
+  echo "WARN: Windows zip not found — skipping (Linux/Android publish already succeeded)."
+fi
 
 # Mirror every built artifact to R2 and write downloads/releases.json.
 #
@@ -270,3 +301,4 @@ echo "  Web:     https://lumina.luxffa.com"
 echo "  Android: https://lumina.luxffa.com/downloads/lumina.apk"
 echo "  Owner:   https://lumina.luxffa.com/downloads/lumina-owner.apk"
 echo "  Desktop: https://lumina.luxffa.com/downloads/lumina-desktop.AppImage"
+echo "  Windows: https://lumina.luxffa.com/downloads/lumina-windows.zip"

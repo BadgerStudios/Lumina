@@ -52,7 +52,7 @@ export function ThreadPanel({
   const [replyTo, setReplyTo] = useState<{ id: string; authorLabel: string } | null>(null);
 
   return (
-    <aside className="flex w-full shrink-0 flex-col border-l border-base-700 bg-base-800 md:w-96">
+    <aside className="lx-pane flex w-full shrink-0 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 md:w-96">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-base-700 px-3">
         <MessagesSquare size={16} className="shrink-0 text-accent" />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-signal">{thread?.name ?? "Thread"}</span>

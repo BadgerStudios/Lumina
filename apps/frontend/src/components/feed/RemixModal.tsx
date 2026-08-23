@@ -43,7 +43,9 @@ export function RemixModal({
   const maxDurationSec = limits.data?.maxVideoDurationSec ?? 180;
 
   const sourceRef = useRef<HTMLVideoElement>(null);
-  const cameraRef = useRef<HTMLVideoElement>(null);
+  // `| null` in the generic (not just the initial value) so `.current` stays writable — the
+  // callback ref below assigns it manually on every mount, not just once via `ref={cameraRef}`.
+  const cameraRef = useRef<HTMLVideoElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -236,7 +238,25 @@ export function RemixModal({
               {clip ? (
                 <video src={clip.url} className="h-full w-full object-contain" playsInline controls loop />
               ) : (
-                <video ref={cameraRef} className="h-full w-full object-cover" playsInline muted autoPlay />
+                // A callback ref, not a plain object ref: this <video> unmounts whenever `clip` is
+                // set (the branch above renders instead) and remounts as a brand-new DOM node once
+                // `clip` clears again on Retake. The effect below that attaches the camera stream
+                // only ever runs once, when the modal opens, so a remounted node came back with no
+                // srcObject at all — a black/frozen preview that looked like the camera had died.
+                // Re-attaching here on every mount fixes the remount, not just the first mount.
+                <video
+                  ref={(el) => {
+                    cameraRef.current = el;
+                    if (el && streamRef.current) {
+                      el.srcObject = streamRef.current;
+                      void el.play().catch(() => undefined);
+                    }
+                  }}
+                  className="h-full w-full object-cover"
+                  playsInline
+                  muted
+                  autoPlay
+                />
               )}
             </Pane>
           </div>

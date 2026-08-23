@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { submitAppeal } from "./service.js";
+import { requireTurnstile } from "../../plugins/turnstile.js";
 
 const appealSchema = z.object({ text: z.string().min(10).max(1000) });
 
@@ -53,9 +54,11 @@ export default async function banRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/:banId/appeal",
     {
-      // Unauthenticated and human-reviewed, so the rate limit is the only thing standing between
-      // this and an appeal-spam flood filling the owner's queue.
+      // Unauthenticated and human-reviewed, so the rate limit — plus a Turnstile challenge (account
+      // recovery is exactly the abuse-prone public surface it's for) — stand between this and an
+      // appeal-spam flood filling the owner's queue. Turnstile is a no-op until configured.
       config: { rateLimit: { max: 3, timeWindow: "1 hour" } },
+      preHandler: [requireTurnstile],
     },
     async (request, reply) => {
       const { banId } = request.params as { banId: string };

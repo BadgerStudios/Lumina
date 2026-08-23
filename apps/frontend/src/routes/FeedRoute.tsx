@@ -5,7 +5,6 @@ import { useFeed, useFollowingFeed } from "../queries/videos";
 import { VideoCard } from "../components/feed/VideoCard";
 import { FeedUploadModal } from "../components/feed/FeedUploadModal";
 import { MyVideosPanel } from "../components/feed/MyVideosPanel";
-import { MyReportsPanel } from "../components/feed/MyReportsPanel";
 import { CommentSheet } from "../components/feed/CommentSheet";
 import { ReportModal } from "../components/feed/ReportModal";
 import { RemixChooser } from "../components/feed/RemixChooser";
@@ -13,7 +12,7 @@ import { RemixModal } from "../components/feed/RemixModal";
 import { cn } from "../lib/cn";
 import { useAuthStore } from "../store/authStore";
 
-type Tab = "foryou" | "following" | "mine" | "reports";
+type Tab = "foryou" | "following" | "mine";
 
 export function FeedRoute() {
   const [tab, setTab] = useState<Tab>("foryou");
@@ -45,7 +44,7 @@ export function FeedRoute() {
     // base-900 rather than black behind the column: on a wide screen the portrait card left the
     // entire rest of the pane as dead black, which reads as a rendering failure rather than as
     // letterboxing. The card itself stays black.
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-base-900">
+    <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 bg-base-900">
       <div className="flex shrink-0 items-center gap-2 border-b border-hairline/40 bg-base-800 px-2 py-2">
         {/* Four tabs plus Upload overflow a phone. The tabs scroll; Upload is pinned outside the
             scroller so the primary action can never be scrolled out of reach. */}
@@ -58,9 +57,6 @@ export function FeedRoute() {
           </TabButton>
           <TabButton active={tab === "mine"} onClick={() => setTab("mine")}>
             My videos
-          </TabButton>
-          <TabButton active={tab === "reports"} onClick={() => setTab("reports")}>
-            My reports
           </TabButton>
         </div>
         <button
@@ -94,8 +90,6 @@ export function FeedRoute() {
       <div className="min-h-0 flex-1">
         {tab === "mine" ? (
           <MyVideosPanel />
-        ) : tab === "reports" ? (
-          <MyReportsPanel />
         ) : (
           // Keyed on the filter too — a new tag is a different list, and reusing the mounted
           // instance would leave the IntersectionObserver bound to the previous cards.

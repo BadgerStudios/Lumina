@@ -7,7 +7,7 @@ import { requireAuth, requireStaff } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { parseCursor, parseLimit } from "../../lib/pagination.js";
 import { serializeVideoWithStatus, VIDEO_AUTHOR_SELECT, VIDEO_TAGS_INCLUDE, VIDEO_SOURCE_INCLUDE } from "../videos/serialize.js";
-import { VIDEO_DIRS, safeUnlink } from "../videos/storage.js";
+import { VIDEO_DIRS, unlinkOrThrow } from "../videos/storage.js";
 import path from "node:path";
 
 const reviewableStatuses = ["PENDING_REVIEW", "APPROVED", "REJECTED", "REMOVED", "FAILED"] as const;
@@ -99,10 +99,16 @@ export default async function staffRoutes(fastify: FastifyInstance) {
     if (video.status !== "REJECTED" && video.status !== "REMOVED") {
       throw new BadRequestError("Only rejected or removed videos can have their media purged");
     }
+    // unlinkOrThrow, not safeUnlink: this route's whole contract is "these bytes are now really
+    // gone." safeUnlink previously swallowed a real failure (permissions, a disk error) exactly
+    // like it swallows a normal "already gone" — so a failed delete still nulled the DB keys and
+    // reported success below, with nothing on disk actually removed. Letting the error propagate
+    // here means the route genuinely 500s instead of lying, and none of the DB state below changes
+    // unless every file was actually unlinked.
     await Promise.all([
-      video.sourceKey ? safeUnlink(path.join(VIDEO_DIRS.source(), video.sourceKey)) : null,
-      video.playbackKey ? safeUnlink(path.join(VIDEO_DIRS.playback(), video.playbackKey)) : null,
-      video.thumbnailKey ? safeUnlink(path.join(VIDEO_DIRS.thumbs(), video.thumbnailKey)) : null,
+      video.sourceKey ? unlinkOrThrow(path.join(VIDEO_DIRS.source(), video.sourceKey)) : null,
+      video.playbackKey ? unlinkOrThrow(path.join(VIDEO_DIRS.playback(), video.playbackKey)) : null,
+      video.thumbnailKey ? unlinkOrThrow(path.join(VIDEO_DIRS.thumbs(), video.thumbnailKey)) : null,
     ]);
     const updated = await prisma.video.update({
       where: { id: video.id },
@@ -196,6 +202,32 @@ async function decide(
           targetType: "video",
           targetId: videoId.toString(),
           reason: `${requeued.count} derivative(s) returned to the review queue`,
+        },
+      });
+    }
+  }
+
+  // Approving — including a re-approval after the 5-distinct-report auto-unpublish threshold
+  // pulled a video back into review — or removing a video answers every report still open against
+  // it. Previously nothing ever closed those reports, so the open count never went back to zero: a
+  // video that had ever tripped the threshold once stayed one report away from re-tripping it
+  // forever, even right after staff cleared it. Closing them here is what actually resets the
+  // counter the /report route reads.
+  if (status === "APPROVED" || status === "REMOVED") {
+    const outcome = status === "APPROVED" ? "DISMISSED" : "COMPLETED";
+    const note = status === "APPROVED" ? "Video was reviewed and approved by staff." : "Video was taken down by staff.";
+    const resolved = await prisma.videoReport.updateMany({
+      where: { videoId, status: "OPEN" },
+      data: { status: outcome, resolutionNote: note, resolvedById: actorId, resolvedAt: new Date() },
+    });
+    if (resolved.count > 0) {
+      await prisma.staffAuditLog.create({
+        data: {
+          actorId,
+          actionType: "video.resolve_reports",
+          targetType: "video",
+          targetId: videoId.toString(),
+          reason: `${resolved.count} open report(s) marked ${outcome.toLowerCase()}`,
         },
       });
     }

@@ -16,6 +16,7 @@ import { touchThreadActivity } from "../threads/service.js";
 import { assertNotLockedMinor } from "../parental/service.js";
 import { pushInboxNotification } from "../inbox/service.js";
 import { awardMessageXp } from "../xp/service.js";
+import { parseBigIntId } from "../../lib/parseBigIntId.js";
 
 /**
  * Shared message service — imported by BOTH the REST routes
@@ -225,7 +226,7 @@ export async function createChannelMessage(params: {
       channelId: params.channelId,
       authorId: params.userId,
       content: params.content,
-      replyToId: params.replyToId ? BigInt(params.replyToId) : null,
+      replyToId: parseBigIntId(params.replyToId),
       stickerId: params.stickerId ?? null,
       pollId: params.pollId ?? null,
       attachments: params.attachments?.length
@@ -255,10 +256,11 @@ export async function createChannelMessage(params: {
   // Participation XP + the reply notification, both fire-and-forget: bookkeeping never sits
   // between an author and their sent message.
   void awardMessageXp(params.userId, channel.serverId, message.id).catch(() => undefined);
-  if (params.replyToId) {
+  const replyToNotify = parseBigIntId(params.replyToId);
+  if (replyToNotify !== null) {
     void (async () => {
       const parent = await prisma.message.findUnique({
-        where: { id: BigInt(params.replyToId!) },
+        where: { id: replyToNotify },
         select: { authorId: true },
       });
       if (parent?.authorId) {
@@ -334,7 +336,7 @@ export async function createDMMessage(params: {
       dmConversationId: params.conversationId,
       authorId: params.userId,
       content: params.content,
-      replyToId: params.replyToId ? BigInt(params.replyToId) : null,
+      replyToId: parseBigIntId(params.replyToId),
       pollId: params.pollId ?? null,
       attachments: params.attachments?.length
         ? {
@@ -374,8 +376,10 @@ export async function createDMMessage(params: {
 }
 
 async function loadMessageOrThrow(messageId: string) {
+  const id = parseBigIntId(messageId);
+  if (id === null) throw new NotFoundError("Message not found");
   const message = await prisma.message.findUnique({
-    where: { id: BigInt(messageId) },
+    where: { id },
     include: { channel: true, ...messageInclude },
   });
   if (!message || message.deletedAt) throw new NotFoundError("Message not found");
@@ -395,6 +399,29 @@ export async function editMessage(params: { userId: string; messageId: string; c
 
   if (!params.content.trim()) throw new BadRequestError("Message content cannot be empty");
 
+  // AutoMod runs on edits too, not just creates — otherwise the filter is trivially defeated by
+  // sending clean content and then editing it to the blocked term, which then broadcasts live via
+  // MESSAGE_UPDATE below (the same irreversible-broadcast the create path checks before writing).
+  // Attributed to the ORIGINAL author's roles, matching the mention re-scan just below: a moderator
+  // editing someone else's message is judged by that author's exempt roles, not the editor's.
+  if (message.channelId && message.channel) {
+    // authorId is nullable — null for incoming-webhook posts and for messages whose author deleted
+    // their account (onDelete: SetNull). Passing that null into the compound-unique findUnique is a
+    // Prisma validation error → 500 (a MANAGE_MESSAGES holder editing a webhook message would crash).
+    // A null author has no roles, so look membership up only when there is a real author.
+    const membership = message.authorId
+      ? await prisma.membership.findUnique({
+          where: { userId_serverId: { userId: message.authorId, serverId: message.channel.serverId } },
+          select: { roles: { select: { roleId: true } } },
+        })
+      : null;
+    await assertPassesAutoMod({
+      serverId: message.channel.serverId,
+      content: params.content,
+      memberRoleIds: membership?.roles.map((r) => r.roleId) ?? [],
+    });
+  }
+
   const updated = await prisma.message.update({
     where: { id: message.id },
     data: { content: params.content, editedAt: new Date() },
@@ -404,15 +431,18 @@ export async function editMessage(params: { userId: string; messageId: string; c
   const dto = serializeMessage(updated, null);
   const room = message.channelId ? `channel:${message.channelId}` : `dm:${message.dmConversationId}`;
   getIO().to(room).emit(ServerEvents.MESSAGE_UPDATE, dto);
-  if (message.channelId && message.channel) {
+  if (message.channelId && message.channel && message.authorId) {
     // Re-scan on edit too (mentions can be added or removed); attributed to the original
     // author regardless of who made the edit, so a moderator editing someone else's message
     // can't use it to grant themselves an @everyone they don't have permission for.
+    // Guarded on a non-null authorId: syncMessageMentions requires the author (it runs the
+    // @everyone permission check against them), and a webhook/deleted-author message has none —
+    // its mentions were resolved at create time and re-attributing them to nobody is meaningless.
     await syncMessageMentions({
       messageId: message.id,
       serverId: message.channel.serverId,
       channelId: message.channelId,
-      authorId: message.authorId!,
+      authorId: message.authorId,
       content: params.content,
       dto,
     });
@@ -490,7 +520,17 @@ export async function addReaction(params: { userId: string; messageId: string; e
 export async function removeReaction(params: { userId: string; messageId: string; emoji: string }): Promise<ReactionBroadcast> {
   const message = await loadMessageOrThrow(params.messageId);
 
-  if (!message.channelId && message.dmConversationId) {
+  // Mirrors addReaction's own access check, which this one was missing entirely for channel
+  // messages: without it, any authenticated user could hit this route for any message id — the
+  // response's live reaction `count` then doubles as both a message-existence oracle (200 vs the
+  // 404 loadMessageOrThrow throws) and a leak of real engagement data from channels the caller has
+  // no access to. VIEW_CHANNELS rather than ADD_REACTIONS: removing your own prior reaction
+  // shouldn't require a permission that could have been revoked after you added it.
+  if (message.channelId && message.channel) {
+    await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.VIEW_CHANNELS);
+  } else if (!message.dmConversationId) {
+    throw new NotFoundError("Message not found");
+  } else {
     const participant = await prisma.dMParticipant.findUnique({
       where: { conversationId_userId: { conversationId: message.dmConversationId, userId: params.userId } },
     });

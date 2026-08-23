@@ -95,6 +95,19 @@ export default async function lookupRoutes(fastify: FastifyInstance) {
       const excludeSelf = query.excludeSelf !== "false";
       const userId = request.userId!;
 
+      // Scoping results to a server's members is only for members OF that server — otherwise this
+      // route is a way to enumerate a private server's roster from outside it (the canonical
+      // member-list route, GET /servers/:id/members, is requireMembership-gated; this is its
+      // sibling that skipped the check). Drop the scope for a non-member so it can't be used as an
+      // enumeration oracle.
+      if (query.serverId) {
+        const membership = await prisma.membership.findUnique({
+          where: { userId_serverId: { userId, serverId: query.serverId } },
+          select: { id: true },
+        });
+        if (!membership) query.serverId = undefined;
+      }
+
       // The caller's accepted friends, used both to boost ranking and to power suggestions.
       const friendships = await prisma.friendRequest.findMany({
         where: { status: "ACCEPTED", OR: [{ requesterId: userId }, { addresseeId: userId }] },
@@ -116,6 +129,9 @@ export default async function lookupRoutes(fastify: FastifyInstance) {
       const baseWhere = {
         AND: [visibility],
         isBot: false,
+        // Directory-hidden accounts are never surfaced to strangers by search. A plain key rather
+        // than another OR, for exactly the collision reason the comment above describes.
+        hiddenFromDirectory: false,
         ...(excludeSelf ? { id: { not: userId } } : {}),
         ...(query.friendsOnly === "true" ? { id: { in: Array.from(friendIds) } } : {}),
         // Scoped to one server's members when asked — lets the same component back a member picker.

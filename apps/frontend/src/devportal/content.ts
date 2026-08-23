@@ -39,7 +39,15 @@ export const DOC_PAGES: DocPage[] = [
       p("Head to Your Applications (left sidebar) and create one. Every application gets a bot account — a real user that servers can invite, give roles to, and moderate exactly like a person — plus OAuth2 credentials for sign-in-with-Lumina integrations."),
       note("Your bot token is shown exactly once at creation (and once on each regeneration). Only its hash is stored server-side. Treat it like a password: anyone holding it IS your bot."),
       h2("2. Invite your bot to a server"),
-      p("A bot joins through a normal server invite, used while authenticated as the bot. Server owners can also use your application's client id with the OAuth2 bot flow. Once in, the bot's abilities are governed by the same role/permission system as everyone else — there is no bot-specific power."),
+      // Invite-based joining used to be the whole story, and it was a hole: a bot token
+      // authenticates through the ordinary requireAuth, so anyone holding an invite code could
+      // add a bot to a server whose admins had approved nothing. That path is now closed for
+      // bots (it still works for people) and this flow replaces it.
+      p("A bot is added by someone who administers the server, through an install link — you cannot add your own bot to somebody else's server, and a bot cannot add itself. Copy the link from Your Applications, or build it by hand:"),
+      code(`https://lumina.badgerstudios.net/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot&permissions=1027`),
+      p("Send that to a server owner or an admin. Opening it shows them the servers they own or have Manage Server on, exactly which permissions the link is asking for, and an Add to server button. permissions is a decimal bitfield — 1027 is View channels + Send messages + Add reactions; the picker in Your Applications builds it for you."),
+      note("Two rules the install enforces, whatever the link asks for. The grant is intersected with what the person approving actually holds, so a moderator cannot hand a bot powers they lack themselves — the consent screen shows what is being withheld and why. And Administrator is never grantable this way, for anyone, including the server owner: it bypasses every later permission check, so it is not something an app author's link gets to request."),
+      p("Once in, the bot's abilities are governed by the same role/permission system as everyone else — the grant lands in a normal role named after your application, visible and editable in that server's role settings. Removing the bot is removing a member: it appears in the member list like any account."),
       h2("3. Say something"),
       code(`curl -X POST https://lumina.badgerstudios.net/api/channels/CHANNEL_ID/messages \\
   -H "Authorization: Bot YOUR_BOT_TOKEN" \\
@@ -65,11 +73,14 @@ export const DOC_PAGES: DocPage[] = [
   -d client_id=CLIENT_ID -d client_secret=CLIENT_SECRET \\
   -d redirect_uri=https://yourapp.example/callback`),
       table(["Scope", "Grants"], [
-        ["identify", "The user's id, username, display name, and avatar"],
-        ["email", "The user's email address"],
-        ["servers", "The list of servers the user is in"],
+        ["identify", "The user's id, username, display name, and avatar — via GET /api/oauth2/identify"],
       ]),
-      note("Access tokens are short-lived. Refresh with grant_type=refresh_token at the same endpoint. Redirect URIs are exact-match — a mismatch is rejected, not partially matched."),
+      // This table used to list `email` and `servers` as well. Neither exists: the authorize
+      // endpoint hard-rejects them with `Unsupported scope — only "identify" is available`, so the
+      // docs were sending developers to build against a flow that could never work. Documenting one
+      // scope honestly beats advertising three and failing on two.
+      note("identify is the only scope in v1. Requesting any other scope is rejected at /oauth2/authorize, before a consent screen is ever shown."),
+      note("Access tokens last 7 days and there is no refresh grant — when one expires, send the user through the authorization-code flow again. Redirect URIs are exact-match: a mismatch is rejected, not partially matched."),
     ],
   },
   {
@@ -235,7 +246,7 @@ client.login(process.env.LUMINA_BOT_TOKEN);
         ["Permissions", "The bot sees and does exactly what its Lumina roles allow. There is no separate intent gatekeeping; intents are accepted and ignored"],
       ]),
       h2("What's deliberately not"),
-      p("Voice (Discord's UDP voice protocol is not implemented — use Lumina's own voice), sharding (shard 0 of 1 is always accepted; self-hosted scale doesn't need more), and guild-scoped commands (above). Embeds render as formatted text, not cards."),
+      p("Voice (Discord's UDP voice protocol is not implemented — use Lumina's own voice), sharding (shard 0 of 1 is always accepted; single-instance scale doesn't need more), and guild-scoped commands (above). Embeds render as formatted text, not cards."),
       note("This layer is a bridge, not an emulator: complex bots exercising exotic endpoints will hit gaps. The gateway rejects what it doesn't support with a clear close code, and unknown REST snowflakes answer 404 — never a silent hang."),
     ],
   },

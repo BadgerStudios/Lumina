@@ -3,8 +3,8 @@ import { z } from "zod";
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
-  JWT_ACCESS_SECRET: z.string().min(16),
-  JWT_REFRESH_SECRET: z.string().min(16),
+  JWT_ACCESS_SECRET: z.string().min(32),
+  JWT_REFRESH_SECRET: z.string().min(32),
   ACCESS_TOKEN_TTL: z.string().default("15m"),
   REFRESH_TOKEN_TTL: z.string().default("30d"),
   UPLOADS_DIR: z.string().default("./uploads"),
@@ -42,6 +42,11 @@ const envSchema = z.object({
   // The single master account. Not a list — the master suite is deliberately one person, and a
   // comma-separated field would quietly invite it becoming several.
   MASTER_EMAIL: z.string().default(""),
+  // Public site status shown by the landing-page status pill. "online" (green) is normal;
+  // "maintenance" (yellow) is a deliberate heads-up during planned work. "offline" (red) is never
+  // set here — it's what a visitor's browser infers when this endpoint can't be reached at all, so
+  // it can't be self-reported. Flippable without a code change; a redeploy picks up the new value.
+  SITE_STATUS: z.enum(["online", "maintenance"]).default("online"),
   OWNER_EMAILS: z.string().default(""),
   STAFF_EMAILS: z.string().default(""),
   SITE_ADMIN_EMAILS: z.string().default(""),
@@ -71,6 +76,67 @@ const envSchema = z.object({
   // already authorized by being there — this only matters for a Prometheus running somewhere else.
   // Unset means the endpoint answers 404 to anything off the private network.
   METRICS_TOKEN: z.string().optional(),
+  // Imageframe video screens (Minecraft plugin). 100MB cap per the product ask.
+  MAX_IMAGEFRAME_MB: z.coerce.number().default(100),
+  IMAGEFRAME_FPS: z.coerce.number().default(10),
+  IMAGEFRAME_DEFAULT_COLS: z.coerce.number().default(3),
+  IMAGEFRAME_DEFAULT_ROWS: z.coerce.number().default(2),
+  IMAGEFRAME_MAX_COLS: z.coerce.number().default(8),
+  IMAGEFRAME_MAX_ROWS: z.coerce.number().default(8),
+  IMAGEFRAME_PUBLIC_URL: z.string().default(""),
+  IMAGEFRAME_LOG_TOKEN: z.string().optional(),
+  IMAGEFRAME_LOG_LEVEL: z.string().optional(),
+
+  // ---- Age verification (Persona) ----
+  // Same graceful-if-unconfigured contract as Stripe: with none set, the whole verification stack is
+  // inert — /persona/start reports "not configured", the webhook rejects everything, and no account
+  // can be upgraded to DOCUMENT_VERIFIED except by the admin selfie-review path. Going live is adding
+  // env vars, no code change. PERSONA_WEBHOOK_SECRET, like the Stripe one, is mandatory-in-practice
+  // once the API key is set: without it inbound webhooks cannot be signature-verified and are refused.
+  PERSONA_API_KEY: z.string().optional(),
+  PERSONA_WEBHOOK_SECRET: z.string().optional(),
+  PERSONA_TEMPLATE_ID: z.string().optional(),
+  PERSONA_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
+  // Free-tier allotment before falling back to admin selfie review. 500 on the current plan.
+  PERSONA_MONTHLY_LIMIT: z.coerce.number().default(500),
+
+  // ---- Native device attestation (fail-closed) ----
+  // A native Apple/Google age band is only trusted with a valid app-attestation proving the request
+  // came from the genuine, unmodified app. If these are unset the DEVICE_DECLARED upgrade is simply
+  // NOT granted (the band is ignored and we fall back to self-declared) — never trusted unverified.
+  GOOGLE_PLAY_PACKAGE_NAME: z.string().optional(),
+  GOOGLE_PLAY_INTEGRITY_SA_JSON: z.string().optional(), // service-account JSON (or a path) for Play Integrity API
+  GOOGLE_CLOUD_PROJECT_NUMBER: z.string().optional(),
+  APPLE_APP_ATTEST_TEAM_ID: z.string().optional(),
+  APPLE_APP_ATTEST_BUNDLE_ID: z.string().optional(),
+
+  // ---- Cloudflare Turnstile (bot/abuse challenge) ----
+  // Verifies a client-solved challenge token server-side. Unset = the requireTurnstile preHandler is
+  // a no-op (routes work unchallenged, as today), so this ships inert and activates by adding keys.
+  // The site key is public and surfaced to clients via GET /api/meta; the secret never leaves here.
+  TURNSTILE_SITE_KEY: z.string().optional(),
+  TURNSTILE_SECRET_KEY: z.string().optional(),
+  // Comma-separated hostnames a solved Turnstile token may originate from (Cloudflare's canonical
+  // hostname binding). Defaults to the app's own origins when unset.
+  TURNSTILE_HOSTNAMES: z.string().default("lumina.badgerstudios.net,lumina.luxffa.com,localhost,127.0.0.1"),
+  // 0 = challenge EVERY login (owner directive 2026-08-22, matching signup). Set it above zero to
+  // relax back to "only after N failed logins for this IP+account pair inside 15 minutes", which
+  // spares honest users a captcha while still biting a password-list run. Failures are counted
+  // either way, so flipping this back takes effect immediately.
+  TURNSTILE_LOGIN_FAILURE_THRESHOLD: z.coerce.number().default(0),
+  /**
+   * Emergency re-open of the native-app Turnstile exemption. Defaults to OFF: packaged apps must
+   * solve the challenge like every other client (see plugins/turnstile.ts).
+   *
+   * This exists purely as a rollback lever. If a real device turns out not to solve the widget in
+   * the Capacitor WebView, signup and payments would be dead for every app install — and the fix
+   * must not require a code change and redeploy at whatever hour that is discovered. Set to "true"
+   * and restart the backend to restore the old spoofable-header exemption, then investigate.
+   */
+  TURNSTILE_ALLOW_NATIVE_BYPASS: z
+    .string()
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
 });
 
 const parsed = envSchema.safeParse(process.env);

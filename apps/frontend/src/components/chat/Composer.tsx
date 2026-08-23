@@ -157,8 +157,8 @@ export function Composer({
     if (!onSendRich) return;
     setError(null);
     try {
-      // Sent immediately rather than staged next to the text: a sticker is the message, and
-      // Discord's own picker behaves this way, so waiting for a second Enter reads as broken.
+      // Sent immediately rather than staged next to the text: a sticker IS the message, so
+      // making someone press Enter afterwards reads as the picker having failed.
       await onSendRich({ content: "", replyToId: replyTo?.id ?? null, stickerId });
       onCancelReply?.();
     } catch (e) {
@@ -199,7 +199,7 @@ export function Composer({
   }
 
   return (
-    <div className="shrink-0 px-4 pb-6 pt-1">
+    <div className="shrink-0 px-3 pb-3 pt-1">
       {paletteOpen && commands ? (
         <SlashCommandPalette
           commands={commands}
@@ -223,7 +223,7 @@ export function Composer({
       ) : null}
 
       {poll ? (
-        <div className="mb-1 flex items-center justify-between rounded-t-lg bg-base-600 px-3 py-1.5 text-xs text-signal-dim">
+        <div className="mb-1 flex items-center justify-between rounded-xl border border-hairline bg-base-900/60 px-3 py-1.5 text-xs text-signal-dim">
           <span className="min-w-0 truncate">
             Poll attached: <span className="font-semibold text-signal">{poll.question}</span>
           </span>
@@ -234,7 +234,7 @@ export function Composer({
       ) : null}
 
       {replyTo ? (
-        <div className="mb-1 flex items-center justify-between rounded-t-lg bg-base-600 px-3 py-1.5 text-xs text-signal-dim">
+        <div className="mb-1 flex items-center justify-between rounded-xl border border-hairline bg-base-900/60 px-3 py-1.5 text-xs text-signal-dim">
           <span>
             Replying to <span className="font-semibold">{replyTo.authorLabel}</span>
           </span>
@@ -245,9 +245,9 @@ export function Composer({
       ) : null}
 
       {files.length > 0 && (
-        <div className="mb-1 flex flex-wrap gap-2 rounded-t-lg bg-base-600 px-3 py-2">
+        <div className="mb-1 flex flex-wrap gap-2 rounded-xl border border-hairline bg-base-900/60 px-3 py-2">
           {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-1 rounded bg-base-500 px-2 py-1 text-xs text-signal">
+            <div key={i} className="flex items-center gap-1 rounded-lg border border-hairline bg-base-800 px-2 py-1 text-xs text-signal">
               {f.name}
               <button onClick={() => setFiles((fs) => fs.filter((_, idx) => idx !== i))} className="text-signal-dim hover:text-signal">
                 <X size={12} />
@@ -257,9 +257,9 @@ export function Composer({
         </div>
       )}
 
-      {error ? <p className="mb-1 px-1 text-xs text-dnd">{error}</p> : null}
+      {error ? <p className="mb-1 px-1 text-xs text-flare">{error}</p> : null}
 
-      <div className="flex items-end gap-2 rounded-lg bg-base-600 px-3 py-2.5">
+      <div className="flex items-end gap-1 rounded-2xl border border-hairline bg-base-900/50 px-2 py-1.5 transition focus-within:border-accent">
         {onSendWithAttachments && (
           <>
             <input
@@ -267,14 +267,20 @@ export function Composer({
               type="file"
               multiple
               className="hidden"
-              onChange={(e) => setFiles((fs) => [...fs, ...Array.from(e.target.files ?? [])])}
+              onChange={(e) => {
+                setFiles((fs) => [...fs, ...Array.from(e.target.files ?? [])]);
+                // Reset so picking the SAME file again (after removing or sending it) still fires
+                // a change event — the native input suppresses it when the path doesn't change.
+                e.target.value = "";
+              }}
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="mb-0.5 shrink-0 text-signal-dim hover:text-signal"
+              className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-signal-dim transition hover:bg-base-600 hover:text-signal"
               title="Upload a file"
+              aria-label="Upload a file"
             >
-              <Plus size={22} />
+              <Plus size={19} />
             </button>
           </>
         )}
@@ -292,7 +298,7 @@ export function Composer({
           onBlur={stopTyping}
           placeholder={placeholder}
           rows={1}
-          className="max-h-40 flex-1 resize-none bg-transparent py-1 text-sm text-signal outline-none placeholder:text-signal-faint"
+          className="max-h-40 flex-1 resize-none bg-transparent px-1 py-1.5 text-sm text-signal outline-none placeholder:text-signal-faint"
         />
         {/* Stickers are server-scoped, so in a DM there is nothing to pick from and the control is
             absent rather than present and empty. */}
@@ -301,29 +307,30 @@ export function Composer({
           <button
             type="button"
             onClick={() => setBuildingPoll((b) => !b)}
-            className="mb-0.5 shrink-0 text-signal-dim hover:text-signal"
+            className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-signal-dim transition hover:bg-base-600 hover:text-signal"
             title="Attach a poll"
             aria-label="Attach a poll"
           >
-            <BarChart3 size={19} />
+            <BarChart3 size={17} />
           </button>
         ) : null}
         <button
           type="button"
           onClick={wrapSelectionInSpoiler}
-          className="mb-0.5 shrink-0 text-signal-dim hover:text-signal"
+          className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-signal-dim transition hover:bg-base-600 hover:text-signal"
           title="Mark as a spoiler (||hidden||)"
           aria-label="Mark the selected text as a spoiler"
         >
-          <EyeOff size={18} />
+          <EyeOff size={16} />
         </button>
         <button
           onClick={() => void submit()}
           disabled={sending || (!value.trim() && files.length === 0 && !poll)}
-          className="mb-0.5 shrink-0 text-signal-dim hover:text-signal disabled:opacity-40"
+          className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition hover:bg-accent-hover disabled:bg-transparent disabled:text-signal-faint"
           title="Send"
+          aria-label="Send"
         >
-          <Send size={20} />
+          <Send size={16} />
         </button>
       </div>
     </div>

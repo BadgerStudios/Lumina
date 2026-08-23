@@ -16,7 +16,7 @@ import helmetPlugin from "./plugins/helmet.js";
 import multipartPlugin from "./plugins/multipart.js";
 import rateLimitPlugin from "./plugins/rateLimit.js";
 import sensiblePlugin from "./plugins/sensible.js";
-import authenticatePlugin from "./plugins/authenticate.js";
+import authenticatePlugin, { requireAuth } from "./plugins/authenticate.js";
 
 import authRoutes from "./modules/auth/routes.js";
 import usersRoutes from "./modules/users/routes.js";
@@ -47,6 +47,8 @@ import serverRolesRoutes from "./modules/roles/serverRoutes.js";
 import autoModServerRoutes from "./modules/automod/serverRoutes.js";
 import roleRoutes from "./modules/roles/roleRoutes.js";
 import serverInvitesRoutes from "./modules/invites/serverRoutes.js";
+import botRoutes from "./modules/bots/routes.js";
+import { seedBotRecipes } from "./modules/bots/catalog.js";
 import inviteRoutes from "./modules/invites/inviteRoutes.js";
 import channelMessagesRoutes from "./modules/messages/channelMessagesRoutes.js";
 import dmMessagesRoutes from "./modules/messages/dmMessagesRoutes.js";
@@ -67,6 +69,7 @@ import oauth2Routes from "./modules/oauth2/routes.js";
 import pushRoutes from "./modules/push/routes.js";
 import metaRoutes from "./modules/meta/routes.js";
 import videoRoutes from "./modules/videos/routes.js";
+import imageframeRoutes from "./modules/imageframe/routes.js";
 import staffRoutes from "./modules/staff/routes.js";
 import reportRoutes from "./modules/staff/reports.js";
 import videoSocialRoutes from "./modules/videos/social.js";
@@ -80,6 +83,7 @@ import downloadRoutes from "./modules/metrics/downloadRoutes.js";
 import masterRoutes from "./modules/master/routes.js";
 import lookupRoutes from "./modules/lookup/routes.js";
 import ageRoutes from "./modules/age/routes.js";
+import verificationRoutes from "./modules/verification/routes.js";
 import siteRoutes from "./modules/site/routes.js";
 import stickerRoutes from "./modules/stickers/routes.js";
 import soundboardRoutes from "./modules/soundboard/routes.js";
@@ -250,7 +254,21 @@ async function main() {
       },
     },
   });
-  await fastify.register(fastifySwaggerUi, { routePrefix: "/api/docs" });
+  await fastify.register(fastifySwaggerUi, {
+    routePrefix: "/api/docs",
+    // Gate the generated API reference (UI + /api/docs/json spec) behind authentication. It was
+    // anonymously readable, which is free reconnaissance of the whole route table for any scanner.
+    // requireAuth accepts a human Bearer OR a Bot token, so any signed-in developer still gets the
+    // full reference; an unauthenticated request now gets 401. Private prefixes (owner/master/…)
+    // stay hidden from the spec regardless (see the transform above). NOTE: a plain browser tab
+    // won't send a Bearer, so the in-app "API reference" links resolve to 401 unless opened by an
+    // authenticated client — a deliberate trade of one-click convenience for closing the recon hole.
+    uiHooks: {
+      onRequest: async (request, reply) => {
+        await requireAuth.call(fastify, request, reply, () => {});
+      },
+    },
+  });
 
   // Every filename in these four roots carries a fresh UUID (see lib/profileImage.ts), so a given
   // URL's bytes can never change — changing an avatar mints a new URL and the old one simply stops
@@ -310,8 +328,10 @@ async function main() {
     decorateReply: false,
     cacheControl: true,
     ...IMMUTABLE_ASSET,
-    setHeaders: (res) => {
-      res.setHeader("x-content-type-options", "nosniff");
+    // @fastify/static v10 hands this callback a FastifyReply (v8 gave the raw ServerResponse), so
+    // it's `reply.header(...)` now, not `res.setHeader(...)`.
+    setHeaders: (reply) => {
+      reply.header("x-content-type-options", "nosniff");
     },
   });
 
@@ -366,6 +386,13 @@ async function main() {
   await fastify.register(autoModServerRoutes, { prefix: "/api/servers" });
   await fastify.register(roleRoutes, { prefix: "/api/roles" });
   await fastify.register(serverInvitesRoutes, { prefix: "/api/servers" });
+  await fastify.register(botRoutes, { prefix: "/api/servers" });
+  // Create-only seed of sources known to resolve, so the onboarding panel can offer something that
+  // works instead of only a paste box. Never blocks boot: a catalog is a convenience.
+  void seedBotRecipes().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[bots] seeding the recipe catalog failed:", (err as Error)?.message ?? err);
+  });
   await fastify.register(inviteRoutes, { prefix: "/api/invites" });
   await fastify.register(channelMessagesRoutes, { prefix: "/api/channels" });
   await fastify.register(dmMessagesRoutes, { prefix: "/api/dm" });
@@ -387,6 +414,7 @@ async function main() {
   await fastify.register(metaRoutes, { prefix: "/api/meta" });
   await fastify.register(videoRoutes, { prefix: "/api/videos" });
   await fastify.register(videoSocialRoutes, { prefix: "/api/videos" });
+  await fastify.register(imageframeRoutes, { prefix: "/api/imageframe" });
   await fastify.register(staffRoutes, { prefix: "/api/staff" });
   await fastify.register(reportRoutes, { prefix: "/api/staff/reports" });
   await fastify.register(feedRoutes, { prefix: "/api/feed" });
@@ -399,6 +427,7 @@ async function main() {
   await fastify.register(masterRoutes, { prefix: "/api/master" });
   await fastify.register(lookupRoutes, { prefix: "/api/lookup" });
   await fastify.register(ageRoutes, { prefix: "/api/age" });
+  await fastify.register(verificationRoutes, { prefix: "/api/verification" });
   await fastify.register(siteRoutes, { prefix: "/api/site" });
   await fastify.register(stickerRoutes, { prefix: "/api/servers" });
   await fastify.register(soundboardRoutes, { prefix: "/api/servers" });

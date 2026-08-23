@@ -1,4 +1,5 @@
-import { Loader2, Clock, CheckCircle2, XCircle, AlertTriangle, EyeOff } from "lucide-react";
+import { useRef, useState } from "react";
+import { Loader2, Clock, CheckCircle2, XCircle, AlertTriangle, EyeOff, Play } from "lucide-react";
 import type { VideoDTO, VideoStatus } from "@lumina/shared";
 import { useMyVideos, videoMediaUrl, useUpdateRemixSettings } from "../../queries/videos";
 
@@ -79,21 +80,78 @@ const STATUS_META: Record<
 
 function MyVideoTile({ video }: { video: VideoDTO }) {
   const updateRemix = useUpdateRemixSettings();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
   const status = video.status ?? "PROCESSING";
   const meta = STATUS_META[status];
   const thumb = videoMediaUrl(video.thumbnailUrl);
+  const src = videoMediaUrl(video.playbackUrl);
   // Rejection and transcode failure are different things with different fixes, so they get
   // different explanations rather than one generic "something went wrong".
   const reason = video.rejectionReason ?? video.failureReason ?? meta.hint;
+  const progressPct = Math.round(Math.max(0, Math.min(100, video.progressPct ?? 0)));
 
   return (
     <div className="overflow-hidden rounded-lg border border-hairline bg-base-800">
       <div className="relative aspect-[9/16] bg-black">
-        {thumb ? (
+        {src ? (
+          // A real player once there's something to play, not a permanently dead thumbnail —
+          // whatever the current status, a playbackUrl means transcoding already succeeded, so
+          // there's no reason the uploader can't watch their own upload back. Not autoplaying:
+          // several of these sit in a grid at once, and autoplaying every tile at once is both an
+          // audio pile-up and a lot of simultaneous fetches for videos nobody's actually looking
+          // at (the same reasoning VideoCard's own doc comment gives for the main feed).
+          <button
+            type="button"
+            className="group relative block h-full w-full"
+            onClick={() => {
+              const el = videoRef.current;
+              if (!el) return;
+              if (el.paused) void el.play().catch(() => undefined);
+              else el.pause();
+            }}
+            aria-label={playing ? "Pause video" : "Play video"}
+          >
+            <video
+              ref={videoRef}
+              src={src}
+              poster={thumb ?? undefined}
+              className="h-full w-full object-cover"
+              playsInline
+              muted
+              loop
+              preload="metadata"
+              onPlaying={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+            />
+            {!playing && (
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 transition group-hover:bg-black/30">
+                <span className="rounded-full bg-black/60 p-3">
+                  <Play className="h-6 w-6 text-white" fill="white" />
+                </span>
+              </span>
+            )}
+          </button>
+        ) : thumb ? (
           <img src={thumb} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-xs text-signal-faint">
             No preview
+          </div>
+        )}
+
+        {status === "PROCESSING" && (
+          // A real percentage rather than an indeterminate spinner — ffmpeg reports its own
+          // encode position, so there's no reason to leave the uploader watching a spinner for
+          // however long their particular upload happens to take.
+          <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1.5">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+              <div
+                className="h-full rounded-full bg-white transition-[width] duration-500 ease-out"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <p className="mt-1 text-[10px] text-white/80">{progressPct}%</p>
           </div>
         )}
       </div>

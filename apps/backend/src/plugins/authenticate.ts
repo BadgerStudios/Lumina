@@ -41,6 +41,18 @@ export const requireAuth: preHandlerHookHandler = async (request: FastifyRequest
       select: { botUser: { select: { id: true } } },
     });
     if (!application?.botUser) throw new UnauthorizedError("Invalid bot token");
+    // The same platform ban check the Bearer path runs below — without it, a banned user's bot
+    // token kept working indefinitely: the ban blocked their own login, but a bot session they'd
+    // already set up (or set up after being banned, since nothing here ever checked) had no gate
+    // on it at all. Every downstream check treats a bot exactly like its owning user, so this is
+    // the one place that distinction has to be enforced.
+    if (await isUserBanned(application.botUser.id)) {
+      throw new BannedError({
+        reason: "This account has been banned from this platform.",
+        scope: "ACCOUNT",
+        expiresAt: null,
+      });
+    }
     request.userId = application.botUser.id;
     return;
   }

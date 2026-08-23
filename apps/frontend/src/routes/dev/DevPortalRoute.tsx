@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Code2, Bot, RefreshCw, Trash2, Copy, Check, ExternalLink, Plus, KeyRound, Puzzle } from "lucide-react";
+import { Permissions } from "@lumina/shared";
 import { cn } from "../../lib/cn";
 import { api } from "../../lib/apiClient";
 import { useAuthStore } from "../../store/authStore";
@@ -194,6 +195,79 @@ function Block({ block }: { block: DocBlock }) {
 
 interface ActivityDTO { id: string; name: string; url: string; applicationId?: string }
 
+/**
+ * The install link, Discord's URL shape so existing docs and habits transfer:
+ *   /oauth2/authorize?client_id=...&scope=bot&permissions=<bits>
+ *
+ * A bot cannot add itself — redeeming an invite with a bot token is refused — so this link is the
+ * only route in, and it has to be opened by someone who owns or manages the target server. Ticking
+ * permissions here only ASKS: the install intersects the request with what the person approving
+ * actually holds, and Administrator is never grantable this way.
+ */
+function BotInstallLink({ appId }: { appId: string }) {
+  const [bits, setBits] = useState<bigint>(
+    Permissions.VIEW_CHANNELS | Permissions.SEND_MESSAGES | Permissions.ADD_REACTIONS | Permissions.ATTACH_FILES,
+  );
+  const [open, setOpen] = useState(false);
+  const url = `${window.location.origin}/oauth2/authorize?client_id=${encodeURIComponent(appId)}&scope=bot&permissions=${bits.toString()}`;
+
+  return (
+    <div className="mt-3 rounded-lg bg-base-800 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-bold uppercase text-signal-dim">Install link</p>
+        <button type="button" onClick={() => setOpen((v) => !v)} className="text-xs text-accent hover:underline">
+          {open ? "Hide permissions" : "Choose permissions"}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-2 grid max-h-40 gap-1 overflow-y-auto sm:grid-cols-2">
+          {INSTALLABLE_PERMISSIONS.map(([bit, label]) => (
+            <label key={label} className="flex items-center gap-2 text-xs text-signal">
+              <input
+                type="checkbox"
+                checked={(bits & bit) !== 0n}
+                onChange={(e) => setBits((prev) => (e.target.checked ? prev | bit : prev & ~bit))}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex items-center gap-1">
+        <code className="min-w-0 flex-1 truncate text-xs text-signal">{url}</code>
+        <CopyButton value={url} />
+      </div>
+      <p className="mt-1 text-[11px] text-signal-faint">
+        Send this to a server owner or admin. Opening it lets them pick which of their servers to add
+        the bot to.
+      </p>
+    </div>
+  );
+}
+
+/** Administrator is deliberately absent: the install flow strips it, so offering it here would
+ * generate a link that quietly does less than it says. */
+const INSTALLABLE_PERMISSIONS: [bigint, string][] = [
+  [Permissions.VIEW_CHANNELS, "View channels"],
+  [Permissions.SEND_MESSAGES, "Send messages"],
+  [Permissions.MANAGE_MESSAGES, "Manage messages"],
+  [Permissions.MANAGE_CHANNELS, "Manage channels"],
+  [Permissions.MANAGE_ROLES, "Manage roles"],
+  [Permissions.MANAGE_SERVER, "Manage server"],
+  [Permissions.KICK_MEMBERS, "Kick members"],
+  [Permissions.BAN_MEMBERS, "Ban members"],
+  [Permissions.CREATE_INVITE, "Create invites"],
+  [Permissions.MENTION_EVERYONE, "Mention @everyone"],
+  [Permissions.ADD_REACTIONS, "Add reactions"],
+  [Permissions.ATTACH_FILES, "Attach files"],
+  [Permissions.MANAGE_NICKNAMES, "Manage nicknames"],
+  [Permissions.TIMEOUT_MEMBERS, "Time out members"],
+  [Permissions.VIEW_AUDIT_LOG, "View audit log"],
+  [Permissions.MANAGE_WEBHOOKS, "Manage webhooks"],
+  [Permissions.MANAGE_EMOJI, "Manage emoji"],
+  [Permissions.MANAGE_EVENTS, "Manage events"],
+];
+
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -320,6 +394,8 @@ function AppCard({ app }: { app: NonNullable<ReturnType<typeof useMyApplications
           <Trash2 size={15} />
         </button>
       </div>
+
+      <BotInstallLink appId={app.id} />
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg bg-base-800 p-3">

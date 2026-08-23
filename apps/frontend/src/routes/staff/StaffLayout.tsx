@@ -1,4 +1,5 @@
 import { NavLink, Navigate, Outlet } from "react-router-dom";
+import { useAgeReviews } from "../../queries/verification";
 import { ShieldCheck, Clapperboard, Flag, Megaphone, ScrollText } from "lucide-react";
 import { APP_HOME } from "../../lib/platform";
 import { useAuthStore } from "../../store/authStore";
@@ -55,6 +56,7 @@ export function StaffLayout() {
   // adding traffic.
   const videoCounts = useStaffVideoCounts();
   const openTickets = useTickets("OPEN");
+  const ageReviews = useAgeReviews();
   const adQueue = useAdReviewQueue();
 
   if (!user) return null;
@@ -71,11 +73,12 @@ export function StaffLayout() {
     // silently cap the badge at a page size and read as "10 reports" forever.
     { to: "/staff/reports", label: "Reports", icon: Flag, count: openTickets.data?.counts?.OPEN },
     { to: "/staff/ads", label: "Ads", icon: Megaphone, count: adQueue.data?.length },
+    { to: "/staff/verification", label: "Verification", icon: ShieldCheck, count: ageReviews.data?.length },
     { to: "/staff/audit", label: "Audit log", icon: ScrollText },
   ];
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-base-900">
+    <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 bg-base-900">
       <header className="flex shrink-0 items-center gap-2 border-b border-hairline bg-base-800 px-4 py-3 short:py-2">
         <ShieldCheck className="h-5 w-5 shrink-0 text-accent" />
         <h1 className="font-display text-lg text-signal short:text-base">Staff suite</h1>

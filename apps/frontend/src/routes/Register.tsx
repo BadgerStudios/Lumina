@@ -1,8 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { SiteThemeMenu } from "../components/SiteThemeMenu";
 import { useRegister } from "../queries/auth";
 import { ApiError } from "../lib/apiClient";
 import type { AgeBracket } from "@lumina/shared";
+import { Turnstile } from "../components/Turnstile";
+import { getNativeAgeSignal } from "../lib/ageSignals";
 
 /** Five bands, matching AgeBracket on the server. Coarse on purpose: the platform only needs to
  * know whether an account is a minor, and a band is far less identifying to store than an age. */
@@ -22,6 +25,7 @@ export function Register() {
   const [ageBracket, setAgeBracket] = useState<AgeBracket | "">("");
   const [birthDate, setBirthDate] = useState("");
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
   const register = useRegister();
   const navigate = useNavigate();
 
@@ -30,6 +34,9 @@ export function Register() {
     setAttemptedSubmit(true);
     if (!ageBracket) return;
     try {
+      // On the packaged apps, attach a native age band (Google/Apple) so every signup gets the best
+      // free assurance available; null on web and safely ignored server-side without attestation.
+      const deviceSignal = (await getNativeAgeSignal()) ?? undefined;
       await register.mutateAsync({
         username,
         email,
@@ -37,6 +44,8 @@ export function Register() {
         displayName: displayName || undefined,
         ageBracket: (ageBracket || undefined) as AgeBracket | undefined,
         birthDate: birthDate || undefined,
+        turnstileToken: turnstileToken || undefined,
+        deviceSignal,
       });
       navigate("/", { replace: true });
     } catch {
@@ -45,7 +54,10 @@ export function Register() {
   }
 
   return (
-    <div className="flex min-h-app items-center justify-center bg-base-900">
+    <div className="relative flex min-h-app items-center justify-center bg-base-900">
+      <div className="absolute right-4 top-4">
+        <SiteThemeMenu />
+      </div>
       <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
         <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
         <h1 className="mb-1 text-center text-2xl font-bold text-signal">Create an account</h1>
@@ -172,6 +184,8 @@ export function Register() {
           {!ageBracket && (birthDate || attemptedSubmit) ? (
             <p className="-mt-2 text-sm text-dnd">Please choose your age range.</p>
           ) : null}
+
+          <Turnstile onToken={setTurnstileToken} action="signup" />
 
           <button
             type="submit"

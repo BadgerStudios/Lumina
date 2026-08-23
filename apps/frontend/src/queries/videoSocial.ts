@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UserDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
+import { reportError } from "../store/toastStore";
 
 export interface VideoCommentDTO {
   id: string;
@@ -54,6 +55,7 @@ export function useCreateComment(videoId: string | null) {
       // commentCount lives on the video, which the feed caches separately.
       void queryClient.invalidateQueries({ queryKey: ["feed"] });
     },
+    onError: (e) => reportError(e, "Couldn't post that comment"),
   });
 }
 
@@ -65,6 +67,7 @@ export function useDeleteComment(videoId: string | null) {
       void queryClient.invalidateQueries({ queryKey: ["videoComments", videoId] });
       void queryClient.invalidateQueries({ queryKey: ["feed"] });
     },
+    onError: (e) => reportError(e, "Couldn't delete that comment"),
   });
 }
 

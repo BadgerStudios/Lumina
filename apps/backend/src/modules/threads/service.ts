@@ -191,12 +191,17 @@ export async function setThreadArchived(threadId: string, userId: string, archiv
   // Archiving is the destructive-ish direction and needs MANAGE_MESSAGES, except for the person
   // who started the thread, who may always close their own.
   if (archived) {
-    const isCreator = await prisma.threadMembership.findFirst({
-      where: { channelId: threadId, userId },
+    // `userId` must NOT be in this where-clause: filtering by the caller's own id before finding
+    // the earliest joinedAt row means it can only ever find (or not find) the caller's own
+    // membership row, never determine who actually started the thread. That made `isCreator?.userId
+    // !== userId` false for every joined member, not just the real creator — the MANAGE_MESSAGES
+    // check below was silently skipped for anyone who'd joined the thread at all.
+    const earliestMember = await prisma.threadMembership.findFirst({
+      where: { channelId: threadId },
       orderBy: { joinedAt: "asc" },
       select: { userId: true },
     });
-    if (isCreator?.userId !== userId) {
+    if (earliestMember?.userId !== userId) {
       await checkChannelPermission(userId, thread.serverId, threadId, Permissions.MANAGE_MESSAGES);
     }
   } else {

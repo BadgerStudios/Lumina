@@ -155,7 +155,7 @@ export function UploadRoute() {
         <header>
           <h1 className="font-display text-2xl">File drop</h1>
           <p className="mt-1 text-sm text-signal-dim">
-            Brand kits, logos, fonts, palettes, style guides — anything for the UI work. Up to 100MB
+            Brand kits, logos, fonts, palettes, style guides — anything for the UI work. Up to 1GB
             per file.
           </p>
         </header>

@@ -20,7 +20,7 @@ export function PrivacyRoute() {
             ← Back to Lumina
           </Link>
           <h1 className="mt-4 font-display text-3xl">Privacy Policy</h1>
-          <p className="mt-2 text-sm text-signal-faint">Last updated 9 August 2026</p>
+          <p className="mt-2 text-sm text-signal-faint">Last updated 20 August 2026</p>
         </header>
 
         <section className="rounded-xl border border-accent/40 bg-base-800 p-5">
@@ -35,10 +35,12 @@ export function PrivacyRoute() {
             the rule we resolve decisions by, and the rest of this policy follows from it.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-signal-dim">
-            <strong className="text-signal">Lumina is for people aged 18 and over.</strong> We ask
+            <strong className="text-signal">Lumina is for people aged 16 and over.</strong> We ask
             for your age range and date of birth when you create an account so we can enforce that.
-            If either answer indicates you are under 18, we do not create the account, and new
-            accounts cannot be created from that device for a short period afterwards.
+            If you are 16 or 17 your account is created as a supervised account that stays locked
+            until a parent or guardian links it, and the video feed remains adults-only. If either
+            answer indicates you are under 16, we do not create the account, and new accounts cannot
+            be created from that device for a short period afterwards.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-signal-dim">
             If you believe a child is using this platform, or that a child is at risk here, contact
@@ -79,6 +81,36 @@ export function PrivacyRoute() {
             eligible for the platform, and keeping accounts of different age groups from contacting
             each other where that applies. It is not used for advertising or recommendations.
           </p>
+        </Section>
+
+        <Section title="Age verification documents">
+          <Item label="What we ask for">
+            Every new account is checked by a person before it is usable. We ask for a photo of you
+            and a photo of a government ID, so that an age can be confirmed rather than simply
+            typed in. You may cover any part of the ID except your date of birth and your photo.
+          </Item>
+          <Item label="Who sees them">
+            Only the staff reviewing your account. They are never shown on your profile, never
+            shown to other users, never shared with anyone outside Lumina, never sold, and never
+            used to train anything.
+          </Item>
+          <Item label="How long we keep them">
+            Both images are deleted within 24 hours of the decision on your account, whether you
+            are approved or not. Deletion is automatic: each decided review is stamped with a
+            deletion deadline and a scheduled job removes the files and clears the references. The
+            short window exists so a mistaken decision can be reconsidered before the evidence is
+            gone.
+          </Item>
+          <Item label="What survives">
+            The outcome, and nothing else — that the account was approved or rejected, when, and by
+            whom. That record has to persist: it is how we can show a regulator, or you, that the
+            check was actually carried out. It contains no images.
+          </Item>
+          <Item label="If you would rather not">
+            You do not have to submit anything. An account that is not verified simply stays
+            restricted, and you can delete it at any time, which removes any pending images
+            immediately.
+          </Item>
         </Section>
 
         <Section title="How identifiers are stored">

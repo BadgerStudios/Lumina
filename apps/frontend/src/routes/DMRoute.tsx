@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { DMSidebar } from "../components/layout/DMSidebar";
 import { ChatPane } from "../components/layout/ChatPane";
 import { useDMs, useMarkDMRead } from "../queries/dms";
 import {
@@ -43,29 +42,26 @@ export function DMRoute() {
   }
 
   return (
-    <>
-      <DMSidebar />
-      <ChatPane
-        title={title}
-        messages={messagesQuery.data}
-        isLoading={messagesQuery.isLoading}
-        hasNextPage={messagesQuery.hasNextPage}
-        isFetchingNextPage={messagesQuery.isFetchingNextPage}
-        fetchNextPage={() => void messagesQuery.fetchNextPage()}
-        onSend={async (content, replyToId) => {
-          await sendMessage.mutateAsync({ content, replyToId });
-        }}
-        onSendWithAttachments={async (content, files, replyToId) => {
-          await sendWithAttachments.mutateAsync({ content, files, replyToId });
-        }}
-        onSendRich={async (payload) => {
-          await sendRich.mutateAsync(payload);
-        }}
-        target={{ dmConversationId: conversationId }}
-        canManageMessages={false}
-        dmReadStates={conversation?.readStates}
-        dmParticipants={conversation?.participants}
-      />
-    </>
+    <ChatPane
+      title={title}
+      messages={messagesQuery.data}
+      isLoading={messagesQuery.isLoading}
+      hasNextPage={messagesQuery.hasNextPage}
+      isFetchingNextPage={messagesQuery.isFetchingNextPage}
+      fetchNextPage={() => void messagesQuery.fetchNextPage()}
+      onSend={async (content, replyToId) => {
+        await sendMessage.mutateAsync({ content, replyToId });
+      }}
+      onSendWithAttachments={async (content, files, replyToId) => {
+        await sendWithAttachments.mutateAsync({ content, files, replyToId });
+      }}
+      onSendRich={async (payload) => {
+        await sendRich.mutateAsync(payload);
+      }}
+      target={{ dmConversationId: conversationId }}
+      canManageMessages={false}
+      dmReadStates={conversation?.readStates}
+      dmParticipants={conversation?.participants}
+    />
   );
 }

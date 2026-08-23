@@ -3,6 +3,7 @@ import type { RoleDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
 import { upsertRole } from "../socket/cachePatches";
+import { reportError } from "../store/toastStore";
 
 export function useRoles(serverId: string | undefined) {
   return useQuery({
@@ -24,6 +25,7 @@ export function useCreateRole(serverId: string) {
       // onSuccess callback runs.
       queryClient.setQueryData<RoleDTO[]>(queryKeys.roles(serverId), (old) => upsertRole(old, role));
     },
+    onError: (e) => reportError(e, "Couldn't create that role"),
   });
 }
 
@@ -37,6 +39,7 @@ export function useUpdateRole(serverId: string) {
         old ? old.map((r) => (r.id === role.id ? role : r)) : old,
       );
     },
+    onError: (e) => reportError(e, "Couldn't save that role"),
   });
 }
 
@@ -47,5 +50,6 @@ export function useDeleteRole(serverId: string) {
     onSuccess: (_data, roleId) => {
       queryClient.setQueryData<RoleDTO[]>(queryKeys.roles(serverId), (old) => old?.filter((r) => r.id !== roleId));
     },
+    onError: (e) => reportError(e, "Couldn't delete that role"),
   });
 }

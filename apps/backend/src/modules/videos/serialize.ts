@@ -9,6 +9,7 @@ export type VideoLike = {
   status: string;
   playbackKey: string | null;
   thumbnailKey: string | null;
+  progressPct: number;
   durationMs: number | null;
   width: number | null;
   height: number | null;
@@ -91,6 +92,9 @@ export function serializeVideoWithStatus(video: VideoLike, likedByMe?: boolean):
     status: video.status as VideoDTO["status"],
     rejectionReason: video.rejectionReason,
     failureReason: video.failureReason,
+    // Only meaningful while status is PROCESSING; harmless (and unused) otherwise. Owner/staff
+    // form only, same reasoning as status itself — the public feed never shows a PROCESSING video.
+    progressPct: video.progressPct,
   };
 }
 

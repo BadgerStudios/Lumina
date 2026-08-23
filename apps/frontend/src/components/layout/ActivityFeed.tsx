@@ -28,9 +28,12 @@ export function ActivityFeed() {
 
   return (
     <>
-      <div className="mobile-drawer-backdrop fixed inset-0 z-30 md:hidden" onClick={closeMobileDrawer} />
-      <div className="fixed inset-x-4 bottom-20 z-40 flex max-h-[calc(var(--app-height-safe)*0.60)] flex-col overflow-hidden rounded-xl border border-base-500 bg-base-800 shadow-2xl md:hidden">
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-base-900/60 px-4 py-3 text-sm font-semibold text-signal">
+      <div className="lx-scrim fixed inset-0 z-30 md:hidden" onClick={closeMobileDrawer} />
+      {/* Anchored just above the tab bar rather than at a fixed `bottom-20`, which was a guess that
+          drifted whenever the bar changed height (it is shorter in landscape) or the keyboard
+          opened. */}
+      <div className="lx-raised fixed inset-x-3 bottom-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom)+var(--keyboard-inset)+0.5rem)] z-40 flex max-h-[calc(var(--app-height-safe)*0.60)] flex-col overflow-hidden md:hidden">
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-hairline px-4 py-3 text-sm font-semibold text-signal">
           <AtSign size={16} className="text-accent" /> Activity
         </div>
         <InboxPanel onNavigate={closeMobileDrawer} />
@@ -46,11 +49,11 @@ export function ActivityFeed() {
                     navigate(`/channels/${m.serverId}/${m.channelId}`);
                     closeMobileDrawer();
                   }}
-                  className="flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-base-600"
+                  className="lx-row lx-focus flex-col items-stretch gap-0.5 px-2.5 py-2"
                 >
-                  <div className="flex items-center gap-1.5 text-xs text-signal-faint">
-                    <span className="font-medium text-signal-dim">{m.serverName}</span>
-                    <span>#{m.channelName}</span>
+                  <div className="lx-eyebrow flex items-center gap-1.5">
+                    <span className="text-signal-dim">{m.serverName}</span>
+                    <span>{m.channelName}</span>
                     <span className="ml-auto shrink-0">{formatTime(m.createdAt)}</span>
                   </div>
                   <div className="truncate text-sm text-signal">

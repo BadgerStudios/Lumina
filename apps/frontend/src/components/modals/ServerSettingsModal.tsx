@@ -1,12 +1,13 @@
 import { APP_HOME } from "../../lib/platform";
 import { ServerAddonsPanel } from "./ServerAddonsPanel";
+import { ServerBotsPanel } from "./ServerBotsPanel";
 import { ServerAutoModPanel } from "./ServerAutoModPanel";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Copy, Check, Trash2, X, Settings as SettingsIcon, ShieldCheck, Users, Smile,
-  Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle,
+  Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle, Bot,
 } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
 import { useServer, useUpdateServer, useDeleteServer, useLeaveServer, useUploadServerIcon, useUploadServerBanner } from "../../queries/servers";
@@ -21,7 +22,7 @@ import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
 import { ExpressionsSettingsPanel } from "./ExpressionsSettingsPanel";
 import { ServerTemplateSection } from "./ServerTemplateSection";
 
-type Tab = "overview" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons";
+type Tab = "overview" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons" | "bots";
 
 function colorToHex(color: number | null): string {
   return color === null ? "#5b7cfa" : `#${color.toString(16).padStart(6, "0")}`;
@@ -198,6 +199,7 @@ export function ServerSettingsModal() {
     { key: "webhooks", label: "Webhooks", icon: Webhook },
     { key: "automod", label: "AutoMod", icon: ShieldAlert },
     { key: "addons", label: "Addons", icon: Puzzle },
+    { key: "bots", label: "Bots", icon: Bot },
   ];
 
   return (
@@ -212,8 +214,20 @@ export function ServerSettingsModal() {
      */
     <Dialog.Root open={open} onOpenChange={(o) => !o && closeModal()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
-        <Dialog.Content className="fixed inset-0 z-50 flex focus:outline-none">
+        {/* z-[55]/z-[60]: clear the app's mobile bottom nav (fixed z-50) which otherwise tied a z-50
+            content and painted over the panel. Matches UserSettingsModal. */}
+        <Dialog.Overlay className="fixed inset-0 z-[55] bg-black/60" />
+        {/* Safe-area inset the content so it clears the device system bars (viewport-fit=cover);
+            matches UserSettingsModal. */}
+        <Dialog.Content
+          className="fixed inset-0 z-[60] flex focus:outline-none"
+          style={{
+            paddingTop: "max(env(safe-area-inset-top), var(--android-safe-top, 0px))",
+            paddingBottom: "max(env(safe-area-inset-bottom), var(--android-safe-bottom, 0px))",
+            paddingLeft: "max(env(safe-area-inset-left), var(--android-safe-left, 0px))",
+            paddingRight: "max(env(safe-area-inset-right), var(--android-safe-right, 0px))",
+          }}
+        >
           <Dialog.Title className="sr-only">{server?.name ?? "Server"} Settings</Dialog.Title>
 
           <div className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-900/60 bg-base-800 p-3 max-md:w-16">
@@ -250,7 +264,7 @@ export function ServerSettingsModal() {
             <div className="flex flex-col gap-4">
               <button
                 onClick={() => bannerInputRef.current?.click()}
-                className="group relative flex h-20 w-full items-center justify-center overflow-hidden rounded-lg bg-base-900"
+                className="group relative flex aspect-[3/1] w-full items-center justify-center overflow-hidden rounded-lg bg-base-900"
                 style={
                   server?.bannerUrl
                     ? { backgroundImage: `url(${resolveAssetUrl(server.bannerUrl)})`, backgroundSize: "cover", backgroundPosition: "center" }
@@ -269,6 +283,7 @@ export function ServerSettingsModal() {
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) uploadServerBanner.mutate(file);
+                  e.target.value = "";
                 }}
               />
 
@@ -294,6 +309,7 @@ export function ServerSettingsModal() {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) uploadServerIcon.mutate(file);
+                    e.target.value = "";
                   }}
                 />
                 <span className="text-xs text-signal-faint">Server icon — click to change</span>
@@ -385,6 +401,7 @@ export function ServerSettingsModal() {
 
           {tab === "automod" && <ServerAutoModPanel serverId={serverId} />}
           {tab === "addons" && <ServerAddonsPanel serverId={serverId} />}
+          {tab === "bots" && <ServerBotsPanel serverId={serverId} />}
 
           {tab === "roles" && (
             <div className="flex flex-col gap-2">

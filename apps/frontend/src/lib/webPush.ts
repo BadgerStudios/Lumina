@@ -57,6 +57,12 @@ export async function unsubscribeFromPush(): Promise<void> {
   const subscription = await reg?.pushManager.getSubscription();
   if (!subscription) return;
   const endpoint = subscription.endpoint;
-  await subscription.unsubscribe();
+  // Server first, then unsubscribe locally — not the other way around. Unsubscribing locally
+  // first meant a failed /push/unsubscribe call (network blip, 500) left the server's row
+  // pointing at a now-dead endpoint with no way to retry: a second call finds
+  // pushManager.getSubscription() already null (the browser-side unsubscribe already took) and
+  // early-returns above without ever retrying the server call. This way a failed server call
+  // leaves the local subscription intact, so the user's next attempt can actually succeed.
   await api.post("/push/unsubscribe", { endpoint });
+  await subscription.unsubscribe();
 }

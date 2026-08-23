@@ -25,6 +25,12 @@ export async function runFinancialAssertions(): Promise<string[]> {
     if (available !== w.availableMinor) problems.push(`wallet drift ${w.userId} available ${w.availableMinor}!=${available}`);
     if (reserved !== w.reservedMinor) problems.push(`wallet drift ${w.userId} reserved ${w.reservedMinor}!=${reserved}`);
     if (w.availableMinor < 0n) problems.push(`NEGATIVE AVAILABLE for ${w.userId}: ${w.availableMinor}`);
+    // pending and reserved are liabilities exactly like available — negative is impossible under
+    // sane accounting either way. Only checking availableMinor meant a negative pending/reserved
+    // that the ledger and wallet happened to still agree on (so the drift check above wouldn't
+    // catch it either) passed silently.
+    if (w.pendingMinor < 0n) problems.push(`NEGATIVE PENDING for ${w.userId}: ${w.pendingMinor}`);
+    if (w.reservedMinor < 0n) problems.push(`NEGATIVE RESERVED for ${w.userId}: ${w.reservedMinor}`);
   }
 
   // No coin wallet below zero — the closed loop stays closed.

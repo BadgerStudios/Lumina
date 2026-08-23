@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PlatformRole, UserDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
+import { reportError } from "../store/toastStore";
 
 export interface DaySeries {
   date: string;
@@ -8,7 +9,7 @@ export interface DaySeries {
 }
 
 export interface PlatformStats {
-  users: { total: number; newToday: number; newThisWeek: number; series: DaySeries[] };
+  users: { total: number; online: number; onlineBots: number; newToday: number; newThisWeek: number; series: DaySeries[] };
   servers: { total: number };
   messages: { total: number; today: number; series: DaySeries[] };
   videos: { total: number; pendingReview: number; storedBytes: number; series: DaySeries[] };
@@ -75,7 +76,8 @@ export function usePlatformStats() {
   return useQuery({
     queryKey: ["owner", "stats"],
     queryFn: () => api.get<PlatformStats>("/owner/stats"),
-    refetchInterval: 60_000,
+    // 15s, not 60s: "online now" is the one figure here that is meaningless if it is a minute old.
+    refetchInterval: 15_000,
   });
 }
 
@@ -173,6 +175,10 @@ function useOwnerMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
     // Any owner action can move counts across several panels at once (banning changes stats, the
     // user list and the ban list), so the whole owner namespace is refreshed rather than guessing.
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["owner"] }),
+    // A failed ban, unban, role change, or appeal decision previously failed completely silently
+    // — the dialog closed as if it had worked, same root cause as staff.ts/reports.ts before they
+    // were fixed earlier this session.
+    onError: (e) => reportError(e, "That action didn't go through"),
   });
 }
 

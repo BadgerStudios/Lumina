@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/apiClient";
+import { reportError } from "../store/toastStore";
 
 interface Money { minor: string; display: string }
 
@@ -35,12 +36,14 @@ export function useSendGift() {
     mutationFn: (body: { giftKey: string; creatorId: string; contentRef?: string }) =>
       api.post<{ sent: boolean; gift: { emoji: string; name: string } }>("/economy/gifts/send", body),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["coins"] }),
+    onError: (e) => reportError(e, "Couldn't send that gift"),
   });
 }
 export function useSendTip() {
   return useMutation({
     mutationFn: (body: { creatorId: string; amountMinor: number; contentRef?: string }) =>
       api.post<{ checkoutUrl: string }>("/economy/tips", body),
+    onError: (e) => reportError(e, "Couldn't start that tip"),
   });
 }
 
@@ -66,6 +69,7 @@ export function useSaveTier() {
     mutationFn: (body: { name: string; description?: string | null; priceMinor: number; active: boolean }) =>
       api.put("/economy/creator/tier", body),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["membership", "myTier"] }),
+    onError: (e) => reportError(e, "Couldn't save your membership tier"),
   });
 }
 
@@ -81,6 +85,7 @@ export function useSubscribeMembership() {
   return useMutation({
     mutationFn: (body: { creatorId: string }) =>
       api.post<{ checkoutUrl: string }>("/economy/memberships/subscribe", body),
+    onError: (e) => reportError(e, "Couldn't start that membership"),
   });
 }
 
@@ -90,6 +95,7 @@ export function useCancelMembership() {
     mutationFn: (creatorId: string) =>
       api.post<{ ok: boolean; endsAt: string | null }>(`/economy/memberships/${creatorId}/cancel`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["membership"] }),
+    onError: (e) => reportError(e, "Couldn't cancel that membership"),
   });
 }
 

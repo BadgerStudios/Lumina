@@ -7,14 +7,24 @@ import {
   type TranscodeJobData,
 } from "./modules/videos/queue.js";
 import { processVideo } from "./modules/videos/transcode.js";
+import {
+  IMAGEFRAME_TRANSCODE_QUEUE,
+  enqueueImageframe,
+  type ImageframeJobData,
+} from "./modules/imageframe/queue.js";
+import { processImageframe } from "./modules/imageframe/transcode.js";
 import { LINK_PREVIEW_QUEUE, type LinkPreviewJobData } from "./modules/messages/previewQueue.js";
+import { BOT_INSTALL_QUEUE, type BotInstallJobData } from "./modules/bots/queue.js";
+import { processBotInstall } from "./modules/bots/installer.js";
 import { fetchPreview, broadcastEmbeds } from "./lib/linkPreview.js";
 import { sweepArchivableThreads } from "./modules/threads/service.js";
 import { releaseMaturedEarnings } from "./modules/economy/service.js";
+import { purgeExpiredReviewDocuments } from "./modules/verification/service.js";
 import { sweepAdPools } from "./modules/economy/pools.js";
 import { sweepEventReminders } from "./modules/events/service.js";
 import { rotatePqKeys } from "./modules/pq/service.js";
 import { runFinancialAssertions } from "./modules/economy/reconcile.js";
+import { refreshMinorStatus } from "./modules/parental/service.js";
 
 /** How long a video may sit in PROCESSING before the sweep assumes its job was lost. Comfortably
  * longer than a real transcode (bounded at 10 minutes by ffmpeg's own timeout). */
@@ -84,6 +94,23 @@ async function sweepStranded(): Promise<void> {
  * This is the only entrypoint that requires ffmpeg to be present; the API image ships it too (same
  * build) but never invokes it.
  */
+async function sweepStrandedImageframe(): Promise<void> {
+  try {
+    const stranded = await prisma.imageframeVideo.findMany({
+      where: { status: "PROCESSING", createdAt: { lt: new Date(Date.now() - STRANDED_AFTER_MS) } },
+      select: { id: true },
+      take: 50,
+    });
+    if (stranded.length === 0) return;
+    // eslint-disable-next-line no-console
+    console.warn(`[worker] re-enqueueing ${stranded.length} stranded imageframe(s)`);
+    for (const v of stranded) await enqueueImageframe(v.id);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[worker] imageframe stranded sweep failed:", err);
+  }
+}
+
 async function main() {
   // eslint-disable-next-line no-console
   console.log("[worker] starting video transcode worker");
@@ -92,9 +119,10 @@ async function main() {
     VIDEO_TRANSCODE_QUEUE,
     async (job) => {
       const videoId = BigInt(job.data.videoId);
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
       // eslint-disable-next-line no-console
       console.log(`[worker] transcoding video ${videoId} (attempt ${job.attemptsMade + 1})`);
-      await processVideo(videoId);
+      await processVideo(videoId, { isFinalAttempt });
       // eslint-disable-next-line no-console
       console.log(`[worker] finished video ${videoId}`);
     },
@@ -147,6 +175,52 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error("[worker] worker error:", err);
   });
+
+  // Bot onboarding. Concurrency 1 on purpose: the job is mostly outbound metadata fetches to
+  // GitHub/npm, and a burst of parallel installs would look like scraping to those hosts.
+  const botInstallWorker = new Worker<BotInstallJobData>(
+    BOT_INSTALL_QUEUE,
+    async (job) => {
+      // eslint-disable-next-line no-console
+      console.log(`[worker] onboarding bot request ${job.data.requestId}`);
+      await processBotInstall(job.data);
+    },
+    { connection: createQueueConnection(), concurrency: 1, stalledInterval: 60_000, maxStalledCount: 2 },
+  );
+  botInstallWorker.on("failed", (job, err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[worker] bot install ${job?.id} failed:`, err?.message ?? err);
+  });
+  botInstallWorker.on("error", (err) => {
+    // eslint-disable-next-line no-console
+    console.error("[worker] bot install worker error:", err);
+  });
+
+  const imageframeWorker = new Worker<ImageframeJobData>(
+    IMAGEFRAME_TRANSCODE_QUEUE,
+    async (job) => {
+      const imageframeId = BigInt(job.data.imageframeId);
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      // eslint-disable-next-line no-console
+      console.log(`[worker] preparing imageframe ${imageframeId} (attempt ${job.attemptsMade + 1})`);
+      await processImageframe(imageframeId, { isFinalAttempt });
+      // eslint-disable-next-line no-console
+      console.log(`[worker] finished imageframe ${imageframeId}`);
+    },
+    { connection: createQueueConnection(), concurrency: 1, stalledInterval: 60_000, maxStalledCount: 2 },
+  );
+  imageframeWorker.on("failed", (job, err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[worker] imageframe job ${job?.id} failed:`, err?.message ?? err);
+  });
+  imageframeWorker.on("error", (err) => {
+    // eslint-disable-next-line no-console
+    console.error("[worker] imageframe worker error:", err);
+  });
+
+  void sweepStrandedImageframe();
+  const imageframeSweepTimer = setInterval(() => void sweepStrandedImageframe(), SWEEP_INTERVAL_MS);
+  imageframeSweepTimer.unref();
 
   void sweepStranded();
   const sweepTimer = setInterval(() => void sweepStranded(), SWEEP_INTERVAL_MS);
@@ -202,10 +276,53 @@ async function main() {
       // eslint-disable-next-line no-console
       console.error("[worker] reconciliation failed:", err);
     }
+    try {
+      // Age up any minor whose 18th birthday has passed but who hasn't logged in to trigger the
+      // login-time recompute — so a dormant account still stops being restricted, and any parental
+      // supervision on it ends, without a manual step. refreshMinorStatus re-verifies each precisely
+      // (this query just narrows the scan) and severs the ParentLink on the true→false flip.
+      const cutoff = new Date();
+      cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 18);
+      const agedUp = await prisma.user.findMany({
+        where: { isMinor: true, birthDate: { lte: cutoff } },
+        select: { id: true },
+        take: 500,
+      });
+      let flipped = 0;
+      for (const u of agedUp) {
+        if ((await refreshMinorStatus(u.id)) === false) flipped++;
+      }
+      // eslint-disable-next-line no-console
+      if (flipped > 0) console.log(`[worker] aged ${flipped} account(s) out of minor status`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] minor age-up sweep failed:", err);
+    }
   };
   void economyTick();
   const economyTimer = setInterval(() => void economyTick(), 5 * 60 * 1000);
   economyTimer.unref();
+
+  // Identity documents from age verification are deleted once their retention window closes. The
+  // account holder is told this in writing at upload time, so the sweep is the mechanism that keeps
+  // that promise -- if it stops running, passports and selfies accumulate on disk indefinitely.
+  // Runs every 15 minutes rather than hourly so the actual delete lands close to the stated
+  // deadline rather than up to an hour past it.
+  const identityDocTick = async () => {
+    try {
+      const cleared = await purgeExpiredReviewDocuments();
+      if (cleared > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[worker] purged identity documents for ${cleared} decided age review(s)`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] identity-document purge failed:", err);
+    }
+  };
+  void identityDocTick();
+  const identityDocTimer = setInterval(() => void identityDocTick(), 15 * 60 * 1000);
+  identityDocTimer.unref();
 
   // Graceful shutdown so an in-flight transcode is allowed to finish (or be re-queued cleanly)
   // instead of being killed mid-write and leaving a half-written MP4 behind.
@@ -213,6 +330,7 @@ async function main() {
     // eslint-disable-next-line no-console
     console.log(`[worker] received ${signal}, closing`);
     await worker.close();
+    await imageframeWorker.close();
     await previewWorker.close();
     await prisma.$disconnect();
     process.exit(0);

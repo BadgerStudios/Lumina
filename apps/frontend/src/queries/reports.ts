@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/apiClient";
+import { reportError } from "../store/toastStore";
 
 export type TicketStatus = "OPEN" | "IN_PROGRESS" | "INVESTIGATING" | "COMPLETED" | "DISMISSED";
 
@@ -76,6 +77,7 @@ function useTicketAction<T>(fn: (args: T) => Promise<unknown>) {
       void queryClient.invalidateQueries({ queryKey: ["tickets"] });
       void queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
     },
+    onError: (e) => reportError(e, "That action didn't go through"),
   });
 }
 
@@ -120,5 +122,6 @@ export function useRateReport() {
     mutationFn: ({ id, rating }: { id: string; rating: number }) =>
       api.post(`/staff/reports/${id}/rate`, { rating }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["myReports"] }),
+    onError: (e) => reportError(e, "Couldn't save that rating"),
   });
 }

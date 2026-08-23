@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { Permissions } from "@lumina/shared";
+import { Permissions, ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
+import { getIO, evictUserFromServer } from "../../realtime/io.js";
 import { serializeAuditLogEntry, serializeMember } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
 import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
+import { checkRoleHierarchy, getHighestRolePosition } from "../../permissions/permissionService.js";
 
 const banSchema = z.object({
   userId: z.string().min(1),
@@ -32,6 +34,12 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
       const body = request.body as z.infer<typeof banSchema>;
       const server = await prisma.server.findUnique({ where: { id: request.serverId! } });
       if (server?.ownerId === body.userId) throw new ForbiddenError("Cannot ban the server owner");
+
+      // Same gap kick had: BAN_MEMBERS alone let a low-ranked member ban someone with a much
+      // higher role. A target who has already left has no role position, so this is a no-op check
+      // for them, exactly as intended — hierarchy only matters between current members.
+      const targetHighest = await getHighestRolePosition(body.userId, request.serverId!);
+      await checkRoleHierarchy(request.userId!, request.serverId!, targetHighest);
 
       const ban = await prisma.$transaction(async (tx) => {
         const created = await tx.ban.upsert({
@@ -60,6 +68,13 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
         targetType: "member",
         metadata: { reason: body.reason ?? null },
       });
+
+      // Tell the server their membership vanished, and force their sockets out of the server's
+      // realtime rooms — the ban route previously had no realtime effect at all, so a banned
+      // member kept receiving the live stream until reconnect even though REST 403'd them.
+      getIO().to(`server:${request.serverId!}`).emit(ServerEvents.MEMBER_LEAVE, { userId: body.userId, serverId: request.serverId! });
+      getIO().to(`user:${body.userId}`).emit(ServerEvents.SERVER_DELETE, { id: request.serverId! });
+      await evictUserFromServer(body.userId, request.serverId!);
 
       reply.code(201);
       return { serverId: ban.serverId, userId: ban.userId, reason: ban.reason, createdAt: ban.createdAt.toISOString() };

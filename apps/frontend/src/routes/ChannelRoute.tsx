@@ -1,10 +1,9 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChannelSidebar } from "../components/layout/ChannelSidebar";
 import { ChatPane } from "../components/layout/ChatPane";
 import { ThreadPanel } from "../components/chat/ThreadPanel";
 import { ActivityFrame } from "../components/game/ActivityFrame";
-import { MemberList } from "../components/layout/MemberList";
+import { AsidePanel } from "../components/layout/AsidePanel";
 import { useChannels } from "../queries/channels";
 import { useCreateThread } from "../queries/threads";
 import { useServer } from "../queries/servers";
@@ -19,7 +18,6 @@ import {
 import { useMarkChannelRead } from "../queries/readState";
 import { useChannelRoom } from "../socket/useChannelRoom";
 import { useAuthStore } from "../store/authStore";
-import { useUIStore } from "../store/uiStore";
 import { useActiveSelectionStore } from "../store/activeSelectionStore";
 import { can } from "../lib/permissions";
 
@@ -27,7 +25,6 @@ export function ChannelRoute() {
   const { serverId, channelId } = useParams<{ serverId: string; channelId: string }>();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const memberListCollapsed = useUIStore((s) => s.memberListCollapsed);
   const setActiveChannel = useActiveSelectionStore((s) => s.setActiveChannel);
 
   const { data: server } = useServer(serverId);
@@ -70,7 +67,7 @@ export function ChannelRoute() {
   const me = members?.find((m) => m.userId === user?.id);
   const canManageMessages = can("MANAGE_MESSAGES", { userId: user?.id, server, member: me, roles });
 
-  // The ServerRail links to `_` as a placeholder before its own channel list has loaded, and a
+  // The nav deck links to `_` as a placeholder before a space's room list has loaded, and a
   // channel can also be deleted out from under a currently-viewing user — both cases redirect
   // to the server's first available text channel once we know what that is.
   useEffect(() => {
@@ -86,7 +83,6 @@ export function ChannelRoute() {
 
   return (
     <>
-      <ChannelSidebar serverId={serverId} activeChannelId={validChannelId} />
       <ChatPane
         title={channel?.name ?? ""}
         topic={channel?.topic}
@@ -135,7 +131,11 @@ export function ChannelRoute() {
           onClose={() => setOpenActivity(null)}
         />
       )}
-      {!memberListCollapsed && !openThreadId && !openActivity && <MemberList serverId={serverId} />}
+      {/* Three panes is the most the content row can carry; a docked thread or an embedded
+          activity is itself the contextual panel for as long as it is open. */}
+      {!openThreadId && !openActivity && (
+        <AsidePanel serverId={serverId} channelId={validChannelId} canManageMessages={canManageMessages} />
+      )}
     </>
   );
 }
