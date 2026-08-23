@@ -536,11 +536,19 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const res = await internal(request, "GET", `/servers/${guild}/bans`);
     if (res.status >= 400) return reply.code(res.status).send(res.json);
     const rows = Array.isArray(res.json) ? (res.json as { user?: { id: string }; reason?: string | null }[]) : [];
+    // Read the user records rather than trusting whatever shape the internal route serialized:
+    // mapUser needs username/avatar, and a Discord client will happily render "undefined" for a
+    // field that quietly went missing.
+    const banned = await prisma.user.findMany({
+      where: { id: { in: rows.map((b) => b.user?.id).filter((v): v is string => !!v) } },
+      select: { id: true, username: true, displayName: true, avatarUrl: true, isBot: true },
+    });
+    const byId = new Map(banned.map((u) => [u.id, u]));
     return Promise.all(
-      rows.map(async (b) => ({
-        reason: b.reason ?? null,
-        user: b.user ? await mapUser(b.user.id) : null,
-      })),
+      rows.map(async (b) => {
+        const u = b.user ? byId.get(b.user.id) : undefined;
+        return { reason: b.reason ?? null, user: u ? await mapUser(u) : null };
+      }),
     );
   });
 
@@ -557,11 +565,11 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       ...(body.mentionable !== undefined ? { mentionable: body.mentionable } : {}),
     });
     if (res.status >= 400) return reply.code(res.status).send(res.json);
-    return mapRole(res.json as Parameters<typeof mapRole>[0]);
+    return mapRole(res.json as Parameters<typeof mapRole>[0], id);
   });
 
   fastify.patch("/guilds/:id/roles/:roleId", { preHandler: [requireAuth] }, async (request, reply) => {
-    const { roleId } = request.params as { roleId: string };
+    const { id, roleId } = request.params as { id: string; roleId: string };
     const body = (request.body ?? {}) as { name?: string; color?: number; permissions?: string; mentionable?: boolean };
     const role = await fromSnowflake("role", roleId);
     if (!role) throw new NotFoundError("Unknown role");
@@ -572,7 +580,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       ...(body.mentionable !== undefined ? { mentionable: body.mentionable } : {}),
     });
     if (res.status >= 400) return reply.code(res.status).send(res.json);
-    return mapRole(res.json as Parameters<typeof mapRole>[0]);
+    return mapRole(res.json as Parameters<typeof mapRole>[0], id);
   });
 
   fastify.delete("/guilds/:id/roles/:roleId", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -637,7 +645,12 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     if (res.status >= 400) return reply.code(res.status).send(res.json);
     const dm = res.json as { id: string };
     // Discord DM channels are type 1 and carry the recipient list rather than a guild.
-    return { id: await toSnowflake("channel", dm.id), type: 1, recipients: [await mapUser(user)] };
+    const recipient = await prisma.user.findUnique({ where: { id: user }, select: { id: true, username: true, displayName: true, avatarUrl: true, isBot: true } });
+    return {
+      id: await toSnowflake("channel", dm.id),
+      type: 1,
+      recipients: recipient ? [await mapUser(recipient)] : [],
+    };
   });
 
   /** Typing indicator. Cosmetic, but discord.js calls it in ordinary flows and a 404 here surfaces
