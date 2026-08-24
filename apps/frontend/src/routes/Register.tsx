@@ -26,6 +26,7 @@ export function Register() {
   const [birthDate, setBirthDate] = useState("");
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileKey, setTurnstileKey] = useState(0);
   const register = useRegister();
   const navigate = useNavigate();
 
@@ -49,6 +50,11 @@ export function Register() {
       });
       navigate("/", { replace: true });
     } catch {
+      // A Turnstile token is single-use: siteverify consumes it on the first attempt, so a retry
+      // with the same token is rejected as TURNSTILE_FAILED no matter what the user fixes.
+      // Drop it and remount the widget so the next attempt carries a fresh token.
+      setTurnstileToken("");
+      setTurnstileKey((k) => k + 1);
       /* surfaced below via register.error */
     }
   }
@@ -185,7 +191,7 @@ export function Register() {
             <p className="-mt-2 text-sm text-dnd">Please choose your age range.</p>
           ) : null}
 
-          <Turnstile onToken={setTurnstileToken} action="signup" />
+          <Turnstile key={turnstileKey} onToken={setTurnstileToken} action="signup" />
 
           <button
             type="submit"

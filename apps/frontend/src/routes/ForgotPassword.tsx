@@ -13,6 +13,7 @@ import { Turnstile } from "../components/Turnstile";
 export function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileKey, setTurnstileKey] = useState(0);
   const [sent, setSent] = useState(false);
 
   const request = useMutation({
@@ -25,6 +26,11 @@ export function ForgotPassword() {
     try {
       await request.mutateAsync();
     } catch {
+      // A Turnstile token is single-use: siteverify consumes it on the first attempt, so a retry
+      // with the same token is rejected as TURNSTILE_FAILED no matter what the user fixes.
+      // Drop it and remount the widget so the next attempt carries a fresh token.
+      setTurnstileToken("");
+      setTurnstileKey((k) => k + 1);
       /* surfaced below */
     }
   }
@@ -68,7 +74,7 @@ export function ForgotPassword() {
                 />
               </label>
 
-              <Turnstile onToken={setTurnstileToken} action="password_reset" />
+              <Turnstile key={turnstileKey} onToken={setTurnstileToken} action="password_reset" />
 
               {request.isError ? (
                 <p className="text-sm text-dnd">

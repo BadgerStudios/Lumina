@@ -17,6 +17,7 @@ export function Login() {
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileKey, setTurnstileKey] = useState(0);
   const login = useLogin();
   const verifyMfa = useVerifyMfa();
   const navigate = useNavigate();
@@ -56,6 +57,11 @@ export function Login() {
       }
       navigate("/", { replace: true });
     } catch {
+      // A Turnstile token is single-use: siteverify consumes it on the first attempt, so a retry
+      // with the same token is rejected as TURNSTILE_FAILED no matter what the user fixes.
+      // Drop it and remount the widget so the next attempt carries a fresh token.
+      setTurnstileToken("");
+      setTurnstileKey((k) => k + 1);
       /* error surfaced below via login.error */
     }
   }
@@ -184,7 +190,7 @@ export function Login() {
               token rides the first request; without an inline widget each sign-in would round-trip
               403 -> challenge modal -> retry, flashing a modal at every user every time. It renders
               nothing when Turnstile is unconfigured, so this stays correct if the keys are removed. */}
-          <Turnstile onToken={setTurnstileToken} action="login" />
+          <Turnstile key={turnstileKey} onToken={setTurnstileToken} action="login" />
 
           <button
             type="submit"

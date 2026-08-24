@@ -325,7 +325,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     // A bot challenge: the server wants a Turnstile token. Pop the challenge modal, and on a solved
     // token retry this exact request once with it attached — so every protected surface is covered
     // without a widget baked into each form. A cancelled/failed challenge falls through to the throw.
-    if (res.status === 403 && reasonCode === "TURNSTILE_REQUIRED" && (options._turnstileAttempts ?? 0) < MAX_TURNSTILE_ATTEMPTS) {
+    // TURNSTILE_FAILED is retried the same way: a token is single-use, so a form that re-sends the
+    // one its inline widget already spent (login after a wrong password was exactly this) is not a
+    // bot — it just needs a fresh challenge, which the modal provides.
+    if (
+      res.status === 403 &&
+      (reasonCode === "TURNSTILE_REQUIRED" || reasonCode === "TURNSTILE_FAILED") &&
+      (options._turnstileAttempts ?? 0) < MAX_TURNSTILE_ATTEMPTS
+    ) {
       const token = await requestTurnstileToken();
       if (token) {
         return apiRequest<T>(path, { ...options, _turnstileToken: token, _turnstileAttempts: (options._turnstileAttempts ?? 0) + 1 });
