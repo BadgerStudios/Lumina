@@ -35,12 +35,11 @@ export function PrivacyRoute() {
             the rule we resolve decisions by, and the rest of this policy follows from it.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-signal-dim">
-            <strong className="text-signal">Lumina is for people aged 16 and over.</strong> We ask
+            <strong className="text-signal">Lumina is for adults aged 18 and over.</strong> We ask
             for your age range and date of birth when you create an account so we can enforce that.
-            If you are 16 or 17 your account is created as a supervised account that stays locked
-            until a parent or guardian links it, and the video feed remains adults-only. If either
-            answer indicates you are under 16, we do not create the account, and new accounts cannot
-            be created from that device for a short period afterwards.
+            If either answer indicates you are under 18, we do not create the account, and new
+            accounts cannot be created from that device for a short period afterwards. An account
+            later found to belong to someone under 18 is closed.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-signal-dim">
             If you believe a child is using this platform, or that a child is at risk here, contact

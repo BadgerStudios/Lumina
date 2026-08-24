@@ -62,13 +62,10 @@ export function FeaturesRoute() {
         <div className="grid gap-6 md:grid-cols-2">
           <div>
             <p className="text-signal-dim">
-              Lumina is 16+. Under-18s can join, but as supervised accounts: a minor's account stays
-              locked until a parent or guardian links it to their own — after which the parent can
-              see the messages, contacts and servers on it. The video feed stays adults only. The age
-              check runs before an account row is ever created, and there is no request that can skip
-              it — both the date of birth and the age range are required fields, and the two are
-              cross-checked against each other. An answer that crosses the 18 boundary in one field
-              but not the other is refused and flagged.
+              Lumina is 18+ — adults only, with no supervised tier. The age check runs before an
+              account row is ever created, and there is no request that can skip it: both the date
+              of birth and the age range are required fields, the two are cross-checked, and either
+              one indicating under 18 refuses the signup and flags it.
             </p>
             <p className="mt-4 text-signal-dim">
               An account with no age on record cannot contact anyone at all until it answers — not
@@ -77,9 +74,9 @@ export function FeaturesRoute() {
             </p>
 
             <ul className="mt-6 space-y-3 text-sm">
-              <Point>Under-16 signups refused before the account exists</Point>
+              <Point>Under-18 signups refused before the account exists</Point>
               <Point>Both age fields required — no API path omits the check</Point>
-              <Point>Minors and adults cannot contact each other, enforced server-side on DMs, group DMs and friend requests</Point>
+              <Point>An account found to be under 18 is walled off from DMs, group DMs and friend requests server-side, then closed — the device is not banned</Point>
             <Point>An account with no age recorded can contact nobody until it answers</Point>
               <Point>The video feed is restricted to accounts confirmed adult</Point>
               <Point>A repeat under-age attempt puts that device on a 30-day new-account cooldown</Point>

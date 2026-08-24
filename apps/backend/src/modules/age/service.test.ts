@@ -62,9 +62,8 @@ describe("checkContact", () => {
 });
 
 /**
- * The signup boundary, which now has THREE outcomes rather than two. The 16/17 band is the whole
- * point of the change — it used to be refused outright, which is what pushed exactly those people
- * into entering a fake birthday and defeating every downstream protection built on age.
+ * The signup boundary on an 18+ platform: two outcomes. Under 18 by either answer is refused
+ * before any account exists; adults are admitted as non-minors.
  */
 describe("checkAge", () => {
   const NOW = new Date("2026-08-13T00:00:00Z");
@@ -75,24 +74,28 @@ describe("checkAge", () => {
     return d;
   };
 
-  it("admits a 16 year old as a MINOR rather than refusing them", () => {
+  it("refuses a 16 year old — there is no minor tier", () => {
     const result = checkAge("UNDER_18", bornYearsAgo(16), NOW);
-    expect(result.ok).toBe(true);
-    expect(result.isMinor).toBe(true);
-  });
-
-  it("admits a 17 year old as a minor", () => {
-    const result = checkAge("UNDER_18", bornYearsAgo(17), NOW);
-    expect(result.ok).toBe(true);
-    expect(result.isMinor).toBe(true);
-  });
-
-  it("refuses someone one day short of the minimum", () => {
-    // The boundary itself, not a comfortable distance from it — off-by-one here decides whether a
-    // 15-year-old gets an account.
-    const result = checkAge("UNDER_18", bornYearsAgo(16, -1), NOW);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+  });
+
+  it("refuses a 17 year old", () => {
+    const result = checkAge("UNDER_18", bornYearsAgo(17), NOW);
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses someone one day short of 18", () => {
+    // The boundary itself, not a comfortable distance from it.
+    const result = checkAge("AGE_18_24", bornYearsAgo(18, -1), NOW);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+  });
+
+  it("admits someone on their 18th birthday", () => {
+    const result = checkAge("AGE_18_24", bornYearsAgo(18), NOW);
+    expect(result.ok).toBe(true);
+    expect(result.isMinor).toBe(false);
   });
 
   it("admits an adult as a non-minor", () => {
@@ -101,26 +104,22 @@ describe("checkAge", () => {
     expect(result.isMinor).toBe(false);
   });
 
-  it("holds a bracket/birthdate disagreement that crosses 18, in both directions", () => {
-    // An adult date with a minor bracket is the mis-click that blocked a real signup; a minor date
-    // with an adult bracket is what someone trying to get past the gate looks like. Neither is
-    // silently resolved.
-    const minorBracketAdultDate = checkAge("UNDER_18", bornYearsAgo(30), NOW);
-    const adultBracketMinorDate = checkAge("AGE_18_24", bornYearsAgo(16), NOW);
-    expect(minorBracketAdultDate.ok).toBe(false);
-    expect(adultBracketMinorDate.ok).toBe(false);
-    if (!minorBracketAdultDate.ok) expect(minorBracketAdultDate.reasonCode).toBe("AGE_MISMATCH");
-    if (!adultBracketMinorDate.ok) expect(adultBracketMinorDate.reasonCode).toBe("AGE_MISMATCH");
+  it("refuses a self-declared minor even with an adult birth date", () => {
+    // Someone who says they are under 18 is taken at their word; a mis-tap is corrected by
+    // registering again, not by the platform guessing the more permissive answer.
+    const result = checkAge("UNDER_18", bornYearsAgo(30), NOW);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
   });
 
-  it("does not disagree with itself about where the boundaries are", () => {
-    // Guards the constants, not the function: a minor tier only exists while MINIMUM_AGE < ADULT_AGE.
-    // Setting them equal would silently delete the 16-17 band and quietly restore an 18+ platform.
-    expect(MINIMUM_AGE).toBeLessThan(ADULT_AGE);
-    for (let age = MINIMUM_AGE; age < ADULT_AGE; age++) {
-      const result = checkAge("UNDER_18", bornYearsAgo(age), NOW);
-      expect(result.ok).toBe(true);
-      expect(result.isMinor).toBe(true);
-    }
+  it("refuses an adult bracket with a minor birth date", () => {
+    const result = checkAge("AGE_18_24", bornYearsAgo(16), NOW);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+  });
+
+  it("has no gap between the minimum age and adulthood", () => {
+    // Guards the constants: a minor tier would exist only while MINIMUM_AGE < ADULT_AGE.
+    expect(MINIMUM_AGE).toBe(ADULT_AGE);
   });
 });

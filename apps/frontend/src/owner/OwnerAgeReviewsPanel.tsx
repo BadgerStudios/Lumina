@@ -87,7 +87,7 @@ function ReviewCard({
               onClick={() => onDecide("MINOR")}
               className="flex items-center gap-1.5 rounded bg-flare/15 px-3 py-1.5 text-xs font-medium text-flare ring-1 ring-flare/30 hover:bg-flare/25 disabled:opacity-50"
             >
-              <X className="h-3.5 w-3.5" /> Reject — under 18
+              <X className="h-3.5 w-3.5" /> Reject — under 18 (closes account)
             </button>
           </div>
         </div>

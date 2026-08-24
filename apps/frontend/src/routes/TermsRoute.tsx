@@ -36,8 +36,7 @@ export function TermsRoute() {
             The short version
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-signal-dim">
-            You must be 16 or over, and if you're under 18 a parent or guardian has to link their
-            account to yours before you can use Lumina. The video feed is for adults only. What you
+            You must be 18 or over to use Lumina — there are no accounts for minors. What you
             upload stays yours, but you let us host and show it. Don't post anything illegal or
             anything you don't have the right to post. Videos are reviewed by a person before anyone
             else sees them. Break the rules and your access ends. Everything below says the same
@@ -46,12 +45,13 @@ export function TermsRoute() {
         </section>
 
         <Section title="Who may use Lumina">
-          <Item label="16 and over, with parental linking under 18">
-            You must be 16 or older to use Lumina. If you are 16 or 17, your account is created but
-            stays locked until a parent or guardian links their own account to yours; the video feed
-            is for adults only. You confirm your date of birth when you register, and an account with
-            no age on record is restricted until it answers. Anyone under 16 is refused, and the
-            device is prevented from immediately signing up again with a different birthday.
+          <Item label="18 and over — adults only">
+            You must be 18 or older to use Lumina. You confirm your age range and date of birth when
+            you register; anyone under 18 is refused before an account is created, and that device
+            is prevented from immediately signing up again with a different birthday. An account
+            with no age on record is restricted until it answers. If we later find an account is
+            held by someone under 18, the account is closed. There is no supervised or parent-linked
+            tier.
           </Item>
           <Item label="One person, one account">
             You are responsible for what happens under your account, including anything done by

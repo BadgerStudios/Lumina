@@ -9,23 +9,20 @@ import type { AgeBracket } from "@prisma/client";
  */
 
 /**
- * Two different thresholds, and the distinction is now load-bearing rather than theoretical.
+ * Lumina is an adults-only platform: 18 and over, no minor tier.
  *
- * `MINIMUM_AGE` is who may hold an account at all. `ADULT_AGE` is where the contact-separation
- * boundary sits. They used to be the same number, which made the platform simply 18+; they are
- * deliberately different now, and the gap between them IS the minor tier:
+ * `MINIMUM_AGE` is who may hold an account at all; `ADULT_AGE` is the contact-separation and
+ * money-surface boundary. They are the SAME number on purpose. A 16–17 "supervised minor" tier
+ * existed briefly (parent-paired accounts, separated from adults); the operator withdrew it on
+ * 2026-08-24 — the review flow's only real outcome for a minor was restricting the account, and
+ * the honest product statement is simply "18+". The minor-handling code paths (parental links,
+ * contact separation, isMinor) are kept so an account found to be under 18 after the fact is
+ * still walled off while it is dealt with, but no new minor account can be created.
  *
- *   under 16   — refused, and the signup device cooldown applies
- *   16 and 17  — permitted, as a MINOR account: parent-paired, separated from adults, no video
- *                feed, no billing, no store
- *   18+        — an ordinary adult account
- *
- * 16 rather than 13 was the operator's choice. Worth knowing why the number matters beyond policy:
- * below 13 the US COPPA regime applies (verifiable parental consent, not merely a paired account),
- * and several EU states set GDPR digital consent at 16. A 16 floor keeps this instance clear of
- * both. If this is ever lowered, that is a legal question before it is an engineering one.
+ * If this is ever lowered again, that is a legal question (GDPR digital-consent ages, COPPA
+ * below 13) before it is an engineering one.
  */
-export const MINIMUM_AGE = 16;
+export const MINIMUM_AGE = 18;
 export const ADULT_AGE = 18;
 
 /**
@@ -92,14 +89,15 @@ export function checkAge(selected: AgeBracket, birthDate: Date, now = new Date()
   const derived = bracketFromAge(age);
   const derivedMinor = age < ADULT_AGE;
 
-  if (age < MINIMUM_AGE) {
+  // Either answer saying "under 18" is decisive on an 18+ platform: the person has told us they
+  // are not eligible, and there is nothing to reconcile. Refused before any account row exists.
+  if (age < MINIMUM_AGE || isMinorBracket(selected)) {
     return { ok: false, reasonCode: "AGE_UNDER_MINIMUM", bracket: derived, isMinor: true };
   }
 
-  // Selecting "Under 18" is no longer disqualifying — it is how a 16 or 17 year old correctly
-  // identifies themselves, and refusing it was what pushed exactly those people into lying about
-  // their birthday. What still has to hold is that the two answers AGREE about which side of 18
-  // the person is on.
+  // Both answers claim an adult; they can still disagree with each other about the 18 boundary
+  // only if the derived age is a minor, which the check above already refused. Kept as the
+  // documented outcome for a future bracket/date disagreement rather than silently resolving one.
   if (isMinorBracket(selected) !== derivedMinor) {
     // Held for a human rather than silently resolved: one answer claims an adult and the other a
     // minor, and that is the single distinction this whole system exists to get right. Guessing

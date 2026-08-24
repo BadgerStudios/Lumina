@@ -5,6 +5,7 @@ import { env } from "../../config/env.js";
 import { ADULT_AGE, ageFromBirthDate } from "../age/service.js";
 import { createInquiry, isPersonaConfigured } from "./persona.js";
 import { verifyDeviceAttestation, type AttestationPlatform } from "./attestation.js";
+import { banUser } from "../bans/service.js";
 
 /**
  * Age-assurance service — the one place that records signals and reconciles them into the account's
@@ -266,7 +267,20 @@ export async function decideManualReview(
   if (decision === "ADULT") {
     await markDocumentVerified(review.userId, "admin_selfie_review", null, false);
   } else {
+    // Lumina is 18+: a reviewer concluding "minor" means the account should not exist. The
+    // minor flag still goes on first so every contact-separation rule holds during any appeal,
+    // and then the ACCOUNT is banned — only the account. Not the email, IP or device: a phone is
+    // shared with siblings and parents, a fingerprint collides across identical hardware, and the
+    // condition expires on its own (the person is an adult in at most two years). The ban is
+    // appealable through the normal route, which is also where a mistaken decision gets undone.
     await setMinor(review.userId, "admin_selfie_review");
+    await banUser({
+      userId: review.userId,
+      actorId: adminId,
+      reason: "Under 18 — Lumina is for adults (18+). You're welcome back once you are.",
+      expiresAt: null,
+      scopes: { email: false, ip: false, device: false },
+    });
   }
 
   // The images are NOT deleted here. They are stamped with a deletion deadline and swept by

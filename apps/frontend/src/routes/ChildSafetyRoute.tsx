@@ -73,17 +73,15 @@ export function ChildSafetyRoute() {
             the feed on an automated decision alone.
           </Item>
           <Item label="Age is verified, not assumed">
-            Lumina is 16+. New accounts confirm their age through a reviewed identity check rather
-            than a typed-in birthday. Accounts aged 16 or 17 stay locked until a parent or guardian
-            links their own account.
+            Lumina is 18+. Every new account declares an age range and a date of birth, both are
+            cross-checked, and anyone under 18 is refused before an account exists. Money features
+            require a further reviewed identity check.
           </Item>
-          <Item label="Minors and adults are separated in the product">
-            The separation is enforced on the server, not in the interface. The adult video feed is
-            unreachable for a minor account regardless of what the client requests.
-          </Item>
-          <Item label="Parental controls">
-            A linked parent or guardian has visibility and control over the minor account they are
-            responsible for.
+          <Item label="No minor tier — under-18 accounts are removed">
+            There is no supervised or parent-linked account type. An account found to be held by
+            someone under 18 is walled off from every contact surface on the server the moment the
+            finding is recorded, and then closed. The closure applies to the account, not to a
+            shared phone or household connection.
           </Item>
           <Item label="Proactive filtering and audit">
             Keyword filtering runs before a message is delivered, and every privileged action taken

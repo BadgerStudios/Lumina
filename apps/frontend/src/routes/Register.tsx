@@ -10,7 +10,6 @@ import { getNativeAgeSignal } from "../lib/ageSignals";
 /** Five bands, matching AgeBracket on the server. Coarse on purpose: the platform only needs to
  * know whether an account is a minor, and a band is far less identifying to store than an age. */
 const AGE_BRACKETS: Array<{ value: AgeBracket; label: string }> = [
-  { value: "UNDER_18", label: "Under 18" },
   { value: "AGE_18_24", label: "18–24" },
   { value: "AGE_25_34", label: "25–34" },
   { value: "AGE_35_49", label: "35–49" },
@@ -138,8 +137,7 @@ export function Register() {
                 operate, and the requirement is that the purpose be stated and reachable, not that
                 it be printed on the form itself. */}
             <p className="-mt-1 text-xs text-signal-faint">
-              Lumina is 16+. If you're under 18 you'll need a parent or guardian to link their
-              account before you can start, and some parts of Lumina stay off. Your date of birth is
+              Lumina is for adults — you must be 18 or older to register. Your date of birth is
               never shown on your profile. By registering you agree to our{" "}
               <Link to="/terms" className="text-accent hover:underline">
                 terms of service

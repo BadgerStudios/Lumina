@@ -186,7 +186,7 @@ function Hero() {
           </div>
 
           <p className="reveal label-mono mt-7 text-signal-faint" style={{ ["--reveal-delay" as string]: "580ms" }}>
-            Free to join · 16+ · Video feed 18+
+            Free to join · 18+ only
           </p>
         </div>
 
@@ -595,8 +595,8 @@ const FEATURES: Array<{ icon: typeof Mic; title: string; body: string; span?: st
   },
   {
     icon: Shield,
-    title: "Family & safety",
-    body: "A full parental-control suite, minor/adult separation enforced server-side, and age gating that can't be skipped.",
+    title: "Adults only, enforced",
+    body: "Lumina is 18+. Age is checked before an account exists, the video feed and payments need a confirmed adult, and every refusal carries a reason and an appeal route.",
   },
   {
     icon: CalendarClock,
