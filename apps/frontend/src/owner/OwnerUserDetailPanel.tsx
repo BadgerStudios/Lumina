@@ -24,7 +24,7 @@ export function OwnerUserDetailPanel({ userId, onClose }: { userId: string; onCl
         className="flex max-h-[calc(var(--app-height-safe)*0.90)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-hairline bg-base-800 sm:rounded-2xl"
         // Bottom-anchored on a phone and centred on a desktop: the owner console is used on both,
         // and a centred sheet on a 390px screen wastes the half of the height a thumb can reach.
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ paddingBottom: "var(--safe-bottom)" }}
       >
         <header className="flex shrink-0 items-center gap-3 border-b border-hairline px-4 py-3">
           <h2 className="min-w-0 flex-1 truncate font-display text-base text-signal">

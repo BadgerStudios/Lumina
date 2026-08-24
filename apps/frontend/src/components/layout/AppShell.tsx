@@ -156,7 +156,7 @@ export function AppShell() {
     // bare gap above the app.
     <div
       className="lx-canvas flex h-app-safe flex-col overflow-hidden text-signal"
-      style={{ paddingTop: "max(env(safe-area-inset-top), var(--android-safe-top, 0px))" }}
+      style={{ paddingTop: "var(--safe-top)" }}
     >
       {/* Above the update banner: on iPhone this is the difference between the app being a tab and
           being an installed app that can receive notifications at all. Renders nothing on every
@@ -169,7 +169,7 @@ export function AppShell() {
             the composer / conversation list content; the deck and aside sheets are position:fixed
             below that breakpoint so this padding doesn't affect them. */}
         <div
-          className="flex h-full min-w-0 flex-1 pb-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom))] md:gap-2 md:pb-0"
+          className="flex h-full min-w-0 flex-1 pb-[calc(var(--bottom-nav-h)+var(--safe-bottom))] md:gap-2 md:pb-0"
           style={accentStyle}
         >
           {/* Inside the rail and the bottom nav, not around them: a channel that throws should

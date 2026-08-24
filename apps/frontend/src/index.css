@@ -844,8 +844,8 @@ body {
      top of each other. */
   @media (max-width: 1023.98px) {
     .lx-sheet--aside {
-      top: max(env(safe-area-inset-top), var(--android-safe-top, 0px));
-      bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + var(--keyboard-inset));
+      top: var(--safe-top);
+      bottom: calc(var(--bottom-nav-h) + var(--safe-bottom) + var(--keyboard-inset));
     }
   }
   @media (min-width: 768px) and (min-height: 500px) and (max-width: 1023.98px) {
@@ -857,8 +857,8 @@ body {
 
   @media (max-width: 767.98px), (max-height: 499.98px) {
     .lx-sheet {
-      top: max(env(safe-area-inset-top), var(--android-safe-top, 0px));
-      bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + var(--keyboard-inset));
+      top: var(--safe-top);
+      bottom: calc(var(--bottom-nav-h) + var(--safe-bottom) + var(--keyboard-inset));
     }
   }
 
@@ -875,4 +875,14 @@ body {
     outline-offset: 2px;
     border-radius: var(--row-radius);
   }
+}
+
+/* Device safe areas, resolved once. iOS/web report the notch and home-indicator through env();
+   Android 15+ is forced edge-to-edge and env() is unreliable there (often 0 for the bars), so
+   MainActivity publishes the real WindowInsets as --android-safe-* on <html>. Every consumer
+   uses these two, never env() directly — the bottom nav sat under the navigation buttons on
+   Android because half the call sites only read env(). */
+:root {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--android-safe-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--android-safe-bottom, 0px));
 }

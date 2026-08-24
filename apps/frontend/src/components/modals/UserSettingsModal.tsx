@@ -1707,8 +1707,8 @@ export function UserSettingsModal() {
             // max(env, native var): iOS/web use env(); Android (where the status-bar env() inset is
             // unreliable under forced edge-to-edge) uses --android-safe-* injected natively by
             // MainActivity, so the content never sits under the status/navigation bars.
-            paddingTop: "max(env(safe-area-inset-top), var(--android-safe-top, 0px))",
-            paddingBottom: "max(env(safe-area-inset-bottom), var(--android-safe-bottom, 0px))",
+            paddingTop: "var(--safe-top)",
+            paddingBottom: "var(--safe-bottom)",
             paddingLeft: "max(env(safe-area-inset-left), var(--android-safe-left, 0px))",
             paddingRight: "max(env(safe-area-inset-right), var(--android-safe-right, 0px))",
           }}

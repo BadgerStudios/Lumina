@@ -222,8 +222,8 @@ export function ServerSettingsModal() {
         <Dialog.Content
           className="fixed inset-0 z-[60] flex focus:outline-none"
           style={{
-            paddingTop: "max(env(safe-area-inset-top), var(--android-safe-top, 0px))",
-            paddingBottom: "max(env(safe-area-inset-bottom), var(--android-safe-bottom, 0px))",
+            paddingTop: "var(--safe-top)",
+            paddingBottom: "var(--safe-bottom)",
             paddingLeft: "max(env(safe-area-inset-left), var(--android-safe-left, 0px))",
             paddingRight: "max(env(safe-area-inset-right), var(--android-safe-right, 0px))",
           }}

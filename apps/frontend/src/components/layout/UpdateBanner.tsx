@@ -72,7 +72,13 @@ export function UpdateBanner() {
         // the one case where doing nothing is unambiguously correct.
         toast.error("The downloaded update didn't match its signature and was discarded");
       } else {
-        toast.error("Couldn't download the update — check your connection and try again");
+        // The native downloader failed for a reason the plugin now names (UnknownHostException,
+        // SocketTimeoutException, ActivityNotFoundException…). Say it, then hand the SAME URL to
+        // the system browser: Chrome downloads the APK and the user taps it to install — a path
+        // that works even when the in-app HttpURLConnection cannot, so an updater failure never
+        // leaves someone stranded on an old build.
+        toast.error(`In-app download failed (${message}). Opening the update in your browser instead.`);
+        if (android.release) window.open(android.release.url, "_blank");
       }
     } finally {
       listener.current?.remove();

@@ -98,8 +98,8 @@ export function MobileBottomNav() {
     // 390px-tall viewport that row of captions is a real fraction of the screen, and the icons
     // carry the same meaning on their own — aria-label keeps them reachable for a screen reader.
     <nav
-      className="fixed inset-x-0 bottom-keyboard z-50 flex items-center justify-around gap-0.5 overflow-hidden border-t border-hairline bg-base-900/95 px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur-xl md:hidden"
-      style={{ height: "calc(var(--bottom-nav-h) + env(safe-area-inset-bottom))" }}
+      className="fixed inset-x-0 bottom-keyboard z-50 flex items-center justify-around gap-0.5 overflow-hidden border-t border-hairline bg-base-900/95 px-1 pb-[var(--safe-bottom)] pt-1.5 backdrop-blur-xl md:hidden"
+      style={{ height: "calc(var(--bottom-nav-h) + var(--safe-bottom))" }}
       // Not "Primary": the deck already claims that landmark name, and both are in the DOM at
       // once (each hidden by a media query, which assistive tech does not treat as absent). Two
       // navigation landmarks with the same accessible name are indistinguishable in a landmark

@@ -32,7 +32,7 @@ export function ActivityFeed() {
       {/* Anchored just above the tab bar rather than at a fixed `bottom-20`, which was a guess that
           drifted whenever the bar changed height (it is shorter in landscape) or the keyboard
           opened. */}
-      <div className="lx-raised fixed inset-x-3 bottom-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom)+var(--keyboard-inset)+0.5rem)] z-40 flex max-h-[calc(var(--app-height-safe)*0.60)] flex-col overflow-hidden md:hidden">
+      <div className="lx-raised fixed inset-x-3 bottom-[calc(var(--bottom-nav-h)+var(--safe-bottom)+var(--keyboard-inset)+0.5rem)] z-40 flex max-h-[calc(var(--app-height-safe)*0.60)] flex-col overflow-hidden md:hidden">
         <div className="flex shrink-0 items-center gap-1.5 border-b border-hairline px-4 py-3 text-sm font-semibold text-signal">
           <AtSign size={16} className="text-accent" /> Activity
         </div>

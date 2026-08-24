@@ -68,7 +68,7 @@ export function VoiceDock() {
         // answering is both ugly and a mis-tap waiting to happen.
         "pointer-events-none fixed inset-x-0 z-30 flex justify-center px-3",
         // Above the mobile tab bar on phones; a comfortable float above the composer elsewhere.
-        "bottom-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom)+var(--keyboard-inset)+0.5rem)]",
+        "bottom-[calc(var(--bottom-nav-h)+var(--safe-bottom)+var(--keyboard-inset)+0.5rem)]",
         "md:bottom-[calc(var(--keyboard-inset)+1rem)]",
       )}
     >

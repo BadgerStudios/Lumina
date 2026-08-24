@@ -245,11 +245,11 @@ export function OwnerApp() {
         )}
         // Bottom inset for the same reason as the top: the drawer spans the full height, so its
         // last nav item would otherwise sit under the gesture bar and be hard to tap.
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ paddingBottom: "var(--safe-bottom)" }}
       >
         <div
           className="flex items-center gap-2.5 border-b border-[var(--oc-line)] px-4 pb-4"
-          style={{ paddingTop: "calc(1rem + env(safe-area-inset-top))" }}
+          style={{ paddingTop: "calc(1rem + var(--safe-top))" }}
         >
           <span
             className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -343,7 +343,7 @@ export function OwnerApp() {
             the panel colour still fills the strip behind the status bar instead of leaving a gap. */}
         <header
           className="flex items-center gap-3 border-b border-[var(--oc-line)] bg-[var(--oc-panel)] px-4 pb-3"
-          style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
+          style={{ paddingTop: "calc(0.75rem + var(--safe-top))" }}
         >
           <button
             type="button"
@@ -369,7 +369,7 @@ export function OwnerApp() {
         <main
           className="min-h-0 flex-1 overflow-y-auto p-4"
           style={{
-            paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))",
+            paddingBottom: "calc(1.5rem + var(--safe-bottom))",
           }}
         >
           {/* Per-section rather than around the whole console: a panel that throws — a stat with an

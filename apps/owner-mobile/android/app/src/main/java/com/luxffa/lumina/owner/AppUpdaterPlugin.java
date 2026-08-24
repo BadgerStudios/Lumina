@@ -110,7 +110,10 @@ public class AppUpdaterPlugin extends Plugin {
                 }
                 call.reject("CHECKSUM_MISMATCH");
             } catch (Exception e) {
-                call.reject(e.getMessage() == null ? "Download failed" : e.getMessage());
+                // The class name is the diagnostic: "UnknownHostException" vs "SocketTimeoutException"
+                // vs "ActivityNotFoundException" point at completely different fixes, and the web
+                // layer shows this text to the user so the reason is never hidden behind a generic toast.
+                call.reject(e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage()));
             }
         }).start();
     }
@@ -133,6 +136,10 @@ public class AppUpdaterPlugin extends Plugin {
         conn.setConnectTimeout(20_000);
         conn.setReadTimeout(60_000);
         conn.setInstanceFollowRedirects(true);
+        // Explicit headers: HttpURLConnection sends a bare Dalvik/… user agent and no Accept, the
+        // exact shape edge bot-filters treat as automated. Name ourselves honestly instead.
+        conn.setRequestProperty("User-Agent", "Lumina-Android-Updater (" + getContext().getPackageName() + ")");
+        conn.setRequestProperty("Accept", "application/vnd.android.package-archive, */*");
         conn.connect();
 
         int status = conn.getResponseCode();
