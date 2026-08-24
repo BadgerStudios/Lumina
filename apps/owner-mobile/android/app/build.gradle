@@ -22,6 +22,25 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    // Same shared signing identity as the chat app (apps/mobile) — see the comment there. The two
+    // apps are distinct applicationIds but there is no reason for them to have distinct signing
+    // histories, and one keystore is one thing to back up instead of two.
+    def keystoreProperties = new Properties()
+    def keystorePropertiesFile = rootProject.file("../../../secrets/keystore.properties")
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+        signingConfigs {
+            luminaShared {
+                storeFile file(keystoreProperties.getProperty("storeFile"))
+                storePassword keystoreProperties.getProperty("storePassword")
+                keyAlias keystoreProperties.getProperty("keyAlias")
+                keyPassword keystoreProperties.getProperty("keyPassword")
+            }
+        }
+        buildTypes.debug.signingConfig = signingConfigs.luminaShared
+        buildTypes.release.signingConfig = signingConfigs.luminaShared
+    }
 }
 
 repositories {

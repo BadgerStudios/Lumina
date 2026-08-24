@@ -34,11 +34,13 @@ import { TermsRoute } from "./routes/TermsRoute";
 import { ChildSafetyRoute } from "./routes/ChildSafetyRoute";
 import { FeaturesRoute } from "./routes/FeaturesRoute";
 import { InstallRoute } from "./routes/InstallRoute";
+import { DownloadsRoute } from "./routes/DownloadsRoute";
 import { DevPortalRoute } from "./routes/dev/DevPortalRoute";
 import { VerifyEmailRoute } from "./routes/VerifyEmailRoute";
 import { ForgotPassword } from "./routes/ForgotPassword";
 import { ResetPassword } from "./routes/ResetPassword";
 import { LandingRoute } from "./routes/LandingRoute";
+import { DeepLinkHandler } from "./components/common/DeepLinkHandler";
 import { CLIENT_TYPE } from "./lib/platform";
 
 /**
@@ -85,6 +87,9 @@ export function App() {
       {/* Global bot-challenge overlay: pops on demand when a protected request needs a Turnstile
           token, then the apiClient retries transparently. Covers every surface without a per-form widget. */}
       <TurnstileChallengeModal />
+      {/* Native-only (no-op elsewhere): routes Android App Links — emailed reset/verify links,
+          shared invites — into the router. Must live inside BrowserRouter for useNavigate. */}
+      <DeepLinkHandler />
       <Routes>
         {/* The public landing page, web only.
             On mobile/desktop builds CLIENT_TYPE is set at build time and `/` is the app itself —
@@ -105,6 +110,9 @@ export function App() {
         <Route path="/csae" element={<ChildSafetyRoute />} />
         <Route path="/features" element={<FeaturesRoute />} />
         <Route path="/install" element={<InstallRoute />} />
+        {/* Public on purpose: someone downloading the app has no account yet, and the
+            ownership notices on this page need to be readable without signing in. */}
+        <Route path="/downloads" element={<DownloadsRoute />} />
         {/* Docs are public by design — a developer evaluating the platform has no account yet. */}
         <Route path="/developers" element={<DevPortalRoute />} />
         <Route path="/developers/:pageId" element={<DevPortalRoute />} />

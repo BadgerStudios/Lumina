@@ -22,6 +22,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- App Links: emailed password-reset / verify-email links and shared invites open
+                 IN the app instead of the browser. Three parts have to agree or the whole thing
+                 silently degrades to the browser:
+                   1. these host+path claims,
+                   2. the allowlists in frontend src/components/common/DeepLinkHandler.tsx
+                      (which turns the received URL into router navigation — without it the app
+                      opens and the link is dropped, which was the original reset-flow bug),
+                   3. /.well-known/assetlinks.json on BOTH hosts, which must list the SHA-256 of
+                      the cert this APK is signed with (autoVerify makes Android check it).
+                 <data> elements union: any listed host x any listed path matches. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="lumina.badgerstudios.net" />
+                <data android:host="lumina.luxffa.com" />
+                <data android:path="/reset-password" />
+                <data android:path="/verify-email" />
+                <data android:pathPrefix="/invite/" />
+            </intent-filter>
+
         </activity>
 
         <provider

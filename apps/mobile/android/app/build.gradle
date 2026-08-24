@@ -22,6 +22,31 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    // One stable signing identity for every Lumina APK — DEBUG BUILDS INCLUDED, because the
+    // sideloaded `assembleDebug` output IS the published artifact. Before this existed, each build
+    // was signed by whichever machine's auto-generated ~/.android/debug.keystore happened to run
+    // gradle: five different certificates exist across published versions, installed apps refused
+    // in-place updates whenever the cert changed, and Android App Links (assetlinks.json pins the
+    // cert hash) verified or failed by luck. secrets/keystore.properties + the keystore it points
+    // to are gitignored and MUST be backed up — losing them recreates exactly that mess. The cert's
+    // SHA-256 must stay listed in apps/frontend/public/.well-known/assetlinks.json. Falls back to
+    // the default debug keystore when the file is absent so a fresh checkout still builds.
+    def keystoreProperties = new Properties()
+    def keystorePropertiesFile = rootProject.file("../../../secrets/keystore.properties")
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+        signingConfigs {
+            luminaShared {
+                storeFile file(keystoreProperties.getProperty("storeFile"))
+                storePassword keystoreProperties.getProperty("storePassword")
+                keyAlias keystoreProperties.getProperty("keyAlias")
+                keyPassword keystoreProperties.getProperty("keyPassword")
+            }
+        }
+        buildTypes.debug.signingConfig = signingConfigs.luminaShared
+        buildTypes.release.signingConfig = signingConfigs.luminaShared
+    }
 }
 
 repositories {
