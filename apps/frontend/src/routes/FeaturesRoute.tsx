@@ -103,7 +103,7 @@ export function FeaturesRoute() {
           <Shot
             inline
             src="/screens/age-gate.png"
-            alt="Lumina's registration form showing the age section: Lumina is 16+, and under-18s need a parent or guardian to link their account."
+            alt="Lumina's registration form showing the age section: Lumina is 18+, adults only."
             caption="The live signup form — age is required and cross-checked before an account is ever created."
           />
         </div>
@@ -164,7 +164,7 @@ export function FeaturesRoute() {
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
-              <Row label="Minimum age" a="16+ (under-18 parent-supervised)" b="13+" aGood />
+              <Row label="Minimum age" a="18+ (adults only)" b="13+" aGood />
               <Row label="Behavioural ad targeting" a="None — ads are never targeted on what you say or watch" b="Sponsored placements" aGood />
               <Row label="Video feed" a="Adults only, every upload human-reviewed" b="No comparable feed" aGood />
               <Row label="Moderation tooling" a="Full console, audit trail, appeals" b="Built-in tools" />

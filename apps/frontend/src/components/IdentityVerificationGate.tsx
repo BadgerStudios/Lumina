@@ -56,9 +56,9 @@ export function IdentityVerificationGate() {
         </div>
         <h2 className="mt-3 font-display text-xl text-signal">Confirm you are old enough</h2>
         <p className="mt-2 text-sm leading-relaxed text-signal-dim">
-          Lumina is 16+, and the video feed is for adults only. To keep that true we check every new
-          account by hand rather than taking a typed-in birthday at face value. Upload a photo of
-          yourself and a photo of a government ID, and a member of our team will review them.
+          Lumina is 18+, and this part of it needs a confirmed adult. To keep that true we check by
+          hand rather than taking a typed-in birthday at face value. Upload a photo of yourself and a
+          photo of a government ID, and a member of our team will review them.
         </p>
 
         {/* The retention promise. Deliberately specific: a vague "we delete it soon" is the kind of

@@ -6,7 +6,6 @@ import { api, ApiError } from "../lib/apiClient";
 import { useAuthStore } from "../store/authStore";
 
 const AGE_BRACKETS: Array<{ value: AgeBracket; label: string }> = [
-  { value: "UNDER_18", label: "Under 18" },
   { value: "AGE_18_24", label: "18–24" },
   { value: "AGE_25_34", label: "25–34" },
   { value: "AGE_35_49", label: "35–49" },
@@ -45,9 +44,8 @@ export function AgeGateModal() {
       <div className="w-full max-w-md rounded-xl border border-hairline bg-base-800 p-6">
         <h2 className="font-display text-xl text-signal">One quick thing</h2>
         <p className="mt-2 text-sm text-signal-dim">
-          We need your age before you can carry on using Lumina. Lumina is 16+; if you're under 18 a
-          parent or guardian will need to link their account to yours. Your date of birth is
-          never shown on your profile — see our{" "}
+          We need your age before you can carry on using Lumina. Lumina is for adults 18 and over.
+          Your date of birth is never shown on your profile — see our{" "}
           <a href="/privacy" className="text-accent hover:underline">
             privacy policy
           </a>
