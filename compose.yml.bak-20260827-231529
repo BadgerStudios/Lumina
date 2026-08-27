@@ -1,0 +1,337 @@
+# Container log rotation, applied to every service via `<<: *logging`.
+#
+# Docker's default json-file driver has NO size limit: logs grow until the disk does. The backend
+# logs a line per request through pino, so on a busy day that is the fastest-growing thing on the
+# host, and it fills the same disk Postgres and the uploads volume live on. There is no warning
+# before it bites — the database simply stops being able to write.
+#
+# 10MB x 3 files caps every container at 30MB. `docker compose logs` still reaches back far enough
+# to debug a recent incident; anything older belongs in a real log store, not on this disk.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lumina-postgres
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - lumina-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7-alpine
+    container_name: lumina-redis
+    restart: unless-stopped
+    <<: *logging
+    # maxmemory-policy is `noeviction`, NOT the usual `allkeys-lru`: nothing stored here is a cache.
+    # It holds Socket.IO adapter state, presence connection counters (evicting one corrupts a
+    # user's online status), and BullMQ's video transcode jobs — evicting a job silently strands
+    # that upload in PROCESSING forever with no error anywhere. BullMQ warns about exactly this on
+    # startup. Under lru those losses would be invisible; under noeviction a genuinely full Redis
+    # fails writes loudly instead, which is the far better failure mode. Current usage is ~2MB
+    # against a 256MB cap, so the "full" case is remote.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--save", "", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 300m
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: lumina-backend
+    restart: unless-stopped
+    <<: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL}
+      UPLOADS_DIR: /data/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB}
+      PORT: 4000
+      NODE_ENV: ${NODE_ENV}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_HOST: ${TURN_HOST}
+      TURN_PORT: 3478
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+      ANDROID_VERSION_CODE: ${ANDROID_VERSION_CODE}
+      OPS_AGENT_SECRET: ${OPS_AGENT_SECRET}
+      SITE_ADMIN_EMAILS: ${SITE_ADMIN_EMAILS}
+      MASTER_EMAIL: ${MASTER_EMAIL}
+      OWNER_EMAILS: ${OWNER_EMAILS}
+      STAFF_EMAILS: ${STAFF_EMAILS}
+      MAX_VIDEO_UPLOAD_MB: ${MAX_VIDEO_UPLOAD_MB}
+      MAX_VIDEO_DURATION_SEC: ${MAX_VIDEO_DURATION_SEC}
+      MAX_VIDEO_UPLOADS_PER_DAY: ${MAX_VIDEO_UPLOADS_PER_DAY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+      # Emergency rollback lever for the native-app Turnstile exemption. Unset/false = every client
+      # must solve the challenge. Set to "true" and restart ONLY if the packaged apps turn out not
+      # to solve the widget in-WebView, which would otherwise leave app users unable to sign up.
+      TURNSTILE_ALLOW_NATIVE_BYPASS: ${TURNSTILE_ALLOW_NATIVE_BYPASS:-}
+      STRIPE_PRICE_PREMIUM_MONTHLY: ${STRIPE_PRICE_PREMIUM_MONTHLY}
+      # Store coin bundles. Read by modules/store/service.ts via COIN_BUNDLES[].priceEnvVar —
+      # price objects live in the Stripe dashboard and differ between test and live mode, so
+      # they are configuration, never constants.
+      STRIPE_PRICE_SPARKS_500: ${STRIPE_PRICE_SPARKS_500:-}
+      STRIPE_PRICE_SPARKS_1200: ${STRIPE_PRICE_SPARKS_1200:-}
+      STRIPE_PRICE_SPARKS_2600: ${STRIPE_PRICE_SPARKS_2600:-}
+      PUBLIC_APP_URL: ${CORS_ORIGIN}
+      IMAGEFRAME_PUBLIC_URL: https://upload.earthai.cloud
+      DOWNLOADS_DIR: /downloads
+      IP_INTEL_DIR: /data/ipintel
+      # Outbound mail. Absent = no email is sent and the app says so plainly rather than pretending
+      # (lib/mail.ts degrades to a no-op, same as push and TURN).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      # Envelope sender (SMTP MAIL FROM) — what SPF is checked against, and deliberately a
+      # different domain from the From: header. See lib/mail.ts for why.
+      SMTP_ENVELOPE_FROM: ${SMTP_ENVELOPE_FROM:-}
+      # DKIM. The key itself is mounted as a file below rather than passed here: `environment:`
+      # values are visible to anyone who can run `docker inspect`.
+      DKIM_DOMAIN: ${DKIM_DOMAIN:-}
+      DKIM_SELECTOR: ${DKIM_SELECTOR:-}
+      DKIM_PRIVATE_KEY_FILE: ${DKIM_PRIVATE_KEY_FILE:-}
+      # Extra CA to trust for the SMTP connection. The submission relay is self-signed; pinning it
+      # keeps verification ON while an AUTH password crosses that link.
+      SMTP_TLS_CA_FILE: ${SMTP_TLS_CA_FILE:-}
+    volumes:
+      - lumina-uploads:/data/uploads
+      # Read-only: the counted download route (modules/metrics/downloadRoutes.ts) streams releases
+      # from here so it can record who downloaded what. nginx serves the same directory directly for
+      # anyone with a /downloads/ link, but nginx cannot write to Postgres, hence the second path.
+      - ./downloads:/downloads:ro
+      # IP reputation sets (Tor / VPN / datacenter CIDRs + the iCloud Private Relay allowlist),
+      # refreshed on the host by scripts/update-ip-intel.mjs. Read-only, and a bind mount rather
+      # than baked into the image so a refresh doesn't need a rebuild — lib/ipIntel.ts re-reads the
+      # files when their mtime changes.
+      - ./data/ipintel:/data/ipintel:ro
+      # DKIM signing key. Mounted rather than baked into the image (it would then live in every
+      # layer and every registry copy) and rather than passed as an env var (visible in
+      # `docker inspect`). Gitignored.
+      #
+      # The FILE is mounted, not the directory that holds it, and the two permissions are chosen
+      # together: `secrets/` is 0700 so no other host user can traverse into it, while the key
+      # itself is 0604 because this container runs as uid 100 and could not otherwise read a
+      # host file owned by uid 1000. The world-read bit is unreachable on the host precisely
+      # because the directory denies traversal — and the bind mount never needs that traversal,
+      # since the Docker daemon resolves the path as root at mount time.
+      - ./secrets/dkim.key:/run/secrets/dkim.key:ro
+      # Pinned certificate for the BadgerOS submission relay (self-signed). Public data, but kept
+      # beside the key so there is one place secrets-adjacent files live.
+      - ./secrets/vm-east-submission.pem:/run/secrets/vm-east-submission.pem:ro
+    ports:
+      - "127.0.0.1:4000:4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/healthz').then(r=>{if(r.ok)process.exit(0);process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    mem_limit: 768m
+    security_opt:
+      - no-new-privileges:true
+
+  # Outbound SMTP relay — delivers Lumina's mail straight to each recipient's MX.
+  #
+  # Deliberately publishes NO ports. It listens on 2525 on the Docker network only, so the sole
+  # things that can connect are the other containers here; that is half of what stops this being an
+  # open relay (the other half is the sender-domain check in relay.py, which holds even if a port is
+  # ever published by accident). Adding a `ports:` entry to this service turns it into a relay for
+  # the entire internet — the IP gets blacklisted within hours and ALL Lumina mail stops.
+  mail:
+    build:
+      context: .
+      dockerfile: services/mail-relay/Dockerfile
+    container_name: lumina-mail
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      RELAY_ALLOWED_SENDER_DOMAINS: ${RELAY_ALLOWED_SENDER_DOMAINS:-}
+      RELAY_HELO_HOSTNAME: ${RELAY_HELO_HOSTNAME:-}
+    healthcheck:
+      # Opens a TCP connection and reads the SMTP banner. A plain port check would call it healthy
+      # while the handler was wedged; the banner proves aiosmtpd is actually serving.
+      test: ["CMD", "python", "-c", "import socket,sys; s=socket.create_connection(('127.0.0.1',2525),3); sys.exit(0 if s.recv(64).startswith(b'220') else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+
+  # Video transcode worker — the same image as `backend`, started on its own entrypoint
+  # (dist/worker.js). It exists as a separate container purely for isolation: ffmpeg saturates CPU
+  # and can spike memory hard on a hostile file, and running it in-process would make API latency a
+  # function of whatever happens to be encoding, with an OOM taking the whole API down. Here the
+  # worst case is a stalled queue.
+  #
+  # Shares the lumina-uploads volume (it reads the raw upload the API wrote and writes back the
+  # transcoded MP4 + thumbnail) and the same Redis that carries the BullMQ queue. Publishes no
+  # ports and gets no healthcheck — it serves no traffic; liveness is observable from the queue.
+  # It deliberately does NOT run `prisma migrate deploy` (unlike the backend entrypoint): two
+  # containers racing to migrate the same database on startup is a real way to corrupt a migration.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: lumina-worker
+    restart: unless-stopped
+    <<: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    # `entrypoint`, NOT `command`. The image's ENTRYPOINT is `sh -c "prisma migrate deploy && node
+    # dist/index.js"`, and with a `sh -c` entrypoint any `command:` args are passed as $0/$1/... to
+    # that script — which never references them, so they are silently discarded and the container
+    # runs the API instead of the worker. That failure is invisible (the container is "healthy",
+    # just running the wrong program), so this must stay an entrypoint override.
+    entrypoint: ["node", "dist/worker.js"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      UPLOADS_DIR: /data/uploads
+      NODE_ENV: ${NODE_ENV}
+      # The worker serves no HTTP and never issues a redirect, so neither of these does anything
+      # here — but it loads the SAME config/env.ts as the API, and that module's production guard
+      # refuses to boot when it sees dev-shaped values. Omitting them left the worker falling back
+      # to `http://localhost:5173` and crash-looping 28 times, silently: the healthcheck is disabled
+      # on this service (see below), so `docker compose --wait` reported the stack healthy while the
+      # transcoder was dead and every new video upload would have sat in PROCESSING forever.
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      MAX_VIDEO_UPLOAD_MB: ${MAX_VIDEO_UPLOAD_MB}
+      MAX_VIDEO_DURATION_SEC: ${MAX_VIDEO_DURATION_SEC}
+      MAX_VIDEO_UPLOADS_PER_DAY: ${MAX_VIDEO_UPLOADS_PER_DAY}
+    volumes:
+      - lumina-uploads:/data/uploads
+    # The shared image's HEALTHCHECK probes http://127.0.0.1:4000/healthz, which only the API
+    # serves — inherited unchanged this container reports "unhealthy" forever despite working
+    # fine, and deploy.sh's wait-for-healthy gate would eventually start failing on it.
+    healthcheck:
+      disable: true
+    mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
+
+  # Real TURN relay for voice/video — the mesh WebRTC in store/voiceStore.ts was STUN-only
+  # before this (see roadmap Phase 8's documented limitation), which fails to connect two
+  # peers who are both behind symmetric/restrictive NAT. Bound directly to the host's public
+  # interface (NOT 127.0.0.1 like backend/frontend) since TURN is raw UDP/TCP, not HTTP — it
+  # can't be carried over the Cloudflare Tunnel that fronts the web app, so it's reached
+  # directly at TURN_HOST:3478 instead. Auth uses coturn's time-limited REST API scheme
+  # (shared TURN_SECRET, HMAC-signed short-lived credentials minted per call by
+  # GET /api/voice/turn-credentials) rather than a single static username/password baked into
+  # the client bundle.
+  coturn:
+    image: coturn/coturn:4.6.2-alpine
+    container_name: lumina-coturn
+    restart: unless-stopped
+    <<: *logging
+    # Host networking rather than Docker's bridge + published-ports: this host's public IP
+    # (15.204.81.153) is bound directly to its real NIC, not behind a cloud provider's 1:1 NAT —
+    # confirmed via `ip addr` — so there's no private/public address pair for coturn to
+    # translate between. Under bridge networking, coturn allocates relay candidates using the
+    # container's private bridge IP (e.g. 172.20.0.6) unless that translation is configured
+    # perfectly, and got it wrong on the first attempt (advertised the private bridge address to
+    # clients, which is unreachable from the internet — see roadmap notes). Host networking
+    # sidesteps the whole translation problem: coturn binds the real interface directly.
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --realm=${TURN_HOST}
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET}
+      - --external-ip=${TURN_EXTERNAL_IP}
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    container_name: lumina-frontend
+    restart: unless-stopped
+    <<: *logging
+    depends_on:
+      # service_started, NOT service_healthy. nginx serves the app shell and the /downloads
+      # endpoint without the backend, and only needs the container to exist so `backend` resolves
+      # in Docker's DNS. Waiting for *healthy* meant that on every deploy this container stayed
+      # down for the backend's entire ~40s startup — nothing listening on 5174, so the public
+      # hostname returned a Cloudflare error page for that whole window instead of an app whose
+      # API calls were briefly failing. That was the visible outage on each redeploy.
+      backend:
+        condition: service_started
+    volumes:
+      - ./downloads:/usr/share/nginx/downloads:ro
+    ports:
+      - "127.0.0.1:5174:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  lumina-postgres-data:
+  lumina-uploads:
