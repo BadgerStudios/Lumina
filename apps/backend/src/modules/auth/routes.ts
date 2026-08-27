@@ -21,7 +21,9 @@ import {
 } from "./service.js";
 import { checkIdentifierBans } from "../bans/service.js";
 import { BannedError, BadRequestError, BlockedError } from "../../lib/errors.js";
-import { checkAge } from "../age/service.js";
+import { sendEmailCode, resendEmailCode, verifyEmailCode } from "./emailCode.js";
+import { checkAge, UNDERAGE_SIGNUP_COOLDOWN_DAYS } from "../age/service.js";
+import { SUPPORT_EMAIL } from "../../config/support.js";
 import { refreshMinorStatus } from "../parental/service.js";
 import { hasPlatformRole } from "../../lib/platformRole.js";
 import { requestCountry } from "../site/routes.js";
@@ -179,6 +181,25 @@ async function assertNotBanned(params: {
   });
 }
 
+/**
+ * What a refused signup actually reads on screen.
+ *
+ * AGE_MISMATCH is not an accusation: the birth date and the selected bracket disagree about which
+ * side of 18 someone is on, and by far the commonest cause is a mistyped year. There is no
+ * automated way to tell that apart from a real under-age attempt, so it goes to a human instead of
+ * being guessed — and the person is told exactly who to write to, rather than being stonewalled.
+ *
+ * AGE_UNDER_MINIMUM is a straight answer to a straight question: the platform is 18+, and the
+ * device cannot start a new signup for 30 days. Saying so plainly is kinder than a bare refusal,
+ * and it is the honest thing to tell someone who will otherwise just try again.
+ */
+function ageBlockMessage(reasonCode: string): string {
+  if (reasonCode === "AGE_MISMATCH") {
+    return `The date of birth and the age range you picked don't agree about whether you're 18 or over. If that was a typo, email ${SUPPORT_EMAIL} and a person will sort it out. If the account is for someone under 18, a parent or guardian can set up a linked account instead.`;
+  }
+  return `Lumina is for people aged 18 and over. This device can't start a new sign-up for ${UNDERAGE_SIGNUP_COOLDOWN_DAYS} days. If you're 18 or over and got here by mistyping your date of birth, email ${SUPPORT_EMAIL}.`;
+}
+
 export default async function authRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/register",
@@ -243,7 +264,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
         reasonCode: result.reasonCode,
         detail: `selected=${body.ageBracket} derived=${result.bracket}`,
       });
-      throw new BlockedError(result.reasonCode);
+      // Both outcomes used to surface to the person as the single word "Blocked" — no reason, no
+      // way forward. A mismatch is very often a typo in the date, so it gets a route to a human
+      // rather than a dead end; an under-18 answer gets the honest reason and the retry window.
+      throw new BlockedError(result.reasonCode, ageBlockMessage(result.reasonCode));
     }
     const ageData = {
       ageBracket: result.bracket,
@@ -288,7 +312,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
       void recordOriginFlag(request, { userId: user.id, email: user.email });
       // Fire-and-forget: a slow or unreachable SMTP server must never make signup slow or fail.
       // The account exists and works either way — the email only confirms the address.
-      void sendVerificationEmail({ userId: user.id, email: user.email, username: user.username });
+      // A code, not only a link: the person is mid-signup in a tab, and a six-digit code is typed
+      // there. A link asks them to leave the app, and on a phone it often opens a different browser
+      // than the one holding the half-finished session — which is exactly where signups die.
+      // Fire-and-forget, like the link: a slow SMTP server must never make signup slow or fail.
+      void sendEmailCode({ userId: user.id, email: user.email, username: user.username });
 
       const tokens = await issueTokenPair(user.id, request);
       reply.code(201);
@@ -541,6 +569,58 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const { token } = request.body as { token: string };
       await verifyEmailToken(token);
       return { verified: true };
+    },
+  );
+
+  /**
+   * Confirm the address with the six-digit code from the signup email.
+   *
+   * Authenticated: registration already returned a session, so the account exists and we know who
+   * is asking. That is what lets the code be six digits rather than a long opaque string — it only
+   * ever applies to the caller's own account, so there is nothing to enumerate.
+   *
+   * Rate limited hard on top of the per-code attempt cap: the cap burns one code after six wrong
+   * guesses, and this stops someone cycling resend-then-guess to get unlimited fresh attempts.
+   */
+  fastify.post(
+    "/verify-email/code",
+    {
+      preHandler: [requireAuth],
+      schema: { body: z.object({ code: z.string().trim().min(4).max(10) }) },
+      config: { rateLimit: { max: 12, timeWindow: "10 minutes" } },
+    },
+    async (request) => {
+      const { code } = request.body as { code: string };
+      const result = await verifyEmailCode(request.userId!, code);
+      if (result.ok) return { verified: true, alreadyVerified: result.alreadyVerified };
+      if (result.reason === "expired") {
+        throw new BadRequestError("That code has expired. Ask for a new one and try again.");
+      }
+      if (result.reason === "too-many-attempts") {
+        throw new BadRequestError("Too many incorrect codes. Ask for a new one to start over.");
+      }
+      if (result.reason === "unavailable") {
+        // Honest about a transient dependency rather than telling someone their correct code is
+        // wrong, which would send them off to check their email for no reason.
+        throw new BadRequestError("The check is briefly unavailable. Try again in a moment.");
+      }
+      throw new BadRequestError("That code isn't right. Check the email and try again.");
+    },
+  );
+
+  fastify.post(
+    "/verify-email/code/resend",
+    { preHandler: [requireAuth], config: { rateLimit: { max: 6, timeWindow: "10 minutes" } } },
+    async (request) => {
+      const result = await resendEmailCode(request.userId!);
+      if (result === "too-soon") {
+        throw new BadRequestError("A code was just sent — check your inbox, including spam.");
+      }
+      if (result === "not-configured") {
+        throw new BadRequestError("This server has no mail server configured, so it can't send email.");
+      }
+      if (result === "failed") throw new BadRequestError("Couldn't send the code. Try again shortly.");
+      return { sent: result === "sent", alreadyVerified: result === "already-verified" };
     },
   );
 

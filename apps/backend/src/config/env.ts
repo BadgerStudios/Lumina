@@ -133,6 +133,21 @@ const envSchema = z.object({
    * must not require a code change and redeploy at whatever hour that is discovered. Set to "true"
    * and restart the backend to restore the old spoofable-header exemption, then investigate.
    */
+  /**
+   * When identity verification becomes mandatory for NEW signups, as an ISO date.
+   *
+   * UNSET = never required, which is the default and the safe posture. This used to be a hardcoded
+   * 2026-08-21T16:00Z, and with Persona unconfigured the only route through the gate was a manual
+   * selfie + government-ID queue that an operator had to work by hand. Signups went from 34 in the
+   * preceding 12 days to zero in the 5 days after; the one account that did register is still
+   * sitting behind the wall. A verification requirement that has no working path through it is an
+   * outage, so it now has to be switched on deliberately rather than being on by default.
+   *
+   * Turn it on only once a path actually exists (PERSONA_* set, or someone is genuinely working
+   * the manual queue), and set it to the moment you switch it on so existing accounts stay
+   * grandfathered.
+   */
+  IDENTITY_REQUIRED_FROM: z.string().datetime().optional(),
   TURNSTILE_ALLOW_NATIVE_BYPASS: z
     .string()
     .optional()

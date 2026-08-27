@@ -44,7 +44,7 @@ const deviceSignalSchema = z.object({
  * Set to when the requirement shipped. Moving it FORWARD grandfathers more people; moving it
  * BACKWARD will lock out accounts that are currently fine, so change it deliberately.
  */
-const IDENTITY_REQUIRED_FROM = new Date("2026-08-21T16:00:00.000Z");
+const IDENTITY_REQUIRED_FROM = env.IDENTITY_REQUIRED_FROM ? new Date(env.IDENTITY_REQUIRED_FROM) : null;
 
 const MAX_SELFIE_BYTES = 8 * 1024 * 1024;
 const SELFIE_MIME = /^image\/(jpeg|png|webp|heic|heif)$/i;
@@ -109,8 +109,10 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
       // next page load -- people who joined under a different agreement and did nothing wrong.
       // Existing accounts keep the age they already have on record; the requirement is for new
       // signups, which is what was asked for.
+      // A null cutoff means the requirement is switched off entirely, so nobody is walled off.
       verificationRequired:
-        user.identityVerifiedAt === null
+        IDENTITY_REQUIRED_FROM !== null
+        && user.identityVerifiedAt === null
         && pendingReview === null
         && user.createdAt >= IDENTITY_REQUIRED_FROM,
     };
