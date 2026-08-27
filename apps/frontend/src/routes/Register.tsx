@@ -17,6 +17,32 @@ const AGE_BRACKETS: Array<{ value: AgeBracket; label: string }> = [
   { value: "AGE_50_PLUS", label: "50+" },
 ];
 
+/**
+ * Cloudflare expires an unspent Turnstile token after roughly five minutes. Re-submitting a stale
+ * one fails as TURNSTILE_FAILED and costs the person a baffling round trip, so a retained token is
+ * retired a little before the real boundary rather than at it.
+ */
+const TURNSTILE_TOKEN_MAX_AGE_MS = 4 * 60 * 1000;
+
+/**
+ * Whether the Turnstile token survived this failure.
+ *
+ * A token is single-use, but only once siteverify has actually seen it. Fastify validates the
+ * request body BEFORE it runs preHandlers, so a signup rejected for a taken username or a missing
+ * date of birth never reached the Turnstile check and its token is still unspent. Making someone
+ * re-solve a captcha because they mistyped their email is exactly the friction that loses signups.
+ *
+ * True only where the request demonstrably stopped short of that preHandler: schema validation,
+ * and rate limiting (an onRequest hook, earlier still). Everything else counts as spent —
+ * including a bare network error, where we cannot know how far the request got. Wrongly keeping a
+ * dead token costs a failed submission; wrongly discarding a live one costs one extra checkbox.
+ */
+function turnstileTokenSurvives(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  if (err.status === 429) return true;
+  return err.status === 400 && err.code === "VALIDATION_ERROR";
+}
+
 export function Register() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -26,6 +52,8 @@ export function Register() {
   const [birthDate, setBirthDate] = useState("");
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
+  // When the current token was solved, so a retained one can be dropped before it expires.
+  const [turnstileAt, setTurnstileAt] = useState(0);
   const [turnstileKey, setTurnstileKey] = useState(0);
   const register = useRegister();
   const navigate = useNavigate();
@@ -42,6 +70,14 @@ export function Register() {
     e.preventDefault();
     setAttemptedSubmit(true);
     if (!ageBracket) return;
+    // A token kept across an earlier validation failure may have aged out while the form was being
+    // corrected. Drop it and remount rather than submitting one that is certain to be refused.
+    if (turnstileToken && turnstileAt && Date.now() - turnstileAt > TURNSTILE_TOKEN_MAX_AGE_MS) {
+      setTurnstileToken("");
+      setTurnstileAt(0);
+      setTurnstileKey((k) => k + 1);
+      return;
+    }
     try {
       // On the packaged apps, attach a native age band (Google/Apple) so every signup gets the best
       // free assurance available; null on web and safely ignored server-side without attestation.
@@ -57,12 +93,13 @@ export function Register() {
         deviceSignal,
       });
       setAwaitingCode(true);
-    } catch {
-      // A Turnstile token is single-use: siteverify consumes it on the first attempt, so a retry
-      // with the same token is rejected as TURNSTILE_FAILED no matter what the user fixes.
-      // Drop it and remount the widget so the next attempt carries a fresh token.
-      setTurnstileToken("");
-      setTurnstileKey((k) => k + 1);
+    } catch (err) {
+      // Keep a token the server never got as far as spending; otherwise get a fresh one.
+      if (!turnstileTokenSurvives(err)) {
+        setTurnstileToken("");
+        setTurnstileAt(0);
+        setTurnstileKey((k) => k + 1);
+      }
       /* surfaced below via register.error */
     }
   }
@@ -275,7 +312,14 @@ export function Register() {
             <p className="-mt-2 text-sm text-dnd">Please choose your age range.</p>
           ) : null}
 
-          <Turnstile key={turnstileKey} onToken={setTurnstileToken} action="signup" />
+          <Turnstile
+            key={turnstileKey}
+            onToken={(t) => {
+              setTurnstileToken(t);
+              setTurnstileAt(t ? Date.now() : 0);
+            }}
+            action="signup"
+          />
 
           <button
             type="submit"
