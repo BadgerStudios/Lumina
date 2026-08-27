@@ -90,6 +90,21 @@ export function useRegister() {
   });
 }
 
+/** Confirm the address with the six-digit code from the sign-up email. */
+export function useVerifyEmailCode() {
+  return useMutation({
+    mutationFn: (code: string) =>
+      api.post<{ verified: boolean; alreadyVerified: boolean }>("/auth/verify-email/code", { code }),
+  });
+}
+
+/** Send a fresh code. Retires the previous one and its attempt count server-side. */
+export function useResendEmailCode() {
+  return useMutation({
+    mutationFn: () => api.post<{ sent: boolean; alreadyVerified: boolean }>("/auth/verify-email/code/resend"),
+  });
+}
+
 export function useLogout() {
   const clear = useAuthStore((s) => s.clear);
   return useMutation({

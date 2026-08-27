@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SiteThemeMenu } from "../components/SiteThemeMenu";
+import { useVerifyEmailCode, useResendEmailCode } from "../queries/auth";
 import { useRegister } from "../queries/auth";
 import { ApiError } from "../lib/apiClient";
 import type { AgeBracket } from "@lumina/shared";
@@ -28,6 +29,14 @@ export function Register() {
   const [turnstileKey, setTurnstileKey] = useState(0);
   const register = useRegister();
   const navigate = useNavigate();
+  // Sign-up succeeded and we are now asking for the emailed code. The account already exists and
+  // the session is live at this point, so this step asks — it does not hold anyone hostage.
+  const [awaitingCode, setAwaitingCode] = useState(false);
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const verifyCode = useVerifyEmailCode();
+  const resendCode = useResendEmailCode();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -47,7 +56,7 @@ export function Register() {
         turnstileToken: turnstileToken || undefined,
         deviceSignal,
       });
-      navigate("/", { replace: true });
+      setAwaitingCode(true);
     } catch {
       // A Turnstile token is single-use: siteverify consumes it on the first attempt, so a retry
       // with the same token is rejected as TURNSTILE_FAILED no matter what the user fixes.
@@ -56,6 +65,83 @@ export function Register() {
       setTurnstileKey((k) => k + 1);
       /* surfaced below via register.error */
     }
+  }
+
+  async function handleVerifyCode(e: FormEvent) {
+    e.preventDefault();
+    setCodeError("");
+    try {
+      await verifyCode.mutateAsync(code.trim());
+      navigate("/", { replace: true });
+    } catch (err) {
+      setCodeError(err instanceof Error ? err.message : "That code isn't right.");
+    }
+  }
+
+  async function handleResend() {
+    setCodeError("");
+    setCodeSent(false);
+    try {
+      await resendCode.mutateAsync();
+      setCodeSent(true);
+    } catch (err) {
+      setCodeError(err instanceof Error ? err.message : "Couldn't send a new code.");
+    }
+  }
+
+  if (awaitingCode) {
+    return (
+      <div className="relative flex min-h-app items-center justify-center bg-base-900">
+        <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
+          <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
+          <h1 className="mb-1 text-center text-2xl font-bold text-signal">Check your email</h1>
+          <p className="mb-6 text-center text-sm text-base-300">
+            We sent a six-digit code to <span className="font-medium text-base-100">{email}</span>.
+          </p>
+          <form onSubmit={handleVerifyCode} className="flex flex-col gap-4">
+            <input
+              value={code}
+              onChange={(ev) => setCode(ev.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              aria-label="Six-digit confirmation code"
+              placeholder="000000"
+              className="w-full rounded-md bg-base-900 px-4 py-3 text-center text-2xl tracking-[0.4em] text-base-100 outline-none ring-1 ring-base-700 focus:ring-signal"
+            />
+            {codeError ? <p className="text-sm text-danger">{codeError}</p> : null}
+            {codeSent ? <p className="text-sm text-base-300">A new code is on its way.</p> : null}
+            <button
+              type="submit"
+              disabled={code.length !== 6 || verifyCode.isPending}
+              className="rounded-md bg-signal px-4 py-3 font-semibold text-base-900 disabled:opacity-50"
+            >
+              {verifyCode.isPending ? "Checking…" : "Confirm email"}
+            </button>
+          </form>
+          <div className="mt-5 flex items-center justify-between text-sm">
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resendCode.isPending}
+              className="text-base-300 underline disabled:opacity-50"
+            >
+              {resendCode.isPending ? "Sending…" : "Send a new code"}
+            </button>
+            {/* The account works either way. Confirming the address is worth asking for, but an
+                unconfirmed one is not a reason to keep someone out of the product they just
+                signed up for — that is how a funnel dies. */}
+            <button
+              type="button"
+              onClick={() => navigate("/", { replace: true })}
+              className="text-base-400 underline"
+            >
+              I'll do this later
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
