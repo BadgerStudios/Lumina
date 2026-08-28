@@ -1,118 +1,119 @@
 # Lumina outbound mail
 
-Lumina sends through the **BadgerOS submission relay** on vm-east (15.204.252.37), authenticated
-over pinned TLS. A local direct-to-MX relay also exists on this box as a fallback; both are
-described below.
-
-## Primary path — authenticated submission via vm-east
+Lumina delivers **direct to each recipient's MX** from this box (15.204.122.19), signing DKIM as
+`badgerstudios.net`. SPF, DKIM, DMARC alignment and rDNS all pass as of 2026-08-28.
 
 ```
-lib/mail.ts ──TLS:465, AUTH──> mx.badgerstudios.net ──> recipient's MX
-                                signs DKIM, owns the SPF authorisation
+lib/mail.ts ──SMTP──> lumina-mail (services/mail-relay) ──port 25──> recipient's MX
+  signs DKIM           resolves MX, opportunistic STARTTLS
+                       HELO mail.badgerstudios.net
 ```
 
-This is the better path and the one in use, because vm-east already *is* what
-badgerstudios.net's DNS points at: `v=spf1 ip4:15.204.252.37 -all` authorises it, it DKIM-signs
-with its own selector, and its IP has real sending history. **No DNS change is required for this to
-work** — that is the whole appeal.
+`SMTP_HOST=mail`, `SMTP_PORT=2525` — the relay container, on the Docker network only.
 
-Config lives in `.env` (`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_SECURE`). Lumina does
-*not* DKIM-sign on this path: vm-east signs, and adding a second signature under a selector with no
-published record would attach a signature that fails to verify — harmless for DMARC, but noise in
-every receiver's authentication results.
+## Authentication: what passes, and why
 
-### The certificate is pinned, not ignored
+| | value | checked by | result |
+|---|---|---|---|
+| `From:` header | `Lumina <noreply@lumina.badgerstudios.net>` | what the recipient sees | — |
+| envelope `MAIL FROM` | `lumina@badgerstudios.net` | **SPF** | pass — the record lists this IP |
+| DKIM `d=` / `s=` | `badgerstudios.net` / `lumina` | **DKIM** | pass — verified end to end |
+| PTR / HELO | `mail.badgerstudios.net` | FCrDNS | forward-confirmed both ways |
 
-The relay presents a self-signed certificate. The operator offered either pinning it or connecting
-with verification disabled. **We pin it** (`SMTP_TLS_CA_FILE` → `secrets/vm-east-submission.pem`,
-with `servername` set to the relay hostname): an AUTH password crosses this connection, and
-`rejectUnauthorized: false` accepts *any* certificate, which is exactly what a
-machine-in-the-middle needs in order to collect it. Pinning encrypts just as well and additionally
-proves we reached the right host.
+`_dmarc.badgerstudios.net` publishes `adkim=r; aspf=r` (relaxed), under which a subdomain aligns
+with its parent — so the `From:` on `lumina.badgerstudios.net` aligns with both the SPF domain and
+the DKIM `d=`. **DMARC passes on either independently**, which is the point: SPF breaks on any forwarding hop
+that does not rewrite the envelope (mailing lists, `.forward` rules), while the DKIM signature
+survives it. Signing turns a single point of failure into two.
 
-### Rotating the password
-
-The relay's operator regenerates it on request and republishes it. Update `SMTP_PASS` in `.env` and
-`docker compose up -d backend`. It is worth doing: the current value was transmitted in plaintext
-over a coordination channel.
-
----
-
-## Fallback path — direct MX delivery from this box
-
+## Live DNS — do not re-derive these, they are published
 
 ```
-lib/mail.ts  ──SMTP──>  lumina-mail (services/mail-relay)  ──port 25──>  recipient's MX
-  signs DKIM             resolves MX, opportunistic STARTTLS
+badgerstudios.net              TXT   v=spf1 ip4:15.204.122.19 ip4:15.204.252.37 -all
+lumina._domainkey…             TXT   v=DKIM1; k=rsa; p=MIIBIjANBgkq…IDAQAB   (2048-bit)
+_dmarc.badgerstudios.net       TXT   v=DMARC1; p=quarantine; adkim=r; aspf=r; fo=1
+mail.badgerstudios.net         A     15.204.122.19        (DNS-only — proxying breaks FCrDNS)
+15.204.122.19                  PTR   mail.badgerstudios.net   (OVH panel)
 ```
+
+Selectors `badgeros` and `cf2024-1` on the same zone belong to the BadgerOS mail server and
+Cloudflare Email Routing. **Do not reuse them**; Lumina's selector is `lumina`.
+
+## The trap that kept this unsigned
+
+Every piece of DKIM existed for weeks — the key at `secrets/dkim.key`, the mount, the signing code,
+`DKIM_SELECTOR=lumina` — but `DKIM_DOMAIN` was **empty**, and `lib/mail.ts` requires both:
+
+```ts
+dkim: dkimKey && process.env.DKIM_DOMAIN?.trim() ? { … } : undefined
+```
+
+An empty `DKIM_DOMAIN` selects `undefined`, so every message went out unsigned with **no error and
+no log line**. Nothing observable distinguished it from working. `scripts/enable-dkim.sh` is the
+guarded fix and re-asserts the invariant; it refuses to enable signing unless the published key
+matches the private half, because signing under a selector with no published record is *worse* than
+not signing — a receiver that finds no key treats the signature as a permanent failure rather than
+as absent.
+
+`DKIM_DOMAIN`, like `RELAY_HELO_HOSTNAME`, lives in **`.env`, not `compose.yml`** — compose only
+interpolates it (`DKIM_DOMAIN: ${DKIM_DOMAIN:-}`). A `sed` against `compose.yml` matches nothing,
+the container is never recreated, and a naive script reports success having changed nothing. Always
+assert the **running container's** env after a change, never the file.
+
+## The key file's permissions
+
+`secrets/dkim.key` is `0600` owned by **uid 100:101** — the container's `lumina` user, not `ubuntu`.
+The directory is `0700` owned by `ubuntu`, which is what keeps other host users out; the bind mount
+does not need that traversal because the Docker daemon resolves the path as root at mount time.
+(The comment in `compose.yml` says `0604`/uid 1000, which is stale — chowning to the container uid
+achieves the same thing without a world-read bit.) The key is mounted, never baked into the image
+and never passed through `environment:`, which is visible to anyone who can run `docker inspect`.
+
+## Why this is not an open relay
 
 The relay publishes **no ports**. It listens on 2525 on the Docker network only, so nothing outside
 this stack can reach it, and `MAIL FROM` is additionally restricted to
 `RELAY_ALLOWED_SENDER_DOMAINS`. Both restrictions matter: the first is a network control, and
-network controls get widened by accident. **Adding a `ports:` entry to the `mail` service turns
-this into an open relay for the whole internet.**
+network controls get widened by accident. **Adding a `ports:` entry to the `mail` service turns this
+into an open relay for the whole internet.**
 
-## Why the envelope sender is a different domain from the From: header
+## Port 25 on this host is NOT ours
 
-badgerstudios.net publishes `v=spf1 ip4:15.204.252.37 -all` — a **hard fail** for anything sent from
-this host. Widening it would mean editing a record shared with the BadgerOS mail server, risking its
-deliverability for a change it gets nothing from.
+There is an iptables rule `PREROUTING -d 15.204.122.19 -p tcp --dport 25 -j REDIRECT --to-ports
+2525`, and `15.204.122.19:25` answers `220 mx.badgerstudios.net BadgerOS ESMTP ready`. **Inbound
+mail for badgerstudios.net is served from this box by BadgerOS.** Do not bind port 25, and do not
+assume a listener there is Lumina's. Lumina's relay is outbound-only and is reached at `mail:2525`
+inside Docker.
 
-Instead, `_dmarc.badgerstudios.net` publishes `adkim=r; aspf=r` — **relaxed** alignment, under which
-a subdomain aligns with its parent. So:
+## Verifying a change to any of this
 
-| | value | checked against |
-|---|---|---|
-| `From:` header | `Lumina <lumina@badgerstudios.net>` | what the recipient sees |
-| envelope `MAIL FROM` | `bounce@lumina.badgerstudios.net` | **SPF** — its own record, below |
-| DKIM `d=` | `badgerstudios.net` | **DKIM** — its own selector, below |
+Do not trust "it looks signed". Generate a message through the running container's real config and
+verify it cryptographically against **live DNS** — the same computation a receiver performs:
 
-Both align with the visible From: under relaxed alignment, so DMARC passes on either. The existing
-SPF record is never touched.
-
-## Required DNS — both records are ADDITIVE, neither modifies anything existing
-
-**1. SPF for the envelope domain**
-
-```
-Type:  TXT
-Name:  lumina.badgerstudios.net
-Value: v=spf1 ip4:15.204.81.153 -all
+```bash
+# in the backend container: nodemailer streamTransport with the real key + env, dump raw MIME
+# on any host with dkimpy: dkim.verify(raw, dnsfunc=<live TXT lookup>)  ->  must be True
 ```
 
-Safe alongside the existing web record at that name — SPF is a TXT record and does not affect the
-A/CNAME that serves the site.
+To also prove the signature survives the relay hop (where signatures usually die — header
+rewriting, `smtplib`'s CRLF normalisation and dot-stuffing), run a throwaway capture container on
+the `lumina_default` network with `--network-alias dkimsink` listening on 25, and send to
+`probe@dkimsink`. `_resolve_mx` finds no MX, falls back to the A record, and Docker's embedded DNS
+resolves the alias — so the message traverses the real relay with **no host port and no DNS change**.
+Both checks returned `True` on 2026-08-28.
 
-**2. DKIM public key**
+## Not in use: authenticated submission via vm-east
 
-```
-Type:  TXT
-Name:  lumina._domainkey.badgerstudios.net
-Value: v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAiRgtB1uJkdbo37yEycXBtlrrTqZGcRNMHexbJfw39ZsdUPyThR6H6+pcAeOznLBR9S/RpGxpurcEjdDyCGpqsM3kSmVbhil9OFokayp6826O734fHeTT0ZY0V+duGu3rx1dTBwFSdUbEhwXN/HPJ65Uxy80+LvBJg/8KR3k75k69+2e9IjIYAQaQg6suXyfIsPZ/2ze7o37tOZjOg/5/2sVWq1P7HCnJ0+9BRdPBRDGvcHtRk177kTA6Kx69qVCD1f6vLDvbWzur9WhY6PtxF7SCz7q+RXkmH19e17qzGeQSG9o1WtwQZ+qpw4rg/b7NHJbt26pmg9cITFxbKEjpJwIDAQAB
-```
-
-The private half is `secrets/dkim.key` (gitignored, 0604 inside a 0700 directory — see the comment
-in `compose.yml` for why those two numbers go together). It is mounted into the backend, not baked
-into the image and not passed as an env var.
-
-Until both records exist, Gmail rejects with
-`550 5.7.26 ... requires all senders to authenticate with either SPF or DKIM`. That rejection is the
-correct behaviour and confirms the delivery path itself works — it means we reached Google's MX.
-
-## Optional: reverse DNS
-
-`15.204.81.153` currently reverses to `vps-cb3aedf3.vps.ovh.us`, which **forward-confirms** (that
-name resolves back to this IP), so the HELO name agrees with the PTR — the check receivers actually
-weigh. It is unbranded but correct, and correct matters far more than branded.
-
-To brand it, in the OVH panel: create `mail.lumina.badgerstudios.net` A → 15.204.81.153 as
-**DNS-only (grey cloud — a proxied record would resolve to Cloudflare and break the match)**, set the
-reverse DNS for the IP to that name, then set `RELAY_HELO_HOSTNAME` to match. Do all three or none;
-a HELO that disagrees with the PTR is worse than the unbranded name that agrees.
+An alternative path submits through the BadgerOS relay on vm-east (15.204.252.37) over pinned TLS,
+letting that box's older IP reputation and its own DKIM selector do the work. `SMTP_USER`/`SMTP_PASS`
+are **unset**, so this path is not configured and not running. `secrets/vm-east-submission.pem` is
+the pinned certificate kept for it. If it is ever adopted, Lumina should stop signing (`DKIM_DOMAIN=`)
+so there is exactly one signature, and `SMTP_TLS_CA_FILE` must point at that PEM — the relay is
+self-signed, and `rejectUnauthorized: false` would accept *any* certificate while an AUTH password
+crosses the link.
 
 ## Reputation
 
-This IP has no sending history. Expect early mail to land in spam even once authentication passes.
-That improves with volume and time, and is the honest cost of sending from a new IP — the BadgerOS
-box, which has been sending for longer, would not have this problem, which is why that handover is
-still worth completing.
+This IP has limited sending history. Authentication passing is necessary, not sufficient: expect
+some early mail to land in spam and improve with volume and consistency. Watch the DMARC `rua`
+reports at support@badgerstudios.net.
