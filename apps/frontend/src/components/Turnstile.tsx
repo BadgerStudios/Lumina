@@ -65,6 +65,24 @@ export function Turnstile({ onToken, action }: { onToken: (token: string) => voi
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
+  /*
+   * `onToken` is held in a ref and deliberately kept OUT of the render effect's dependencies.
+   *
+   * It used to be a dependency, and the effect's cleanup calls `window.turnstile.remove()`. So any
+   * caller passing an inline arrow — a new function identity on every render — tore the widget down
+   * and built a new one on every parent render. Two of the four call sites did exactly that
+   * (TurnstileChallengeModal, and Register), which on the sign-up form meant the challenge was
+   * destroyed and recreated on EVERY KEYSTROKE: a visibly flickering captcha on the one screen where
+   * a broken challenge means nobody can create an account.
+   *
+   * Fixing it here rather than at the call sites is the point: the component should not be
+   * detonated by an ordinary React idiom, and a future caller cannot reintroduce the bug.
+   */
+  const onTokenRef = useRef(onToken);
+  useEffect(() => {
+    onTokenRef.current = onToken;
+  });
+
   const retry = useCallback(() => {
     setFailed(false);
     setAttempt((n) => n + 1);
@@ -83,14 +101,14 @@ export function Turnstile({ onToken, action }: { onToken: (token: string) => voi
           callback: (token) => {
             if (cancelled) return;
             setFailed(false);
-            onToken(token);
+            onTokenRef.current(token);
           },
           "expired-callback": () => {
-            if (!cancelled) onToken("");
+            if (!cancelled) onTokenRef.current("");
           },
           "error-callback": () => {
             if (cancelled) return;
-            onToken("");
+            onTokenRef.current("");
             setFailed(true);
           },
           ...(action ? { action } : {}),
@@ -118,7 +136,9 @@ export function Turnstile({ onToken, action }: { onToken: (token: string) => voi
       }
     };
     // `attempt` is the retry trigger: bumping it tears the widget down and mounts a fresh one.
-  }, [siteKey, onToken, action, attempt]);
+    // `onToken` is intentionally absent — see onTokenRef above. Adding it back reintroduces a
+    // remount-per-render on any caller that passes an inline function.
+  }, [siteKey, action, attempt]);
 
   if (!siteKey) return null;
 
