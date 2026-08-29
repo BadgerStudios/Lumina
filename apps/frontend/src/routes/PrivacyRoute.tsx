@@ -20,7 +20,7 @@ export function PrivacyRoute() {
             ← Back to Lumina
           </Link>
           <h1 className="mt-4 font-display text-3xl">Privacy Policy</h1>
-          <p className="mt-2 text-sm text-signal-faint">Last updated 20 August 2026</p>
+          <p className="mt-2 text-sm text-signal-faint">Last updated 29 August 2026</p>
         </header>
 
         <section className="rounded-xl border border-accent/40 bg-base-800 p-5">
@@ -83,22 +83,41 @@ export function PrivacyRoute() {
         </Section>
 
         <Section title="Age verification documents">
-          <Item label="What we ask for">
-            Every new account is checked by a person before it is usable. We ask for a photo of you
-            and a photo of a government ID, so that an age can be confirmed rather than simply
-            typed in. You may cover any part of the ID except your date of birth and your photo.
+          <Item label="When we ask">
+            Not from everyone. Most accounts are only ever asked for a date of birth. We ask for a
+            document when something disagrees with what you told us — for example your device
+            reports an age band that conflicts with the age you gave — or before certain
+            restricted features, such as receiving payments. If your account is never in one of
+            those situations, you will never be asked for a document.
+          </Item>
+          <Item label="Where the documents go">
+            There are two routes, and which one you get decides who receives your documents.
+            <br />
+            <br />
+            <strong className="text-signal">Automated check.</strong> You are sent to Didit
+            (didit.me), an identity verification provider acting on our behalf. You scan a photo ID
+            and record a short selfie video <em>on their service</em>. Those images are handled by
+            them, not by us — Lumina never receives them and never stores them. What comes back to
+            us is the outcome, and where the check establishes it, your date of birth.
+            <br />
+            <br />
+            <strong className="text-signal">Manual check.</strong> Used only when the automated
+            route is unavailable. Here you upload a photo of yourself and a photo of a government
+            ID to Lumina directly, and a member of staff reviews them. You may cover any part of
+            the ID except your date of birth and your photo.
           </Item>
           <Item label="Who sees them">
-            Only the staff reviewing your account. They are never shown on your profile, never
-            shown to other users, never shared with anyone outside Lumina, never sold, and never
-            used to train anything.
+            On the automated route, the provider — and no one at Lumina. On the manual route, only
+            the staff reviewing your account. On either route they are never shown on your profile,
+            never shown to other users, never sold, and never used to train anything.
           </Item>
           <Item label="How long we keep them">
-            Both images are deleted within 24 hours of the decision on your account, whether you
-            are approved or not. Deletion is automatic: each decided review is stamped with a
-            deletion deadline and a scheduled job removes the files and clears the references. The
-            short window exists so a mistaken decision can be reconsidered before the evidence is
-            gone.
+            On the automated route we never hold the images at all, so there is nothing on our side
+            to delete; the provider keeps them under its own retention policy. On the manual route
+            both images are deleted within 24 hours of the decision on your account, whether you
+            are approved or not. That deletion is automatic — each decided review is stamped with a
+            deadline and a scheduled job removes the files and clears the references. The short
+            window exists so a mistaken decision can be reconsidered before the evidence is gone.
           </Item>
           <Item label="What survives">
             The outcome, and nothing else — that the account was approved or rejected, when, and by
@@ -149,6 +168,35 @@ export function PrivacyRoute() {
           <Item label="Appeal a ban">
             Every ban carries a reference and an appeal route. Bans that match on IP or device can
             catch the wrong person, and appeals exist precisely because of that.
+          </Item>
+        </Section>
+
+        <Section title="Companies that process data for us">
+          <p className="mb-4 text-sm leading-relaxed text-signal-dim">
+            We use a small number of outside companies to run Lumina. Each one only receives what it
+            needs for its own job, and none of them are permitted to use your data for their own
+            purposes. This is the complete list.
+          </p>
+          <Item label="Cloudflare">
+            Sits in front of the site, and runs the &ldquo;confirm you are human&rdquo; challenge on
+            sign-in and sign-up. It sees your IP address and basic request information.
+          </Item>
+          <Item label="Didit">
+            Identity verification, on the occasions we ask for it. If you go through a document check
+            you upload your ID and selfie video to them directly; we receive the result, not the
+            images. They are the only company here that ever sees an identity document.
+          </Item>
+          <Item label="Stripe">
+            Payments and payouts. Card details go to Stripe and are never held by us.
+          </Item>
+          <Item label="OVH">
+            Hosting. Our servers and database run on machines rented from OVH, currently in the
+            United States. Everything you store on Lumina lives there.
+          </Item>
+          <Item label="Where your data goes">
+            Lumina&rsquo;s own data is held in the United States. The companies above may process it
+            in other countries where they operate. If you are outside the US, using Lumina means
+            your information is transferred there.
           </Item>
         </Section>
 

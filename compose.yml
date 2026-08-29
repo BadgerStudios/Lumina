@@ -101,6 +101,20 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+      # Automated identity/age verification (didit.me). Optional with `:-` defaults throughout:
+      # with DIDIT_ENABLED unset the whole stack is inert and startVerification falls through to
+      # Persona and then the manual queue, exactly as before.
+      #
+      # These must be listed HERE, not merely present in .env — compose only uses .env for
+      # interpolation, so a variable that is not named in this block never reaches the container.
+      # That is why PERSONA_* has never been live either despite being set in .env for weeks.
+      DIDIT_ENABLED: ${DIDIT_ENABLED:-}
+      DIDIT_API_KEY: ${DIDIT_API_KEY:-}
+      DIDIT_WORKFLOW_ID: ${DIDIT_WORKFLOW_ID:-}
+      # Optional: without it inbound webhooks are refused and the decision is read by polling.
+      DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
+      DIDIT_BASE_URL: ${DIDIT_BASE_URL:-https://verification.didit.me}
+      IDENTITY_REQUIRED_FROM: ${IDENTITY_REQUIRED_FROM:-}
       # Emergency rollback lever for the native-app Turnstile exemption. Unset/false = every client
       # must solve the challenge. Set to "true" and restart ONLY if the packaged apps turn out not
       # to solve the widget in-WebView, which would otherwise leave app users unable to sign up.

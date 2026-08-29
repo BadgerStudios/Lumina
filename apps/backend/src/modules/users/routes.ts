@@ -210,7 +210,7 @@ export default async function usersRoutes(fastify: FastifyInstance) {
   // things: profile, server memberships, authored messages, friends.
   fastify.get("/me/export", { preHandler: [requireAuth] }, async (request, reply) => {
     const userId = request.userId!;
-    const [user, memberships, channelMessages, dmMessages, friendRows] = await Promise.all([
+    const [user, memberships, channelMessages, dmMessages, friendRows, ageSignals] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
       prisma.membership.findMany({ where: { userId }, include: { server: true } }),
       prisma.message.findMany({
@@ -226,6 +226,15 @@ export default async function usersRoutes(fastify: FastifyInstance) {
       prisma.friendRequest.findMany({
         where: { status: "ACCEPTED", OR: [{ requesterId: userId }, { addresseeId: userId }] },
         include: { requester: true, addressee: true },
+      }),
+      // Every age/identity signal recorded about this account. This is data ABOUT the person,
+      // derived rather than volunteered, which is exactly the category someone exercising an access
+      // right is least able to reconstruct for themselves — and it decides whether they are treated
+      // as an adult. Images are never included because they are never held here.
+      prisma.ageVerification.findMany({
+        where: { userId },
+        select: { level: true, source: true, band: true, isMinorSignal: true, rawStatus: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
       }),
     ]);
     if (!user) throw new NotFoundError("User not found");
@@ -254,6 +263,14 @@ export default async function usersRoutes(fastify: FastifyInstance) {
         editedAt: m.editedAt?.toISOString() ?? null,
       })),
       friends: friendRows.map((f) => (f.requesterId === userId ? f.addressee.username : f.requester.username)),
+      verificationHistory: ageSignals.map((a) => ({
+        recordedAt: a.createdAt.toISOString(),
+        assuranceLevel: a.level,
+        source: a.source,
+        reportedBand: a.band,
+        treatedAsMinor: a.isMinorSignal,
+        providerStatus: a.rawStatus,
+      })),
     };
 
     reply.header("Content-Disposition", `attachment; filename="lumina-export-${userId}.json"`);

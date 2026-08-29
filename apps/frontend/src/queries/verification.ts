@@ -38,14 +38,39 @@ export function useVerificationStatus() {
 }
 
 export type StartVerificationResult =
+  | { mode: "didit"; sessionId: string; link: string }
   | { mode: "persona"; inquiryId: string; link: string | null }
   | { mode: "manual_review" };
 
-/** Begin the document/identity step: Persona while budget lasts, else the selfie manual-review path. */
+/**
+ * Begin the document/identity step.
+ *
+ * The server picks the provider — Didit first (fully automated), then Persona while its budget
+ * lasts, then the selfie queue a human has to work. The endpoint is still named `/persona/start`
+ * because it predates there being more than one provider; `/identity/start` is the same handler
+ * under a name that has aged better.
+ */
 export function useStartVerification() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<StartVerificationResult>("/verification/persona/start"),
+    mutationFn: () => api.post<StartVerificationResult>("/verification/identity/start"),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["verification", "status"] }),
+  });
+}
+
+export type DiditDecision = { status: string; approved: boolean; pending: boolean };
+
+/**
+ * Read the caller's latest Didit session and apply whatever it now says.
+ *
+ * Called when someone comes back from the hosted flow. This is the primary completion path rather
+ * than a fallback for a broken webhook: it needs no shared secret, so it works the moment an API
+ * key exists.
+ */
+export function useDiditDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<DiditDecision>("/verification/didit/decision"),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["verification", "status"] }),
   });
 }

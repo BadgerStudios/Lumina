@@ -66,8 +66,17 @@ function tokenFrom(request: FastifyRequest): string | null {
   return null;
 }
 
-async function verify(token: string, ip: string | undefined): Promise<boolean> {
-  if (token.length > 2048) return false; // canonical guard — a token is never this long
+type VerifyResult = { ok: boolean; reason: string; hostname?: string };
+
+/**
+ * Verify a token, and say WHY when it does not pass.
+ *
+ * The reason is the whole point. A bare `false` cannot distinguish "someone is farming tokens on
+ * their own page" from "we forgot to add our new origin to TURNSTILE_HOSTNAMES", and those two need
+ * opposite responses. Both used to look identical from outside: a 403 and no record of it.
+ */
+async function verify(token: string, ip: string | undefined): Promise<VerifyResult> {
+  if (token.length > 2048) return { ok: false, reason: "token-too-long" }; // a token is never this long
   try {
     const res = await fetch(SITEVERIFY, {
       method: "POST",
@@ -79,20 +88,66 @@ async function verify(token: string, ip: string | undefined): Promise<boolean> {
         ...(ip ? { remoteip: ip } : {}),
       }),
     });
-    const data = (await res.json()) as { success?: boolean; hostname?: string };
-    if (data.success !== true) return false;
+    const data = (await res.json()) as { success?: boolean; hostname?: string; "error-codes"?: string[] };
+    if (data.success !== true) {
+      const codes = Array.isArray(data["error-codes"]) ? data["error-codes"].join(",") : "none";
+      return { ok: false, reason: `siteverify-rejected:${codes}` };
+    }
     // Canonical hostname binding: reject a token solved on a domain that isn't ours. Fail CLOSED if
     // the hostname is missing on an otherwise-successful verify — a token with no provable origin is
     // exactly the shape a farmed/relayed token would take, so it must not pass by default.
-    if (!data.hostname || !approvedHostnames().has(data.hostname)) return false;
-    return true;
+    if (!data.hostname || !approvedHostnames().has(data.hostname)) {
+      return { ok: false, reason: "hostname-not-approved", hostname: data.hostname ?? "(none)" };
+    }
+    return { ok: true, reason: "verified", hostname: data.hostname };
   } catch (err) {
     // A siteverify outage should not become a hard outage of signup/login. Fail OPEN on transport
     // error only (a present-but-invalid token still fails closed above). Logged so an outage-driven
     // abuse spike — the window where all bot protection silently drops — is at least visible.
     console.error("[turnstile] siteverify transport error — failing open:", (err as Error)?.message ?? err);
-    return true;
+    return { ok: true, reason: "transport-error-failed-open" };
   }
+}
+
+/**
+ * One structured line per Turnstile decision, including the passes.
+ *
+ * Logging only refusals was the previous state and it was actively misleading: with nothing written
+ * on either path, "no TURNSTILE_FAILED in the logs" was read as "the web path is healthy" when it
+ * could never have been anything else. Absence of evidence was being read as evidence. Passes are
+ * logged too so the ratio is visible and silence means genuinely no traffic.
+ */
+function logTurnstile(request: FastifyRequest, surface: string, outcome: string, detail?: VerifyResult): void {
+  const parts = [
+    `outcome=${outcome}`,
+    `surface=${surface}`,
+    `route=${request.method} ${request.url}`,
+    `ip=${request.ip}`,
+  ];
+  if (detail?.reason) parts.push(`reason=${detail.reason}`);
+  if (detail?.hostname) parts.push(`hostname=${detail.hostname}`);
+  console.log(`[turnstile] ${parts.join(" ")}`);
+}
+
+/**
+ * The shared challenge all three gates run.
+ *
+ * These four lines were duplicated across requireTurnstile, requireTurnstileForLogin and
+ * requireTurnstileForRisky, which is why adding observability to one of them would have quietly
+ * left the other two blind.
+ */
+async function challenge(request: FastifyRequest, surface: string): Promise<void> {
+  const token = tokenFrom(request);
+  if (!token) {
+    logTurnstile(request, surface, "REQUIRED");
+    throw new BlockedError("TURNSTILE_REQUIRED");
+  }
+  const result = await verify(token, request.ip);
+  if (!result.ok) {
+    logTurnstile(request, surface, "FAILED", result);
+    throw new BlockedError("TURNSTILE_FAILED");
+  }
+  logTurnstile(request, surface, "PASSED", result);
 }
 
 /**
@@ -104,10 +159,7 @@ async function verify(token: string, ip: string | undefined): Promise<boolean> {
  */
 export const requireTurnstile: preHandlerHookHandler = async (request: FastifyRequest) => {
   if (!isTurnstileConfigured() || nativeBypassAllowed(request)) return;
-  const token = tokenFrom(request);
-  if (!token) throw new BlockedError("TURNSTILE_REQUIRED");
-  const ok = await verify(token, request.ip);
-  if (!ok) throw new BlockedError("TURNSTILE_FAILED");
+  await challenge(request, "hard");
 };
 
 /**
@@ -170,10 +222,7 @@ export const requireTurnstileForLogin: preHandlerHookHandler = async (request: F
     if (failures < threshold) return;
   }
 
-  const token = tokenFrom(request);
-  if (!token) throw new BlockedError("TURNSTILE_REQUIRED");
-  const ok = await verify(token, request.ip);
-  if (!ok) throw new BlockedError("TURNSTILE_FAILED");
+  await challenge(request, "login");
 };
 
 /**
@@ -193,8 +242,5 @@ export const requireTurnstileForRisky: preHandlerHookHandler = async (request: F
   });
   const risky = user ? Date.now() - user.createdAt.getTime() < RISKY_ACCOUNT_AGE_MS : true;
   if (!risky) return;
-  const token = tokenFrom(request);
-  if (!token) throw new BlockedError("TURNSTILE_REQUIRED");
-  const ok = await verify(token, request.ip);
-  if (!ok) throw new BlockedError("TURNSTILE_FAILED");
+  await challenge(request, "risky");
 };

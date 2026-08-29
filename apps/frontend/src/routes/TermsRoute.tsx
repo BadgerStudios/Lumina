@@ -53,6 +53,15 @@ export function TermsRoute() {
             held by someone under 18, the account is closed. There is no supervised or parent-linked
             tier.
           </Item>
+          <Item label="Identity checks">
+            We may ask you to verify your identity before you carry on using the account, or before
+            using particular features such as receiving payments. We do not ask everyone: the check
+            is triggered when something conflicts with the age you gave us, when an account is
+            reported, or for a restricted feature. Verification is usually handled by an outside
+            provider, who receives your documents directly — what reaches us is the result. If you
+            decline, or the check does not pass, the account or the feature stays restricted. Our
+            privacy policy sets out exactly what is collected, by whom, and for how long.
+          </Item>
           <Item label="One person, one account">
             You are responsible for what happens under your account, including anything done by
             someone you gave access to. Keep your password to yourself — we will never ask for it,

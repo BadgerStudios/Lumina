@@ -8,9 +8,16 @@ import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { sendFileWithRange } from "../../lib/sendFile.js";
 import { isPersonaConfigured, isPersonaWebhookConfigured, verifyWebhookSignature } from "./persona.js";
 import {
+  isDiditConfigured,
+  isDiditWebhookConfigured,
+  verifyWebhookSignature as verifyDiditSignature,
+} from "./didit.js";
+import {
   recordDeviceSignal,
   startVerification,
   applyPersonaResult,
+  applyDiditResult,
+  pollDiditForUser,
   createManualReview,
   DOC_RETENTION_HOURS,
   listPendingReviews,
@@ -53,7 +60,10 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
   // Capture the Persona webhook body verbatim so the HMAC (computed over raw bytes) verifies —
   // identical to the Stripe webhook's raw-body handling. All other JSON routes parse normally.
   fastify.addContentTypeParser("application/json", { parseAs: "buffer" }, (req, body, done) => {
-    if (req.url.startsWith("/api/verification/persona/webhook")) {
+    if (
+      req.url.startsWith("/api/verification/persona/webhook") ||
+      req.url.startsWith("/api/verification/didit/webhook")
+    ) {
       done(null, body);
       return;
     }
@@ -71,6 +81,10 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
   fastify.get("/config", async () => ({
     turnstileSiteKey: isTurnstileEnabled() ? env.TURNSTILE_SITE_KEY ?? null : null,
     personaConfigured: isPersonaConfigured(),
+    diditConfigured: isDiditConfigured(),
+    // True when ANY automated document path exists. The client should gate its "verify me" UI on
+    // this rather than on a specific provider.
+    identityVerificationAvailable: isDiditConfigured() || isPersonaConfigured(),
   }));
 
   /** What the client needs to render the verification UI and gates. */
@@ -83,6 +97,7 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
         ageAssuredBand: true,
         identityVerifiedAt: true,
         isMinor: true,
+        ageBracket: true,
         ageRecordedAt: true,
         personaStatus: true,
         createdAt: true,
@@ -92,6 +107,11 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
       where: { userId: request.userId!, status: "PENDING" },
       select: { id: true },
     });
+
+    // The account is locked as a minor while the person chose an adult bracket. Only a document can
+    // settle which is right, so this is the one state that escalates on its own.
+    const contradictsSelfDeclaration =
+      user.isMinor && user.ageBracket !== null && user.ageBracket !== "UNDER_18";
     return {
       assuranceLevel: user.ageAssuranceLevel,
       assuranceSource: user.ageAssuranceSource,
@@ -104,17 +124,35 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
       personaConfigured: isPersonaConfigured(),
       // Whether THIS account has to clear the identity check to keep using the product.
       //
-      // Only accounts created once the requirement existed. Applying it to everyone would have
-      // demanded a passport photo from all 35 accounts that predate it, retroactively, on their
-      // next page load -- people who joined under a different agreement and did nothing wrong.
-      // Existing accounts keep the age they already have on record; the requirement is for new
-      // signups, which is what was asked for.
-      // A null cutoff means the requirement is switched off entirely, so nobody is walled off.
+      // RISK-TRIGGERED, not blanket. Documents are demanded where a signal actually contradicts what
+      // the account claims, not from everyone at the front door.
+      //
+      // Why not everyone: a document check at sign-up lands the heaviest possible friction at the
+      // moment a person has the least reason to tolerate it, and it does not stop the case it is
+      // aimed at — a teenager holding a parent's ID passes it. It reliably repels honest adults and
+      // unreliably catches dishonest minors. The self-declared check already refuses an under-age
+      // birthday before any row exists and puts a 30-day cooldown on the device, which is a real
+      // control; this is the escalation for when something disagrees with it.
+      //
+      // The trigger that matters: the account is being treated as a minor (a device band said so and
+      // locked it — see recordDeviceSignal) while the person selected an adult bracket. That is the
+      // one situation where the two signals cannot both be true, where guessing is harmful in both
+      // directions, and where a document is the only thing that resolves it. It doubles as the
+      // appeal route for an adult wrongly caught by a shared or mis-reported device.
+      //
+      // IDENTITY_REQUIRED_FROM is kept as an optional blanket override for a surface or a
+      // jurisdiction that genuinely mandates it. Unset means only the risk trigger applies.
       verificationRequired:
-        IDENTITY_REQUIRED_FROM !== null
-        && user.identityVerifiedAt === null
+        user.identityVerifiedAt === null
         && pendingReview === null
-        && user.createdAt >= IDENTITY_REQUIRED_FROM,
+        && (contradictsSelfDeclaration
+          || (IDENTITY_REQUIRED_FROM !== null && user.createdAt >= IDENTITY_REQUIRED_FROM)),
+      // Lets the client explain WHY it is asking, instead of demanding a passport with no reason.
+      verificationReason: contradictsSelfDeclaration
+        ? ("age_signal_conflict" as const)
+        : IDENTITY_REQUIRED_FROM !== null && user.createdAt >= IDENTITY_REQUIRED_FROM
+          ? ("required_for_new_accounts" as const)
+          : null,
     };
   });
 
@@ -132,6 +170,59 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
   fastify.post("/persona/start", { preHandler: [requireAuth] }, async (request) => {
     const outcome = await startVerification(request.userId!);
     return outcome;
+  });
+
+  /**
+   * Provider-neutral entry point. `/persona/start` predates there being more than one provider and
+   * still works identically — both call startVerification, which picks Didit, then Persona, then the
+   * manual queue. New clients should call this one; the name is the only difference.
+   */
+  fastify.post("/identity/start", { preHandler: [requireAuth] }, async (request) => {
+    return await startVerification(request.userId!);
+  });
+
+  /**
+   * Read the caller's latest Didit session and apply whatever it now says.
+   *
+   * This is the PRIMARY completion path, not a fallback for a broken webhook. The client calls it
+   * when the user comes back from the hosted flow, and may poll it while the status is pending. It
+   * needs no shared secret, which is what makes the integration work the moment an API key exists.
+   */
+  fastify.post("/didit/decision", { preHandler: [requireAuth] }, async (request, reply) => {
+    if (!isDiditConfigured()) return reply.code(503).send({ error: "Identity verification is not configured" });
+    const result = await pollDiditForUser(request.userId!);
+    if (!result) return reply.code(404).send({ error: "No verification session to check" });
+    return result;
+  });
+
+  /**
+   * Didit webhook — an accelerator, never the only route to a decision.
+   *
+   * Same contract as the Persona webhook: 503 while unconfigured so the provider retries rather than
+   * treating the delivery as consumed, 400 on a signature that does not verify, 200 otherwise.
+   * Because the polling route above is what the product actually depends on, a webhook that is
+   * misconfigured costs latency and nothing else.
+   */
+  fastify.post("/didit/webhook", async (request, reply) => {
+    if (!isDiditWebhookConfigured()) return reply.code(503).send({ error: "Webhook not configured" });
+    const raw = request.body as Buffer;
+    const signature = (request.headers["x-signature"] ?? request.headers["x-didit-signature"]) as string | undefined;
+    if (!verifyDiditSignature(raw, signature)) {
+      request.log.warn("didit webhook signature verification failed");
+      return reply.code(400).send({ error: "Invalid signature" });
+    }
+    try {
+      const payload = JSON.parse(raw.toString("utf8") || "{}");
+      const sessionId: unknown = payload?.session_id;
+      if (typeof sessionId === "string" && sessionId) {
+        await applyDiditResult(sessionId, payload);
+      }
+    } catch (err) {
+      request.log.error({ err }, "didit webhook handler failed");
+      // Swallowed deliberately: the decision is still readable by polling, so a malformed delivery
+      // must not become a retry storm.
+    }
+    return reply.code(200).send({ received: true });
   });
 
   /** Selfie upload for the manual-review fallback. Stored privately; reviewed in the owner suite. */

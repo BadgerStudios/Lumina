@@ -116,10 +116,12 @@ export function checkAge(selected: AgeBracket, birthDate: Date, now = new Date()
  * ## Why "unknown" is no longer folded into "minor"
  *
  * It used to be: a null `ageRecordedAt` was read as a minor, on the reasoning that the restrictive
- * default is the safe one. Safe, but wrong in practice — **385 of 435 accounts on this instance
- * predate age collection**, so nearly the whole user base was silently classified as children and
- * quietly prevented from talking to anyone who had answered. Nothing told them why. From the
- * inside it looked like the app was broken.
+ * default is the safe one. Safe, but wrong in practice — at the time, the overwhelming majority of
+ * accounts predated age collection, so nearly the whole user base was silently classified as
+ * children and quietly prevented from talking to anyone who had answered. Nothing told them why.
+ * From the inside it looked like the app was broken. (The specific counts that used to be quoted
+ * here were from an earlier dataset and had drifted an order of magnitude from reality; measure
+ * against the database rather than trusting a number in a comment.)
  *
  * Worse, it made the restriction meaningless in the direction that matters: all those unknown
  * accounts *could* freely contact each other, because two "minors" match. So the rule neither

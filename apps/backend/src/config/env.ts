@@ -100,6 +100,24 @@ const envSchema = z.object({
   // Free-tier allotment before falling back to admin selfie review. 500 on the current plan.
   PERSONA_MONTHLY_LIMIT: z.coerce.number().default(500),
 
+  // ---- Age verification (Didit) ----
+  // The automated alternative to Persona: ID_VERIFICATION + LIVENESS + FACE_MATCH + IP_ANALYSIS with
+  // no operator in the loop. Same graceful-if-unconfigured contract — with DIDIT_ENABLED false or the
+  // key absent, /didit/start reports not-configured and startVerification falls through to Persona
+  // and then to manual review exactly as before.
+  //
+  // DIDIT_WEBHOOK_SECRET is OPTIONAL here, unlike the Persona/Stripe equivalents, because the
+  // decision is read by polling the session when the user returns. The webhook is only an
+  // accelerator; without the secret inbound webhooks are refused and nothing else changes.
+  DIDIT_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
+  DIDIT_API_KEY: z.string().optional(),
+  DIDIT_WORKFLOW_ID: z.string().optional(),
+  DIDIT_WEBHOOK_SECRET: z.string().optional(),
+  DIDIT_BASE_URL: z.string().default("https://verification.didit.me"),
+
   // ---- Native device attestation (fail-closed) ----
   // A native Apple/Google age band is only trusted with a valid app-attestation proving the request
   // came from the genuine, unmodified app. If these are unset the DEVICE_DECLARED upgrade is simply
@@ -147,7 +165,16 @@ const envSchema = z.object({
    * the manual queue), and set it to the moment you switch it on so existing accounts stay
    * grandfathered.
    */
-  IDENTITY_REQUIRED_FROM: z.string().datetime().optional(),
+  // Empty string is treated as ABSENT, not as an invalid value.
+  //
+  // compose.yml passes this as `${IDENTITY_REQUIRED_FROM:-}`, so commenting the line out in .env
+  // delivers "" rather than nothing — and `.optional()` accepts undefined, not "". That mismatch
+  // took the whole backend down in a boot loop: the container refused to start, which for a
+  // config value whose entire purpose is to be switchable is the worst possible failure mode.
+  IDENTITY_REQUIRED_FROM: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().datetime().optional(),
+  ),
   TURNSTILE_ALLOW_NATIVE_BYPASS: z
     .string()
     .optional()

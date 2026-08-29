@@ -4,6 +4,12 @@ import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { ADULT_AGE, ageFromBirthDate } from "../age/service.js";
 import { createInquiry, isPersonaConfigured } from "./persona.js";
+import {
+  createSession as createDiditSession,
+  fetchDecision as fetchDiditDecision,
+  isDiditConfigured,
+  readOutcome as readDiditOutcome,
+} from "./didit.js";
 import { verifyDeviceAttestation, type AttestationPlatform } from "./attestation.js";
 import { banUser } from "../bans/service.js";
 
@@ -134,6 +140,7 @@ export async function tryConsumePersonaBudget(): Promise<boolean> {
 // ---- start verification -------------------------------------------------------------------------
 
 export type StartOutcome =
+  | { mode: "didit"; sessionId: string; link: string }
   | { mode: "persona"; inquiryId: string; link: string | null }
   | { mode: "manual_review" };
 
@@ -143,6 +150,35 @@ export type StartOutcome =
  * inquiry can't actually be created, the budget unit is refunded and we fall back rather than block.
  */
 export async function startVerification(userId: string): Promise<StartOutcome> {
+  // Didit is tried FIRST when configured. Its workflow clears someone automatically, while Persona's
+  // fallback is an admin selfie queue that a human has to work — and on this instance that queue has
+  // never had a single row while being the only route through the gate. Preferring the automated
+  // provider is what keeps "verification required" from meaning "verification impossible".
+  //
+  // A failure here falls through to Persona and then to manual review, exactly as before.
+  if (isDiditConfigured()) {
+    try {
+      const session = await createDiditSession(userId);
+      if (session) {
+        // Logged at creation with the eventual level, matching the Persona branch below: this table
+        // is the append-only attempt log, and User.ageAssuranceLevel — updated only by
+        // markDocumentVerified — is what any decision actually reads.
+        await prisma.ageVerification.create({
+          data: {
+            userId,
+            level: "DOCUMENT_VERIFIED",
+            source: "didit",
+            inquiryId: session.sessionId,
+            rawStatus: session.rawStatus,
+          },
+        });
+        return { mode: "didit", sessionId: session.sessionId, link: session.url };
+      }
+    } catch {
+      // fall through to Persona / manual review
+    }
+  }
+
   if (isPersonaConfigured() && (await tryConsumePersonaBudget())) {
     try {
       const inquiry = await createInquiry(userId);
@@ -211,6 +247,87 @@ export async function applyPersonaResult(
   const isMinorNow = provenBirthDate ? ageFromBirthDate(provenBirthDate) < ADULT_AGE : undefined;
   await markDocumentVerified(userId, "persona", provenBirthDate, isMinorNow);
   await prisma.user.update({ where: { id: userId }, data: { personaStatus: status } });
+}
+
+// ---- Didit result -------------------------------------------------------------------------------
+
+/**
+ * Apply a Didit decision. Safe to call repeatedly — it is the polling path's write step, so it has
+ * to be.
+ *
+ * Attribution goes through the append-only AgeVerification log rather than a column on User. There
+ * deliberately is no `User.diditSessionId`: the log is already indexed on inquiryId, a user may open
+ * several sessions, and a single column would silently orphan every session but the newest — which
+ * is the exact bug applyPersonaResult carries a fallback to work around.
+ */
+export async function applyDiditResult(sessionId: string, decision: unknown): Promise<void> {
+  const outcome = readDiditOutcome(decision);
+
+  const logged = await prisma.ageVerification.findFirst({
+    where: { inquiryId: sessionId, source: "didit" },
+    select: { userId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const userId = logged?.userId;
+  if (!userId) return; // a session we never opened
+
+  // vendor_data is our own user id round-tripped by the provider. When it is present and disagrees
+  // with the session we recorded, something is wrong with the attribution and no account moves.
+  const vendorData = (decision as { vendor_data?: unknown } | null)?.vendor_data;
+  if (typeof vendorData === "string" && vendorData && vendorData !== userId) return;
+
+  // Only log a row when the status actually CHANGES. Without this the polling client writes an
+  // audit row every few seconds for the whole time someone is holding up their passport, and the
+  // table stops being an audit trail and becomes a log of how long they took.
+  const previous = await prisma.ageVerification.findFirst({
+    where: { userId, source: "didit", inquiryId: sessionId },
+    select: { rawStatus: true },
+    orderBy: { createdAt: "desc" },
+  });
+  if (previous?.rawStatus !== outcome.rawStatus) {
+    await prisma.ageVerification.create({
+      data: {
+        userId,
+        level: "DOCUMENT_VERIFIED",
+        source: "didit",
+        inquiryId: sessionId,
+        rawStatus: outcome.rawStatus,
+      },
+    });
+  }
+
+  if (!outcome.approved) return;
+
+  // A proven birthdate outranks the typed-in one; its absence is normal and simply leaves the
+  // self-declared birthday standing, same as the Persona path.
+  const isMinorNow = outcome.dateOfBirth ? ageFromBirthDate(outcome.dateOfBirth) < ADULT_AGE : undefined;
+  await markDocumentVerified(userId, "didit", outcome.dateOfBirth, isMinorNow);
+}
+
+/**
+ * Read the caller's most recent Didit session and apply whatever it says.
+ *
+ * This is the primary path, not a fallback. A webhook needs a shared secret to be verifiable, and an
+ * integration that only completes once someone has copied a secret out of a dashboard is one that
+ * looks finished and is not. Polling needs nothing beyond the API key.
+ */
+export async function pollDiditForUser(
+  userId: string,
+): Promise<{ status: string; approved: boolean; pending: boolean } | null> {
+  if (!isDiditConfigured()) return null;
+  const latest = await prisma.ageVerification.findFirst({
+    where: { userId, source: "didit", inquiryId: { not: null } },
+    select: { inquiryId: true },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!latest?.inquiryId) return null;
+
+  const decision = await fetchDiditDecision(latest.inquiryId);
+  if (!decision) return null;
+
+  await applyDiditResult(latest.inquiryId, decision);
+  const outcome = readDiditOutcome(decision);
+  return { status: outcome.rawStatus, approved: outcome.approved, pending: outcome.pending };
 }
 
 // ---- manual (admin selfie) review ---------------------------------------------------------------
