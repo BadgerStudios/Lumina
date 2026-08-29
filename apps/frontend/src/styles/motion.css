@@ -122,6 +122,365 @@
   border-radius: 6px;
 }
 
+/* ---------- authentication ---------- */
+
+/*
+ * The sign-up funnel was the one place with no motion at all, and it is the worst place for that:
+ * someone waiting on a six-digit code cannot see the email arriving, cannot tell whether the last
+ * keystroke registered, and has no signal that anything is progressing. Everything below exists to
+ * answer one of those, and the confirmation step is the only place given a real flourish — the rest
+ * of the funnel stays deliberately quiet so that moment is the one that lands.
+ */
+
+/*
+ * The code rail: the signature moment.
+ *
+ * A six-digit field is a progress bar people cannot see. This puts the brand gradient under it and
+ * fills it as digits land, so the field literally lights up as it is completed — which is the one
+ * piece of decoration in this file that is also the product's name. Width is driven from the
+ * component via --lm-fill (0..1) rather than a fixed set of classes, so it animates smoothly
+ * between any two digit counts including deletions.
+ */
+.lm-auth-rail {
+  position: relative;
+  height: 2px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--base-700);
+}
+
+.lm-auth-rail::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--lm-fill, 0) * 100%);
+  border-radius: inherit;
+  background: var(--grad);
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1), background 200ms ease;
+}
+
+/* Completed and accepted — the gradient resolves to the success colour rather than just vanishing,
+   so the last thing seen before the redirect is a confirmation and not a blank card. */
+.lm-auth-rail[data-state="ok"]::after {
+  width: 100%;
+  background: var(--pulse);
+}
+
+.lm-auth-rail[data-state="bad"]::after {
+  background: var(--dnd);
+}
+
+/*
+ * Refusal. Horizontal, three oscillations, over almost as quickly as it starts.
+ *
+ * Shake is a cliche precisely because it is legible: nothing else says "that value is wrong, the
+ * field is still yours, try again" without a word of text. Kept small (4px) — a violent shake reads
+ * as the app being broken rather than the input being wrong.
+ */
+@keyframes lm-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+.lm-shake {
+  animation: lm-shake 320ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+/*
+ * Inline spinner for a button that is working.
+ *
+ * Sized in em so it matches whatever text it sits beside, and used with a fixed-width label slot so
+ * swapping "Confirm email" for a spinner does not resize the button. A button that changes width
+ * mid-submit is the single most common tell of a cheap form.
+ */
+@keyframes lm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.lm-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: lm-spin 620ms linear infinite;
+  vertical-align: -0.125em;
+}
+
+/*
+ * Page entrance.
+ *
+ * Deliberately gentler and slower than .lm-enter (which is for rows appearing inside an already
+ * visible page). A whole screen arriving wants to settle, not snap.
+ */
+@keyframes lm-route-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.lm-route {
+  animation: lm-route-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+ * Navigation progress bar.
+ *
+ * Indeterminate on purpose: the app cannot know how long a route's data will take, and a fake
+ * percentage that stalls at 90% is worse than an honest sweep. Only mounted while something is
+ * actually in flight.
+ */
+@keyframes lm-topbar-sweep {
+  0% { transform: translateX(-100%) scaleX(0.4); }
+  50% { transform: translateX(0%) scaleX(0.7); }
+  100% { transform: translateX(100%) scaleX(0.4); }
+}
+
+.lm-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 9999;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+}
+
+.lm-topbar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: var(--grad);
+  animation: lm-topbar-sweep 1.1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+/* ---------- tokens ---------- */
+
+/*
+ * One easing vocabulary for the whole app, so a modal, a toast and a route entrance all move like
+ * they belong to the same product.
+ *
+ * `--lm-spring` overshoots: it lands past the target and settles back. That single property is what
+ * separates motion that reads as designed from motion that merely reads as eased. It is used for
+ * anything ARRIVING. `--lm-ease` never overshoots and is used for anything LEAVING — an exit that
+ * bounces looks like the app changed its mind.
+ */
+:root {
+  --lm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --lm-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --lm-fast: 140ms;
+  --lm-base: 240ms;
+  --lm-slow: 420ms;
+}
+
+/* ---------- surfaces arriving ---------- */
+
+/*
+ * A whole screen arriving settles from slightly behind the plane, rather than sliding in from an
+ * edge. Sliding implies the content came from somewhere specific; most route changes in this app
+ * do not, and a slide that implies a direction it cannot honour is worse than no slide.
+ */
+/*
+ * Deliberately NO `filter` here, and it must stay that way.
+ *
+ * This animation ran `blur(6px)` -> `blur(0)` with fill-mode `both`, which means the final value
+ * PERSISTS after the animation ends — and `filter: blur(0)` is not `filter: none`. A zero-radius
+ * filter still establishes a containing block and forces its own compositing layer, permanently,
+ * for everything inside it.
+ *
+ * `.lm-route` wraps the sign-in card, and the Cloudflare Turnstile widget inside that card is a
+ * cross-origin iframe. Parked under a permanent filter it repainted continuously and the challenge
+ * visibly flickered — on the one screen where a broken captcha means nobody can sign in at all.
+ *
+ * Opacity and transform are enough: `transform: none` really is none, so nothing is left behind.
+ */
+@keyframes lm-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.lm-route {
+  animation: lm-surface-in 420ms var(--lm-ease) both;
+}
+
+/* ---------- dialogs ---------- */
+
+/*
+ * Radix drives these through data-state, so enter AND exit both animate — Radix holds the element
+ * in the tree until the animation finishes.
+ *
+ * This replaces `animate-in fade-in`, which were tailwindcss-animate utilities. That plugin is not
+ * a dependency of this project and those class names resolved to nothing, so every dialog in the
+ * app was appearing and disappearing instantly with no animation at all.
+ */
+@keyframes lm-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lm-scrim-out { from { opacity: 1; } to { opacity: 0; } }
+
+.lm-scrim[data-state="open"] { animation: lm-scrim-in 200ms var(--lm-ease) both; }
+.lm-scrim[data-state="closed"] { animation: lm-scrim-out 150ms var(--lm-ease) both; }
+
+@keyframes lm-modal-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.94) translateY(12px); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1) translateY(0); }
+}
+/* Exits are faster than entrances and do not overshoot. Dismissal should feel immediate; only
+   arrival is worth savouring. */
+@keyframes lm-modal-out {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.97); }
+}
+
+.lm-modal[data-state="open"] { animation: lm-modal-in 260ms var(--lm-spring) both; }
+.lm-modal[data-state="closed"] { animation: lm-modal-out 150ms var(--lm-ease) both; }
+
+/* ---------- toasts ---------- */
+
+/*
+ * Toasts rise from the edge they are anchored to. They are the one surface allowed to overshoot on
+ * arrival, because a toast is an interruption and a slight bounce is what makes it noticed without
+ * needing colour or size to shout.
+ */
+@keyframes lm-toast-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+.lm-toast { animation: lm-toast-in 300ms var(--lm-spring) both; }
+
+/* ---------- confirmation ---------- */
+
+/*
+ * One-shot bloom behind a surface that just succeeded. Deliberately short and non-repeating: this
+ * marks a completion, and anything that pulses after the fact reads as a warning instead.
+ */
+@keyframes lm-bloom {
+  0% { opacity: 0; transform: scale(0.88); }
+  30% { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+
+.lm-bloom::before {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--pulse) 30%, transparent), transparent 70%);
+  animation: lm-bloom 1.1s var(--lm-ease) forwards;
+}
+
+/* ---------- scroll ---------- */
+
+/*
+ * Scroll-driven reveal with no observer and no JS. Behind @supports because where
+ * animation-timeline is unsupported the whole rule is dropped and the content is simply visible —
+ * which is the correct fallback, and the reason this is not done with IntersectionObserver: a
+ * JS-driven version leaves content at opacity 0 if the script fails.
+ */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .lm-reveal {
+      animation: lm-surface-in linear both;
+      animation-timeline: view();
+      animation-range: entry 4% cover 22%;
+    }
+  }
+}
+
+/* ---------- network ---------- */
+
+/*
+ * Indeterminate progress for work whose duration cannot be known. A determinate bar that stalls at
+ * 90% is a lie people learn to distrust; a sweep promises only "still working", which is true.
+ */
+@keyframes lm-sweep {
+  0% { transform: translateX(-100%) scaleX(0.4); }
+  50% { transform: translateX(0%) scaleX(0.7); }
+  100% { transform: translateX(100%) scaleX(0.4); }
+}
+
+.lm-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 100;
+  overflow: hidden;
+  pointer-events: none;
+}
+.lm-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: var(--grad);
+  animation: lm-sweep 1.1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+/* ---------- one-time code ---------- */
+
+/*
+ * Paired with components/common/CodeInput.tsx. Every selector is scoped under .lm-code-field on
+ * purpose: a bare [data-state="ok"] would be a landmine in this app, because Radix drives
+ * data-state on dialogs, checkboxes, tooltips and accordions throughout.
+ */
+.lm-code-box {
+  box-shadow: inset 0 0 0 1px var(--base-700);
+  transition:
+    box-shadow 200ms var(--lm-ease),
+    background-color 200ms var(--lm-ease),
+    transform 240ms var(--lm-spring);
+}
+
+.lm-code-box[data-filled="true"] {
+  background-color: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.lm-code-box[data-active="true"] {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* The spring writes --y; there is deliberately no transition here, because a CSS transition on top
+   of a per-frame spring fights it and produces a visible double-ease. */
+.lm-code-strip {
+  color: var(--signal);
+  transform: translateY(var(--y, 0em));
+  transition: color 200ms var(--lm-ease);
+}
+
+.lm-code-field[data-state="ok"] .lm-code-box {
+  box-shadow: inset 0 0 0 2px var(--pulse);
+  background-color: color-mix(in srgb, var(--pulse) 12%, transparent);
+  transform: translateY(-3px);
+}
+.lm-code-field[data-state="ok"] .lm-code-strip { color: var(--pulse); }
+
+.lm-code-field[data-state="bad"] .lm-code-box {
+  box-shadow: inset 0 0 0 2px var(--dnd);
+  background-color: color-mix(in srgb, var(--dnd) 10%, transparent);
+}
+.lm-code-field[data-state="bad"] .lm-code-strip { color: var(--dnd); }
+
 /* ---------- accessibility ---------- */
 
 /* Honoured properly rather than merely shortened: someone who has asked for reduced motion has
@@ -146,5 +505,56 @@
   }
   .lm-skeleton {
     animation: none;
+  }
+  .lm-route {
+    animation: lm-fade-in 1ms both;
+  }
+  .lm-shake {
+    animation: none;
+  }
+  /* The rail still fills — it is information, not decoration — but it arrives instantly. */
+  .lm-auth-rail::after {
+    transition: none;
+  }
+  /* The spinner is a genuine still-happening indicator, so it survives; only the spin is dropped,
+     leaving a static ring that still marks the button as busy. */
+  .lm-spinner {
+    animation: none;
+  }
+  .lm-topbar::after {
+    animation: none;
+    transform: none;
+  }
+  /* Dialogs and toasts still need to appear and disappear, so they collapse to opacity rather than
+     losing the animation entirely — Radix keeps a closing dialog mounted until its animation ends,
+     and removing the animation outright would leave it on screen. */
+  .lm-scrim[data-state="open"],
+  .lm-modal[data-state="open"],
+  .lm-toast {
+    animation: lm-fade-in 1ms both;
+  }
+  .lm-scrim[data-state="closed"],
+  .lm-modal[data-state="closed"] {
+    animation: lm-scrim-out 1ms both;
+  }
+  .lm-bloom::before {
+    animation: none;
+    opacity: 0;
+  }
+  .lm-reveal {
+    animation: none;
+  }
+  .lm-progress::after {
+    animation: none;
+    transform: none;
+  }
+  /* The spring already places digits instantly under reduced motion (CodeInput checks the same
+     query); this only stops the boxes themselves from sliding. */
+  .lm-code-box,
+  .lm-code-strip {
+    transition: none;
+  }
+  .lm-code-field[data-state="ok"] .lm-code-box {
+    transform: none;
   }
 }

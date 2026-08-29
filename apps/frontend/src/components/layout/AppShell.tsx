@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useParams } from "react-router-dom";
+import { useIsFetching } from "@tanstack/react-query";
 import { NavDeck } from "./NavDeck";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { ActivityFeed } from "./ActivityFeed";
@@ -36,8 +37,37 @@ import { intColorToHex, mixWithWhite, mixWithBlack } from "../../lib/color";
  *
  * Also the home of the two global surfaces that are not routes: the voice dock (a call outlives
  * whatever room you are reading) and the jump palette. */
+/**
+ * Whether to show the network progress bar.
+ *
+ * Deliberately NOT `useIsFetching() > 0` on its own. React Query refetches on window focus, on
+ * reconnect and on every invalidation, and most of those resolve in well under 100ms — a bar wired
+ * straight to that flickers constantly, which trains people to ignore it and makes the app look
+ * busier than it is.
+ *
+ * So: only appear once work has been outstanding past the point a person would notice a delay, and
+ * once shown, stay up briefly rather than blinking out. A progress indicator that appears and
+ * vanishes within one frame is worse than none.
+ */
+function useSlowNetwork(delay = 400, linger = 220): boolean {
+  const fetching = useIsFetching();
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (fetching > 0) {
+      const timer = window.setTimeout(() => setVisible(true), delay);
+      return () => window.clearTimeout(timer);
+    }
+    const timer = window.setTimeout(() => setVisible(false), linger);
+    return () => window.clearTimeout(timer);
+  }, [fetching, delay, linger]);
+
+  return visible;
+}
+
 export function AppShell() {
   useSocketEvents();
+  const networkBusy = useSlowNetwork();
   // Picks up a role or age change made elsewhere without needing a sign-out (see useRoleSync).
   useRoleSync();
   const mobileDrawer = useUIStore((s) => s.mobileDrawer);
@@ -158,6 +188,9 @@ export function AppShell() {
       className="lx-canvas flex h-app-safe flex-col overflow-hidden text-signal"
       style={{ paddingTop: "var(--safe-top)" }}
     >
+      {/* Fixed, so it sits over the shell without participating in its layout. Only ever shown for
+          work slow enough to be worth mentioning — see useSlowNetwork above. */}
+      {networkBusy && <div className="lm-progress" aria-hidden="true" />}
       {/* Above the update banner: on iPhone this is the difference between the app being a tab and
           being an installed app that can receive notifications at all. Renders nothing on every
           other platform, and nothing once installed. */}

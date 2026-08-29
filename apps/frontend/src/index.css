@@ -641,7 +641,14 @@ body {
     padding: 0.4rem 0.5rem;
     text-align: left;
     color: var(--signal-dim);
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color 120ms ease, color 120ms ease, transform 140ms var(--lm-ease);
+  }
+  /* Tap acknowledgement on the most-touched surface in the app. Deliberately tiny — a row is
+     selected dozens of times a session, and anything more emphatic becomes exhausting. Its real
+     job is on mobile, where there is no hover state to confirm the tap landed before the channel
+     has finished loading. */
+  .lx-row:active {
+    transform: scale(0.985);
   }
   .lx-row:hover {
     background: color-mix(in srgb, var(--signal) 6%, transparent);
@@ -662,6 +669,31 @@ body {
     transform: translateY(-50%);
     border-radius: 999px;
     background: var(--accent);
+    /* Grows out of the edge rather than blinking on, so moving between rooms reads as the marker
+       travelling with you. Scaled from the centre, which is why translateY is repeated in both
+       keyframes — a transform animation replaces the property outright, it does not compose. */
+    animation: lx-rail-in 240ms var(--lm-spring) both;
+  }
+  @keyframes lx-rail-in {
+    from {
+      opacity: 0;
+      transform: translateY(-50%) scaleY(0.25);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(-50%) scaleY(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lx-row {
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+    .lx-row:active {
+      transform: none;
+    }
+    .lx-row[data-active="true"]::before {
+      animation: none;
+    }
   }
   /* Unread but not active: the name goes full-strength and gains a leading dot.
      Discord signalled this with a white pill on the server icon, which said

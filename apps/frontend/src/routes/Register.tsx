@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SiteThemeMenu } from "../components/SiteThemeMenu";
+import { CodeInput } from "../components/common/CodeInput";
 import { useVerifyEmailCode, useResendEmailCode } from "../queries/auth";
 import { useRegister } from "../queries/auth";
 import { ApiError } from "../lib/apiClient";
@@ -104,14 +105,28 @@ export function Register() {
     }
   }
 
+  const [codeOk, setCodeOk] = useState(false);
+  const [shaking, setShaking] = useState(false);
+
+  // Hold the finished screen just long enough for the rail to resolve to the success colour, so the
+  // last thing seen is a confirmation rather than an abrupt cut to the app. Done as an effect with a
+  // cleanup rather than a bare setTimeout: navigating from a timer that outlived the component is a
+  // real bug, just a quiet one.
+  useEffect(() => {
+    if (!codeOk) return;
+    const timer = window.setTimeout(() => navigate("/", { replace: true }), 420);
+    return () => window.clearTimeout(timer);
+  }, [codeOk, navigate]);
+
   async function handleVerifyCode(e: FormEvent) {
     e.preventDefault();
     setCodeError("");
     try {
       await verifyCode.mutateAsync(code.trim());
-      navigate("/", { replace: true });
+      setCodeOk(true);
     } catch (err) {
       setCodeError(err instanceof Error ? err.message : "That code isn't right.");
+      setShaking(true);
     }
   }
 
@@ -128,32 +143,52 @@ export function Register() {
 
   if (awaitingCode) {
     return (
-      <div className="relative flex min-h-app items-center justify-center bg-base-900">
-        <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
+      <div className="lm-route relative flex min-h-app items-center justify-center bg-base-900">
+        <div className="lm-enter-scale w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
           <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
           <h1 className="mb-1 text-center text-2xl font-bold text-signal">Check your email</h1>
           <p className="mb-6 text-center text-sm text-base-300">
             We sent a six-digit code to <span className="font-medium text-base-100">{email}</span>.
           </p>
           <form onSubmit={handleVerifyCode} className="flex flex-col gap-4">
-            <input
-              value={code}
-              onChange={(ev) => setCode(ev.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              autoFocus
-              aria-label="Six-digit confirmation code"
-              placeholder="000000"
-              className="w-full rounded-md bg-base-900 px-4 py-3 text-center text-2xl tracking-[0.4em] text-base-100 outline-none ring-1 ring-base-700 focus:ring-signal"
-            />
+            <div
+              className={shaking ? "lm-shake flex flex-col gap-2" : "flex flex-col gap-2"}
+              onAnimationEnd={() => setShaking(false)}
+            >
+              <CodeInput
+                value={code}
+                onChange={setCode}
+                state={codeOk ? "ok" : codeError ? "bad" : "idle"}
+                disabled={codeOk}
+                autoFocus
+                label="Six-digit confirmation code"
+              />
+              {/* Six digits is a progress bar nobody can see. This one fills with the brand gradient
+                  as they land, so the field lights up as it is completed. */}
+              <div
+                className="lm-auth-rail"
+                data-state={codeOk ? "ok" : codeError ? "bad" : undefined}
+                style={{ "--lm-fill": code.length / 6 } as CSSProperties}
+                aria-hidden="true"
+              />
+            </div>
             {codeError ? <p className="text-sm text-danger">{codeError}</p> : null}
             {codeSent ? <p className="text-sm text-base-300">A new code is on its way.</p> : null}
             <button
               type="submit"
-              disabled={code.length !== 6 || verifyCode.isPending}
+              disabled={code.length !== 6 || verifyCode.isPending || codeOk}
               className="rounded-md bg-signal px-4 py-3 font-semibold text-base-900 disabled:opacity-50"
             >
-              {verifyCode.isPending ? "Checking…" : "Confirm email"}
+              {codeOk ? (
+                "Confirmed"
+              ) : verifyCode.isPending ? (
+                <>
+                  <span className="lm-spinner mr-2" aria-hidden="true" />
+                  Checking…
+                </>
+              ) : (
+                "Confirm email"
+              )}
             </button>
           </form>
           <div className="mt-5 flex items-center justify-between text-sm">
@@ -163,7 +198,14 @@ export function Register() {
               disabled={resendCode.isPending}
               className="text-base-300 underline disabled:opacity-50"
             >
-              {resendCode.isPending ? "Sending…" : "Send a new code"}
+              {resendCode.isPending ? (
+                <>
+                  <span className="lm-spinner mr-2" aria-hidden="true" />
+                  Sending…
+                </>
+              ) : (
+                "Send a new code"
+              )}
             </button>
             {/* The account works either way. Confirming the address is worth asking for, but an
                 unconfirmed one is not a reason to keep someone out of the product they just
@@ -182,11 +224,11 @@ export function Register() {
   }
 
   return (
-    <div className="relative flex min-h-app items-center justify-center bg-base-900">
+    <div className="lm-route relative flex min-h-app items-center justify-center bg-base-900">
       <div className="absolute right-4 top-4">
         <SiteThemeMenu />
       </div>
-      <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
+      <div className="lm-enter-scale w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
         <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
         <h1 className="mb-1 text-center text-2xl font-bold text-signal">Create an account</h1>
 

@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-treatment="restrained">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Lumina Auth Motion</title>
+<link rel="icon" href="/icons/logo-128.png">
+<style>
+  /* Self-hosted faces: the site CSP is font-src 'self', so Google Fonts is blocked. Only weights
+     that exist in public/fonts are declared — asking for one that isn't there makes the browser
+     synthesise a fake. */
+  @font-face { font-family: "Unbounded"; font-weight: 500; font-display: swap; src: url("/fonts/unbounded500.woff2") format("woff2"); }
+  @font-face { font-family: "Unbounded"; font-weight: 700; font-display: swap; src: url("/fonts/unbounded700.woff2") format("woff2"); }
+  @font-face { font-family: "Hanken Grotesk"; font-weight: 400; font-display: swap; src: url("/fonts/hanken400.woff2") format("woff2"); }
+  @font-face { font-family: "Hanken Grotesk"; font-weight: 500; font-display: swap; src: url("/fonts/hanken500.woff2") format("woff2"); }
+  @font-face { font-family: "Hanken Grotesk"; font-weight: 700; font-display: swap; src: url("/fonts/hanken700.woff2") format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-display: swap; src: url("/fonts/plexmono400.woff2") format("woff2"); }
+  @font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-display: swap; src: url("/fonts/plexmono500.woff2") format("woff2"); }
+
+  :root {
+    --void: #0a0714; --nebula: #150f26; --nebula-2: #1e1636; --nebula-3: #2a1f4a;
+    --hairline: #2e2350; --ion: #8b5cf6; --aurora: #22d3ee;
+    --signal: #f2eefc; --signal-dim: #b3a8d4; --signal-faint: #7a6fa0;
+    --pulse: #33d6a6; --flare: #ff5c72;
+    --grad: linear-gradient(135deg, var(--ion) 0%, var(--aurora) 100%);
+    --shadow-lg: 0 30px 80px -20px rgba(6, 4, 16, 0.7);
+    --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
+    --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --dur: 200ms;
+    --overshoot: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Spring overshoot is the single change that most makes motion read as designed rather than
+     merely eased: it lands past the target and settles back. */
+  [data-treatment="expressive"], [data-treatment="cinematic"] {
+    --ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --dur: 320ms;
+    --overshoot: cubic-bezier(0.34, 1.8, 0.64, 1);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0; background: var(--void); color: var(--signal);
+    font-family: var(--font-body); line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 12% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
+      radial-gradient(50rem 36rem at 95% 8%, rgba(34, 211, 238, 0.10), transparent 60%);
+  }
+
+  .wrap { position: relative; max-width: 1120px; margin: 0 auto; padding: 52px 24px 96px; }
+
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--signal-faint); margin: 0 0 14px;
+  }
+
+  h1 {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: clamp(28px, 4.6vw, 42px); line-height: 1.1; letter-spacing: -0.02em;
+    margin: 0 0 14px; text-wrap: balance;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  .lede { max-width: 64ch; font-size: 16px; color: var(--signal-dim); margin: 0; }
+  .lede strong { color: var(--signal); font-weight: 500; }
+
+  /* --------------------------------------------------------- segmented control */
+  .seg {
+    display: inline-flex; gap: 4px; margin: 30px 0 0; padding: 4px; border-radius: 999px;
+    background: rgba(30, 22, 54, 0.7); box-shadow: inset 0 0 0 1px var(--hairline);
+  }
+  .seg button {
+    border: 0; cursor: pointer; border-radius: 999px; padding: 8px 18px;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500;
+    background: transparent; color: var(--signal-faint);
+    transition: color 160ms ease, background 240ms var(--ease);
+  }
+  .seg button:hover { color: var(--signal-dim); }
+  .seg button[aria-selected="true"] { background: var(--grad); color: var(--void); font-weight: 700; }
+  .seg button:focus-visible { outline: 2px solid var(--aurora); outline-offset: 2px; }
+  .seg-note { font-size: 13px; color: var(--signal-faint); margin: 10px 0 0; }
+
+  /* ------------------------------------------------------------------- layout */
+  .stage {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    gap: 28px; margin-top: 30px; align-items: start;
+  }
+  .panel { display: flex; flex-direction: column; gap: 14px; }
+  .panel-label {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--signal-faint);
+  }
+  .panel-label b { color: var(--signal-dim); font-weight: 500; }
+
+  .screen {
+    position: relative;
+    background: var(--nebula); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 32px; box-shadow: var(--shadow-lg);
+  }
+
+  /* Cinematic: the card sits in real perspective and leans toward the pointer. Rotation comes from
+     JS on a rAF; the transition only covers the return to rest, so the lean tracks 1:1 while the
+     pointer is down and eases out when it leaves. */
+  [data-treatment="cinematic"] .screen {
+    transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transform-style: preserve-3d;
+    transition: transform 500ms var(--ease), box-shadow 500ms ease;
+    will-change: transform;
+  }
+  [data-treatment="cinematic"] .screen:hover { box-shadow: 0 40px 90px -24px rgba(6, 4, 16, 0.85); }
+
+  /* Sheen: a soft highlight that follows the pointer across the card face. */
+  [data-treatment="cinematic"] .screen::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(20rem 16rem at var(--gx, 50%) var(--gy, 0%), rgba(178, 148, 255, 0.10), transparent 70%);
+    opacity: 0; transition: opacity 400ms ease;
+  }
+  [data-treatment="cinematic"] .screen:hover::after { opacity: 1; }
+
+  /* Success bloom: one radial flash behind the card, once. */
+  .screen.bloom::before {
+    content: ""; position: absolute; inset: -30px; border-radius: 24px; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(51, 214, 166, 0.30), transparent 70%);
+    animation: bloom 1.2s var(--ease) forwards;
+  }
+  @keyframes bloom {
+    0% { opacity: 0; transform: scale(0.85); }
+    28% { opacity: 1; transform: scale(1.02); }
+    100% { opacity: 0; transform: scale(1.12); }
+  }
+
+  .mark {
+    width: 46px; height: 46px; margin: 0 auto 16px; border-radius: 13px;
+    background: var(--grad); display: grid; place-items: center;
+    font-family: var(--font-display); font-weight: 700; font-size: 20px; color: var(--void);
+  }
+
+  .screen h2 {
+    font-family: var(--font-display); font-weight: 700; font-size: 21px;
+    text-align: center; margin: 0 0 6px; color: var(--signal); letter-spacing: -0.01em;
+  }
+  .screen p.sub { text-align: center; font-size: 14px; color: var(--signal-dim); margin: 0 0 24px; }
+  .screen p.sub b { color: var(--signal); font-weight: 500; }
+
+  /* Per-character reveal. Declared UNDER .lm-route so replaying the entrance restarts it; the
+     original string lives on aria-label so assistive tech reads a word, not 18 letters. */
+  .ch { display: inline-block; white-space: pre; }
+  [data-treatment="cinematic"] .lm-route h2 .ch {
+    animation: ch-in 620ms var(--ease) both;
+    animation-delay: calc(var(--i) * 26ms + 160ms);
+  }
+  @keyframes ch-in {
+    from { opacity: 0; transform: translateY(0.42em) rotateX(-72deg); filter: blur(5px); }
+    to { opacity: 1; transform: none; filter: blur(0); }
+  }
+
+  form { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field span {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--signal-faint);
+  }
+
+  input.text {
+    width: 100%; border: 0; border-radius: 7px; background: var(--void); color: var(--signal);
+    font-family: var(--font-body); font-size: 15px; padding: 11px 13px; outline: none;
+    box-shadow: inset 0 0 0 1px var(--hairline); transition: box-shadow 180ms ease;
+  }
+  input.text:focus-visible { box-shadow: inset 0 0 0 2px var(--ion); }
+
+  /* ---------------------------------------------------------------- OTP boxes */
+  .otp { position: relative; display: flex; gap: 8px; justify-content: space-between; }
+  .otp input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; border: 0; background: transparent; color: transparent;
+    font-size: 16px; /* stops iOS zooming on focus */ caret-color: transparent; cursor: pointer;
+  }
+
+  .otp-box {
+    position: relative; flex: 1; aspect-ratio: 3 / 4; min-width: 0;
+    border-radius: 10px; background: var(--void); overflow: hidden;
+    box-shadow: inset 0 0 0 1px var(--hairline);
+    display: grid; place-items: center;
+    transition: box-shadow var(--dur) ease, transform var(--dur) var(--ease), background var(--dur) ease;
+  }
+  .otp-box.filled { background: rgba(139, 92, 246, 0.07); }
+  .otp-box.cursor { box-shadow: inset 0 0 0 2px var(--ion); }
+
+  /* The odometer. Row 0 is blank, digit d sits at row d+1. `--y` (set by the spring) wins when
+     present; otherwise the CSS calc drives it. */
+  .otp-strip {
+    display: flex; flex-direction: column; align-items: center;
+    font-family: var(--font-mono); font-weight: 500;
+    font-size: clamp(20px, 5.4vw, 26px); line-height: 1; color: var(--signal);
+    transform: translateY(var(--y, calc((var(--d, -1) + 1) * -1em)));
+    transition: transform 260ms var(--overshoot);
+  }
+  /* In cinematic the spring owns the transform — a CSS transition on top would fight it. */
+  [data-treatment="cinematic"] .otp-strip { transition: none; }
+  .otp-strip > i { height: 1em; display: grid; place-items: center; font-style: normal; }
+
+  .otp-box.ok { background: rgba(51, 214, 166, 0.12); box-shadow: inset 0 0 0 2px var(--pulse); }
+  .otp-box.ok .otp-strip { color: var(--pulse); }
+  .otp-box.bad { background: rgba(255, 92, 114, 0.10); box-shadow: inset 0 0 0 2px var(--flare); }
+  .otp-box.bad .otp-strip { color: var(--flare); }
+
+  @keyframes otp-land { 0% { transform: scale(1); } 45% { transform: scale(1.09); } 100% { transform: scale(1); } }
+  [data-treatment="expressive"] .otp-box.land,
+  [data-treatment="cinematic"] .otp-box.land { animation: otp-land 340ms var(--overshoot); }
+  [data-treatment="expressive"] .otp-box.ok,
+  [data-treatment="cinematic"] .otp-box.ok { transform: translateY(-3px); }
+
+  /* Rotating conic ring on the active box. @property is what makes the angle animatable; without
+     it the declaration is ignored and the box keeps its plain ring — degradation, not breakage. */
+  @property --angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+  @keyframes spin-border { to { --angle: 360deg; } }
+  [data-treatment="expressive"] .otp-box.cursor::before,
+  [data-treatment="cinematic"] .otp-box.cursor::before {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 2px;
+    background: conic-gradient(from var(--angle), var(--ion), var(--aurora), var(--ion));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: spin-border 2.6s linear infinite;
+  }
+  [data-treatment="expressive"] .otp-box.cursor,
+  [data-treatment="cinematic"] .otp-box.cursor { box-shadow: none; }
+
+  /* ------------------------------------------------------------------- rail */
+  .lm-auth-rail {
+    position: relative; height: 2px; width: 100%; overflow: hidden;
+    border-radius: 999px; background: var(--nebula-2);
+  }
+  .lm-auth-rail::after {
+    content: ""; position: absolute; inset: 0 auto 0 0;
+    width: calc(var(--lm-fill, 0) * 100%); border-radius: inherit; background: var(--grad);
+    transition: width 260ms var(--ease), background 200ms ease;
+  }
+  .lm-auth-rail[data-state="ok"]::after { width: 100%; background: var(--pulse); }
+  .lm-auth-rail[data-state="bad"]::after { background: var(--flare); }
+
+  /* ------------------------------------------------------------------ shake */
+  @keyframes lm-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-4px); } 40% { transform: translateX(4px); }
+    60% { transform: translateX(-3px); } 80% { transform: translateX(2px); }
+  }
+  @keyframes lm-shake-hard {
+    0%, 100% { transform: translateX(0) rotate(0); }
+    12% { transform: translateX(-9px) rotate(-0.6deg); }
+    28% { transform: translateX(8px) rotate(0.5deg); }
+    44% { transform: translateX(-6px) rotate(-0.35deg); }
+    60% { transform: translateX(4px) rotate(0.2deg); }
+    78% { transform: translateX(-2px) rotate(0); }
+  }
+  .lm-shake { animation: lm-shake 320ms cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+  .lm-shake-hard { animation: lm-shake-hard 460ms cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+
+  /* ---------------------------------------------------------------- buttons */
+  button.confirm, button.login {
+    position: relative; width: 100%; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font-family: var(--font-body); font-size: 15px; font-weight: 700;
+    border: 0; border-radius: 8px; padding: 12px 16px; cursor: pointer;
+    transition: width 360ms var(--overshoot), border-radius 360ms var(--overshoot),
+                background 260ms ease, color 260ms ease, opacity 160ms ease, transform 200ms var(--ease);
+  }
+  button.confirm { background: var(--signal); color: var(--void); }
+  button.login { background: var(--ion); color: #fff; font-weight: 500; }
+  button:disabled { opacity: 0.55; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--aurora); outline-offset: 2px; }
+  button.confirm:not(:disabled):active, button.login:not(:disabled):active { transform: scale(0.985); }
+
+  /* The morph: collapses to a disc in flight, expands into a confirmation. Left out of restrained
+     because it is a lot of theatre for something people do daily. */
+  [data-treatment="expressive"] button.working,
+  [data-treatment="cinematic"] button.working {
+    width: 46px; border-radius: 999px; padding: 12px 0; align-self: center;
+  }
+  [data-treatment="expressive"] button.working span:not(.lm-spinner),
+  [data-treatment="cinematic"] button.working span:not(.lm-spinner) { display: none; }
+  [data-treatment="expressive"] button.done,
+  [data-treatment="cinematic"] button.done { background: var(--pulse); color: var(--void); }
+
+  .tick { width: 1.15em; height: 1.15em; flex: none; }
+  .tick path {
+    fill: none; stroke: currentColor; stroke-width: 2.6;
+    stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 26; stroke-dashoffset: 26;
+    animation: draw-tick 420ms var(--ease) forwards;
+  }
+  @keyframes draw-tick { to { stroke-dashoffset: 0; } }
+
+  .lm-spinner {
+    display: inline-block; width: 1em; height: 1em; border-radius: 50%;
+    border: 2px solid currentColor; border-right-color: transparent;
+    animation: lm-spin 620ms linear infinite; flex: none;
+  }
+  @keyframes lm-spin { to { transform: rotate(360deg); } }
+
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-top: 18px; font-size: 13px;
+  }
+  .linkish {
+    background: none; padding: 0; border: 0; cursor: pointer; color: var(--signal-dim);
+    text-decoration: underline; font-size: 13px; font-family: var(--font-body);
+  }
+  .linkish.faint { color: var(--signal-faint); }
+  .msg { font-size: 13px; margin: 0; min-height: 1.2em; }
+  .msg.bad { color: var(--flare); }
+  .msg.good { color: var(--pulse); }
+
+  /* ------------------------------------------------------------- entrances */
+  @keyframes lm-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes lm-route-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.995); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes lm-route-blur {
+    from { opacity: 0; transform: translateY(22px) scale(0.97); filter: blur(14px); }
+    to { opacity: 1; transform: none; filter: blur(0); }
+  }
+  /* Cinematic arrives in depth: from behind the plane, rotating up to flat. */
+  @keyframes lm-route-depth {
+    from { opacity: 0; transform: perspective(1000px) translateY(34px) translateZ(-90px) rotateX(9deg); filter: blur(16px); }
+    to { opacity: 1; transform: perspective(1000px) translateY(0) translateZ(0) rotateX(0); filter: blur(0); }
+  }
+  .lm-route { animation: lm-route-in 280ms var(--ease) both; }
+  [data-treatment="expressive"] .lm-route { animation: lm-route-blur 620ms var(--ease) both; }
+  [data-treatment="cinematic"] .lm-route { animation: lm-route-depth 780ms var(--ease) both; }
+  [data-treatment="expressive"] .panel:nth-child(2) .lm-route,
+  [data-treatment="cinematic"] .panel:nth-child(2) .lm-route { animation-delay: 110ms; }
+
+  /* -------------------------------------------------------------- nav sweep */
+  @keyframes lm-topbar-sweep {
+    0% { transform: translateX(-100%) scaleX(0.4); }
+    50% { transform: translateX(0%) scaleX(0.7); }
+    100% { transform: translateX(100%) scaleX(0.4); }
+  }
+  .lm-topbar { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 9999; overflow: hidden; pointer-events: none; }
+  .lm-topbar::after {
+    content: ""; position: absolute; inset: 0; transform-origin: left center;
+    background: var(--grad); animation: lm-topbar-sweep 1.1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+
+  /* -------------------------------------------------------------- controls */
+  .controls {
+    margin-top: 48px; border-top: 1px solid var(--hairline); padding-top: 24px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  }
+  .controls .hint {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--signal-faint); margin-right: 6px;
+  }
+  .ghost {
+    background: transparent; color: var(--signal-dim); border: 0; cursor: pointer;
+    box-shadow: inset 0 0 0 1px var(--hairline); font-family: var(--font-body);
+    font-size: 13px; padding: 9px 14px; border-radius: 7px;
+    transition: color 160ms ease, box-shadow 160ms ease, transform 200ms var(--ease);
+  }
+  .ghost:hover { color: var(--signal); box-shadow: inset 0 0 0 1px var(--ion); transform: translateY(-1px); }
+  .ghost:active { transform: scale(0.97); }
+  .ghost:focus-visible { outline: 2px solid var(--aurora); outline-offset: 2px; }
+
+  /* ----------------------------------------------------------------- notes */
+  .notes { margin-top: 44px; display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 18px; }
+  .note {
+    background: rgba(30, 22, 54, 0.5); border: 1px solid var(--hairline);
+    border-radius: 11px; padding: 20px;
+  }
+  .note h3 {
+    font-family: var(--font-body); font-size: 13px; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--signal); margin: 0 0 8px;
+  }
+  .note p { margin: 0; font-size: 14px; color: var(--signal-dim); }
+  .note p + p { margin-top: 10px; }
+  .note code { font-family: var(--font-mono); font-size: 12.5px; color: var(--aurora); }
+
+  /* Scroll-driven reveal, no JS and no observer. Where animation-timeline is unsupported the rule
+     is dropped and the notes are simply visible — which is the correct fallback. */
+  @supports (animation-timeline: view()) {
+    [data-treatment="cinematic"] .note {
+      animation: note-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 26%;
+    }
+    @keyframes note-rise {
+      from { opacity: 0; transform: translateY(26px); }
+      to { opacity: 1; transform: none; }
+    }
+  }
+
+  footer {
+    margin-top: 52px; padding-top: 22px; border-top: 1px solid var(--hairline);
+    font-size: 13px; color: var(--signal-faint);
+  }
+
+  /* ------------------------------------------------------------ reduced motion */
+  /* Held to the same standard in all three treatments. Someone who asked for less motion did not
+     ask for a faster version of the same movement. */
+  @media (prefers-reduced-motion: reduce) {
+    .lm-route,
+    [data-treatment="expressive"] .lm-route,
+    [data-treatment="cinematic"] .lm-route { animation: lm-fade-in 1ms both; }
+    [data-treatment="cinematic"] .lm-route h2 .ch { animation: none; }
+    .lm-shake, .lm-shake-hard,
+    [data-treatment="expressive"] .otp-box.land,
+    [data-treatment="cinematic"] .otp-box.land { animation: none; }
+    [data-treatment="expressive"] .otp-box.cursor::before,
+    [data-treatment="cinematic"] .otp-box.cursor::before { animation: none; }
+    [data-treatment="cinematic"] .screen { transform: none; transition: none; }
+    .screen.bloom::before { animation: none; opacity: 0; }
+    .otp-strip { transition: none; }
+    .lm-auth-rail::after { transition: none; }
+    .lm-spinner { animation: none; }
+    .lm-topbar::after { animation: none; transform: none; }
+    .tick path { animation: none; stroke-dashoffset: 0; }
+    button.confirm, button.login, .ghost, .otp-box, .seg button { transition: none; }
+    .ghost:hover, .ghost:active { transform: none; }
+    [data-treatment="cinematic"] .note { animation: none; opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="lm-topbar" id="topbar" hidden></div>
+
+<div class="wrap">
+  <p class="eyebrow">Lumina · auth motion</p>
+  <h1>Three ways to move</h1>
+  <p class="lede">
+    The same two screens from <strong>lumina.badgerstudios.net</strong> under three motion
+    vocabularies. <strong>Restrained</strong> ships today. <strong>Expressive</strong> adds odometer
+    digits and a morphing submit. <strong>Cinematic</strong> replaces canned easing with a real
+    spring integrator, puts the cards in perspective, and plays success as a sequence rather than
+    a state change.
+  </p>
+
+  <div class="seg" role="tablist" aria-label="Motion treatment">
+    <button type="button" role="tab" data-treatment="restrained" aria-selected="true">Restrained</button>
+    <button type="button" role="tab" data-treatment="expressive" aria-selected="false">Expressive</button>
+    <button type="button" role="tab" data-treatment="cinematic" aria-selected="false">Cinematic</button>
+  </div>
+  <p class="seg-note">Switching resets the screens so you can run the same sequence again. On a mouse, hover a card in Cinematic.</p>
+
+  <div class="stage" id="stage" data-treatment="restrained">
+    <section class="panel">
+      <div class="panel-label"><span>Confirm email</span><b>the signature moment</b></div>
+      <div class="screen lm-route" id="screenCode">
+        <div class="mark">L</div>
+        <h2 data-split>Check your email</h2>
+        <p class="sub">We sent a six-digit code to <b>you@example.com</b>.</p>
+
+        <form id="codeForm" autocomplete="off">
+          <div id="codeWrap" style="display:flex;flex-direction:column;gap:10px;">
+            <div class="otp">
+              <input id="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+                     aria-label="Six-digit confirmation code">
+              <div class="otp-box"><span class="otp-strip"><i></i><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></div>
+              <div class="otp-box"><span class="otp-strip"><i></i><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></div>
+              <div class="otp-box"><span class="otp-strip"><i></i><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></div>
+              <div class="otp-box"><span class="otp-strip"><i></i><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></div>
+              <div class="otp-box"><span class="otp-strip"><i></i><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></div>
+              <div class="otp-box"><span class="otp-strip"><i></i><i>0</i><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></span></div>
+            </div>
+            <div class="lm-auth-rail" id="rail" style="--lm-fill:0" aria-hidden="true"></div>
+          </div>
+          <p class="msg" id="codeMsg"></p>
+          <button type="submit" class="confirm" id="codeBtn" disabled>Confirm email</button>
+        </form>
+
+        <div class="row">
+          <button type="button" class="linkish" id="resendBtn">Send a new code</button>
+          <button type="button" class="linkish faint">I'll do this later</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-label"><span>Sign in</span><b>deliberately quiet</b></div>
+      <div class="screen lm-route" id="screenLogin">
+        <div class="mark">L</div>
+        <h2 data-split>Welcome back</h2>
+        <p class="sub">We're so excited to see you again!</p>
+
+        <form id="loginForm">
+          <label class="field">
+            <span>Email or username</span>
+            <input class="text" type="text" value="lucid" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input class="text" type="password" value="hunter2hunter2">
+          </label>
+          <button type="submit" class="login" id="loginBtn">Log In</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div class="controls">
+    <span class="hint">Try it</span>
+    <button class="ghost" id="btnGood">Type a correct code</button>
+    <button class="ghost" id="btnBad">Type a wrong code</button>
+    <button class="ghost" id="btnLogin">Submit the login</button>
+    <button class="ghost" id="btnReplay">Replay page entrance</button>
+    <button class="ghost" id="btnTop">Flash the nav bar</button>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>A real spring</h3>
+      <p>
+        Cinematic drives the digits with a damped spring integrated per frame, not a cubic-bezier.
+        The difference only shows when you interrupt it — type fast and each strip carries its
+        existing velocity into the next target instead of restarting from zero.
+      </p>
+      <p>Fixed 1/120s sub-steps, because a variable frame delta makes a stiff spring explode.</p>
+    </div>
+    <div class="note">
+      <h3>Success as a sequence</h3>
+      <p>
+        Four beats, each waiting on the one before: the rail completes, confirmation travels across
+        the six boxes, the card lifts and blooms, the tick draws. Played together it reads as noise.
+        Played in order it reads as the system finishing something.
+      </p>
+    </div>
+    <div class="note">
+      <h3>Depth, on a mouse only</h3>
+      <p>
+        Cards lean toward the pointer in real perspective with a sheen that tracks it. Bound to
+        <code>(hover: hover) and (pointer: fine)</code> — a card that tilts under a finger is a card
+        that fights scrolling.
+      </p>
+    </div>
+    <div class="note">
+      <h3>Degrading on purpose</h3>
+      <p>
+        The conic focus ring needs <code>@property</code>; without it the box keeps a plain ring. The
+        note reveals use <code>animation-timeline: view()</code> behind an <code>@supports</code>
+        guard; without it they are simply visible. Neither is a broken state.
+      </p>
+    </div>
+  </div>
+
+  <footer>
+    All three treatments honour <code>prefers-reduced-motion</code> to the same standard: entrances
+    become a plain opacity fade, the spring stops driving, tilt and bloom are dropped, the tick
+    renders already drawn — and the rail still fills, because it carries information rather than
+    decoration.
+  </footer>
+</div>
+
+<script src="./motion.js" defer></script>
+</body>
+</html>

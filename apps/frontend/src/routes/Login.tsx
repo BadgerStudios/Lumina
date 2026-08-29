@@ -85,8 +85,8 @@ export function Login() {
 
   if (mfaTicket) {
     return (
-      <div className="flex min-h-app items-center justify-center bg-base-900">
-        <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
+      <div className="lm-route flex min-h-app items-center justify-center bg-base-900">
+        <div className="lm-enter-scale w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
           <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
           <h1 className="mb-1 text-center text-2xl font-bold text-signal">Two-factor</h1>
           <p className="mb-6 text-center text-sm text-signal-dim">
@@ -132,11 +132,11 @@ export function Login() {
   }
 
   return (
-    <div className="relative flex min-h-app items-center justify-center bg-base-900">
+    <div className="lm-route relative flex min-h-app items-center justify-center bg-base-900">
       <div className="absolute right-4 top-4">
         <SiteThemeMenu />
       </div>
-      <div className="w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
+      <div className="lm-enter-scale w-full max-w-md rounded-md bg-base-800 p-8 shadow-lg">
         <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
         <h1 className="mb-1 text-center text-2xl font-bold text-signal">Welcome back</h1>
         <p className="mb-6 text-center text-sm text-signal-dim">We're so excited to see you again!</p>
@@ -197,7 +197,14 @@ export function Login() {
             disabled={login.isPending}
             className="mt-2 rounded bg-accent py-2.5 font-medium text-white hover:bg-accent-hover disabled:opacity-60"
           >
-            {login.isPending ? "Logging in…" : "Log In"}
+            {login.isPending ? (
+              <>
+                <span className="lm-spinner mr-2" aria-hidden="true" />
+                Logging in…
+              </>
+            ) : (
+              "Log In"
+            )}
           </button>
 
           {/* Only rendered where it can actually succeed. `isPasskeySupported` asks whether a

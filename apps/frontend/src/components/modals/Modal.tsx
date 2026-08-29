@@ -18,9 +18,16 @@ export function Modal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
+        {/* `lm-scrim` / `lm-modal` (styles/motion.css) drive both the enter AND the exit off Radix's
+            data-state, which is what lets a dismissal animate at all — Radix keeps the element
+            mounted until the animation ends.
+
+            They replace `animate-in fade-in`, which are tailwindcss-animate utilities. That plugin
+            is not a dependency of this project and those class names resolved to nothing, so every
+            dialog in the app was appearing and vanishing with no animation whatsoever. */}
         {/* Above the mobile tab bar (z-50), not below it: at z-40 the scrim dimmed the whole app
             except the tab bar, which stayed bright AND tappable underneath an open dialog. */}
-        <Dialog.Overlay className="lx-scrim fixed inset-0 z-[55] data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <Dialog.Overlay className="lx-scrim lm-scrim fixed inset-0 z-[55]" />
         {/* Sized against the MEASURED viewport rather than `85vh`/`90vw`.
             `vh` is the URL-bar-retracted height on mobile, so an 85vh modal could still overflow
             the visible area, and with the dialog centred the overflow lands off BOTH ends — the
@@ -28,7 +35,7 @@ export function Modal({
             Subtracting the keyboard inset matters most here: nearly every modal in the app has a
             text field in it. */}
         <Dialog.Content
-          className={`lx-raised fixed left-1/2 top-1/2 z-[56] flex overflow-hidden max-h-[calc(var(--app-height-safe)*0.90)] w-[min(90vw,calc(var(--app-width)-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col ${width}`}
+          className={`lx-raised lm-modal fixed left-1/2 top-1/2 z-[56] flex overflow-hidden max-h-[calc(var(--app-height-safe)*0.90)] w-[min(90vw,calc(var(--app-width)-1.5rem))] -translate-x-1/2 -translate-y-1/2 flex-col ${width}`}
         >
           {/* The header stays put and only the body scrolls — on a landscape phone the whole modal
               is barely taller than the header, and a scrolled-away title leaves no way to tell what

@@ -29,7 +29,7 @@ export function ToastHost() {
         <div
           key={t.id}
           className={cn(
-            "pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border px-3 py-2.5 shadow-lg",
+            "lm-toast pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border px-3 py-2.5 shadow-lg",
             t.kind === "error" ? "border-dnd bg-base-800 text-signal" : "border-online bg-base-800 text-signal",
           )}
         >
