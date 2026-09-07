@@ -26,9 +26,35 @@ your control is spent whatever happened to it afterwards.
 After rotating Stripe or R2, put the new values in `/home/lucid/lumina/.env` and tell me — I'll
 redeploy and re-verify a real payment and a real restore.
 
+**Status, 7 September 2026** (checked from the box, without reading any of the values):
+
+- Stripe: the key in `.env` is a *restricted* live key (`rk_live_…`) and answers `GET /v1/balance`
+  with 200 / livemode — it works, but whether it is the same key that crossed chat can only be seen
+  in the Stripe dashboard (Developers → API keys shows each key's creation date). If it was created
+  before 12 August, roll it. The `sk_live_…` secret key was never in `.env`; roll it in the dashboard
+  regardless.
+- R2: the offsite backup ran on schedule this morning (52 objects, 2.0 GB) — the credentials in
+  `.env` work. Same question: Cloudflare → R2 → Manage API tokens shows when each token was created.
+- Cloudflare tunnel: `cloudflared-lumina` is up on the token in `~/.cloudflared/`. Refreshing the
+  token in Zero Trust and restarting the service is a two-minute job.
+- SMTP relay password: cannot be checked from here.
+
+The `.env` was last written on 29 August and the tunnel config on 14 August, which is consistent with
+a rotation having happened — but "consistent with" is not "confirmed". Paths: the app now lives at
+`~/lumina/.env` on this box (the `/home/lucid/lumina/.env` above is the old host).
+
+Related, fixed the same day: playback and attachment URLs used to carry the session token as
+`?token=`, and cloudflared logs the full URL whenever a client cancels a stream — so every
+scrubbed-through video left 15 minutes of account access in the tunnel log. The web app now sends it
+as an httpOnly cookie instead (`lumina_media`), the 324 logged tokens (all long expired) were
+scrubbed from `~/.cloudflared/lumina-web.log`, and journald still holds 9 expired ones from 5 Sep.
+The native apps still use `?token=` until they get a media-only token.
+
 ---
 
 ## 2. Samba is exposed to the internet — my recommendation is to turn it off
+
+**Resolved (checked 6 September 2026):** nothing listens on 445/139 any more; `smbd` and `nmbd` are inactive.
 
 `smbd` and `nmbd` have been listening on **0.0.0.0:445 and :139 since 19 July**, running as root,
 with the stock Ubuntu config. It serves no shares of yours — only the default `printers` and
