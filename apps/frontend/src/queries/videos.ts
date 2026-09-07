@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { VideoDTO } from "@lumina/shared";
-import { api, resolveAssetUrl } from "../lib/apiClient";
+import { api, attachmentUrl } from "../lib/apiClient";
 import { useAuthStore } from "../store/authStore";
 import { queryKeys } from "../lib/queryKeys";
 import { reportError } from "../store/toastStore";
@@ -14,16 +14,13 @@ export interface FeedPage {
 }
 
 /**
- * Media URLs carry the access token as a query param, because `<video src>` cannot send an
- * Authorization header (same constraint as attachments — see attachmentUrl in lib/apiClient.ts).
- * Read imperatively rather than via the hook: this is called per card during render and
- * subscribing would re-render the entire feed on every token refresh.
+ * Playback and thumbnail URLs are consumed by `<video src>`/`<img src>`, which cannot send an
+ * Authorization header — the same constraint as message attachments, so they authenticate the
+ * same way (cookie on the web, `?token=` on natives) through the same function: attachmentUrl in
+ * lib/apiClient.ts. One implementation, so the two can't drift.
  */
 export function videoMediaUrl(path: string | null): string | null {
-  if (!path) return null;
-  const base = resolveAssetUrl(path);
-  const token = useAuthStore.getState().accessToken;
-  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+  return path ? attachmentUrl(path) : null;
 }
 
 /**

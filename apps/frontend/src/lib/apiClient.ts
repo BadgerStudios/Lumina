@@ -33,14 +33,18 @@ export function resolveAssetUrl(path: string | null): string | null {
 /**
  * GET /api/files/:id is membership-checked (see modules/uploads/routes.ts) but its URL is used
  * directly as `<img src>`/`<a href>` in MessageItem.tsx — browsers never attach a custom
- * `Authorization` header to native image/link loads, so the backend route accepts the SAME
- * access token as a `?token=` query param specifically for this case. Read imperatively
+ * `Authorization` header to native image/link loads. On the web the browser sends the httpOnly
+ * `lumina_media` cookie the backend set at login (same-origin nginx setup), so the URL carries
+ * nothing: a token in a URL is logged by everything that sees the URL, cloudflared included.
+ * Native clients have no cookie jar shared with the API (see USES_BODY_REFRESH_TOKEN), so for
+ * them the backend accepts the SAME access token as a `?token=` query param. Read imperatively
  * (`getState()`, not the `useAuthStore` hook) since this just needs the current value at
  * render/URL-construction time, not a live subscription — MessageItem renders once per message
  * in a list, and subscribing here would re-render every message on every token refresh.
  */
 export function attachmentUrl(path: string): string {
   const base = resolveAssetUrl(path);
+  if (!USES_BODY_REFRESH_TOKEN) return base;
   const token = useAuthStore.getState().accessToken;
   if (!token) return base;
   return `${base}${base.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;

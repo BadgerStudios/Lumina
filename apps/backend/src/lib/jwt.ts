@@ -30,6 +30,18 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 }
 
 /**
+ * Seconds until an access token stops verifying. The media cookie's maxAge is taken from this so
+ * the cookie disappears at the same moment the token inside it becomes useless — a cookie that
+ * outlives its token would just be a guaranteed 401 on every image until the next refresh.
+ * 0 when the token is undecodable or already expired.
+ */
+export function accessTokenRemainingSeconds(token: string): number {
+  const decoded = jwt.decode(token);
+  if (!decoded || typeof decoded === "string" || typeof decoded.exp !== "number") return 0;
+  return Math.max(0, decoded.exp - Math.floor(Date.now() / 1000));
+}
+
+/**
  * Refresh token: opaque random value, NOT a JWT. Only its sha256 hash is
  * persisted server-side, so a DB leak alone never yields a usable token.
  */

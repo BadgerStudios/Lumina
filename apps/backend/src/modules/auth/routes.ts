@@ -13,7 +13,7 @@ import { recordDeviceSignal } from "../verification/service.js";
 import { requestPasswordReset, resetPassword } from "./passwordReset.js";
 import { env } from "../../config/env.js";
 import {
-  clearRefreshCookie,
+  clearSessionCookies,
   issueTokenPair,
   readDeviceFingerprint,
   readIncomingRefreshToken,
@@ -793,7 +793,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         data: { revokedAt: new Date() },
       });
     }
-    clearRefreshCookie(reply);
+    clearSessionCookies(reply);
     reply.code(204).send();
   });
 

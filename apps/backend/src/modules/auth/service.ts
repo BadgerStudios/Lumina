@@ -2,11 +2,13 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import {
+  accessTokenRemainingSeconds,
   generateRefreshToken,
   hashRefreshToken,
   refreshTokenExpiryDate,
   signAccessToken,
 } from "../../lib/jwt.js";
+import { MEDIA_COOKIE_NAME, MEDIA_COOKIE_PATH } from "../../lib/mediaAuth.js";
 
 export const REFRESH_COOKIE_NAME = "lumina_refresh";
 export const REFRESH_COOKIE_PATH = "/api/auth";
@@ -96,6 +98,18 @@ export function sendTokenResponse(
     path: REFRESH_COOKIE_PATH,
     maxAge: 60 * 60 * 24 * 30,
   });
+  // The access token a second time, as a cookie, so <video src>/<img src> loads can authenticate
+  // without the token in the URL (see lib/mediaAuth.ts for why that mattered). Same flags as the
+  // refresh cookie; `lax` is what keeps another site's <img src="https://lumina…/api/files/x">
+  // from riding on it — browsers omit lax cookies from cross-site subresource loads.
+  const mediaTtl = accessTokenRemainingSeconds(tokens.accessToken);
+  reply.setCookie(MEDIA_COOKIE_NAME, tokens.accessToken, {
+    httpOnly: true,
+    secure: env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: MEDIA_COOKIE_PATH,
+    ...(mediaTtl > 0 ? { maxAge: mediaTtl } : {}),
+  });
   reply.send({ accessToken: tokens.accessToken, user: userDto });
 }
 
@@ -107,6 +121,7 @@ export function readIncomingRefreshToken(request: FastifyRequest): string | unde
   return request.cookies?.[REFRESH_COOKIE_NAME];
 }
 
-export function clearRefreshCookie(reply: FastifyReply): void {
+export function clearSessionCookies(reply: FastifyReply): void {
   reply.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
+  reply.clearCookie(MEDIA_COOKIE_NAME, { path: MEDIA_COOKIE_PATH });
 }
