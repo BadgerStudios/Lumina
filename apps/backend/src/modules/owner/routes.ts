@@ -217,11 +217,16 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
   });
 
   fastify.get("/attention", { preHandler: [requireAuth, requireOwner] }, async () => {
+    // Failed transcodes only count for a week. A FAILED row is terminal — the uploader already saw
+    // the reason and the source file is gone — so without a window every old rejection (including
+    // the pre-launch test fixtures) would sit in "Needs attention" forever. updatedAt is when the
+    // row was marked FAILED, which is the moment that matters here, not the upload time.
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const [pendingVideos, openReports, pendingAppeals, failedVideos] = await Promise.all([
       prisma.video.count({ where: { status: "PENDING_REVIEW" } }),
       prisma.videoReport.count({ where: { status: "OPEN" } }),
       prisma.platformBan.count({ where: { appealStatus: "PENDING", liftedAt: null } }),
-      prisma.video.count({ where: { status: "FAILED" } }),
+      prisma.video.count({ where: { status: "FAILED", updatedAt: { gte: weekAgo } } }),
     ]);
 
     const items: Array<{ kind: string; label: string; count: number; href: string; severity: string }> = [];
@@ -255,7 +260,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     if (failedVideos > 0) {
       items.push({
         kind: "failed_transcodes",
-        label: `${failedVideos} video${failedVideos === 1 ? "" : "s"} failed to process`,
+        label: `${failedVideos} video${failedVideos === 1 ? "" : "s"} failed to process this week`,
         count: failedVideos,
         href: "/staff/videos",
         severity: "info",
