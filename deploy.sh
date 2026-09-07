@@ -4,14 +4,79 @@
 # after making code changes.
 #
 # Usage: ./deploy.sh            full deploy: web stack + Android APK + desktop AppImage
-#        ./deploy.sh --web-only skip the native builds (faster iteration on backend/frontend only)
+#        ./deploy.sh --web-only skip the native builds (faster iteration on backend/frontend only;
+#                               escalates to a full deploy by itself if the frontend changed — see
+#                               the hash check below)
+#        JDK21=… ANDROID_SDK=… ./deploy.sh   point the native builds at a toolchain elsewhere
 set -Eeuo pipefail
 cd "$(dirname "$0")"
 
-JDK21="/home/lucid/tools/jdk-21.0.12+8"
-ANDROID_SDK="/home/lucid/android-sdk"
+# Never as root. One root-run deploy (24 Aug) left root-owned files scattered through
+# apps/frontend/dist*, apps/desktop/renderer and both android/ trees; every build as the normal user
+# after that died on EACCES in vite's emptyDir / capacitor's `update android`, and the way out was a
+# chown -R of the whole repo. Nothing here needs root — docker is reached through group membership.
+if [[ "$EUID" -eq 0 ]]; then
+  echo "ERROR: deploy.sh must run as the normal user, not root (sudo) — a root-owned build tree breaks every later deploy." >&2
+  exit 1
+fi
+
+# Native toolchain. Overridable from the environment so this script isn't tied to one machine's
+# paths; the defaults are where this box keeps them (the JDK path is a symlink to
+# ~ubuntu/tools/jdk-21.0.12.1+1, the SDK is the 19 Aug install with platforms;android-36 and
+# build-tools 35/36). Verified by require_native_toolchain before anything is bumped or built.
+JDK21="${JDK21:-/home/lucid/tools/jdk-21.0.12+8}"
+ANDROID_SDK="${ANDROID_SDK:-/home/lucid/android-sdk}"
+# Per-user, because a root-owned /tmp/lumina-native-build-logs left by that same root run made
+# every later deploy fail on "Permission denied" writing its own logs.
+BUILD_LOGS="/tmp/lumina-native-build-logs-$(id -un)"
 WEB_ONLY=false
 [[ "${1:-}" == "--web-only" ]] && WEB_ONLY=true
+
+# The native apps BUNDLE the frontend (capacitor webDir / electron renderer), so any deploy that
+# changes the UI but skips the native builds strands every installed app on the old interface
+# until someone remembers to run a full deploy. --web-only therefore only actually stays web-only
+# when the frontend is UNCHANGED since the last native publish — otherwise it escalates itself.
+# The operator asked for exactly this: "when we deploy updates, the apps update too."
+NATIVE_WEB_HASH_FILE=".last-native-frontend-hash"
+frontend_hash() {
+  find apps/frontend/src apps/frontend/public apps/frontend/index.html packages/shared/src -type f -print0 \
+    | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+}
+
+BUILD_NATIVE=true
+if [[ "$WEB_ONLY" == true ]]; then
+  if [[ "$(frontend_hash)" != "$(cat "$NATIVE_WEB_HASH_FILE" 2>/dev/null)" ]]; then
+    echo "== --web-only requested, but the frontend changed since the last native build =="
+    echo "== escalating to a FULL deploy so installed Android/desktop apps update too =="
+  else
+    BUILD_NATIVE=false
+  fi
+fi
+
+# Decided up front, before the web stack is touched. A full deploy whose native half cannot even
+# start would leave the web UI ahead of every installed app — the exact state the escalation above
+# exists to prevent — and it used to bump the version counters first and only then discover there
+# was no JDK on the box.
+require_native_toolchain() {
+  local ok=true
+  if ! "$JDK21/bin/java" -version >/dev/null 2>&1; then
+    echo "ERROR: no usable JDK at JDK21=$JDK21" >&2
+    ok=false
+  fi
+  if [[ ! -d "$ANDROID_SDK/platforms" || ! -d "$ANDROID_SDK/build-tools" ]]; then
+    echo "ERROR: no Android SDK at ANDROID_SDK=$ANDROID_SDK (expected platforms/ and build-tools/ inside it)" >&2
+    ok=false
+  fi
+  if ! mkdir -p "$BUILD_LOGS" 2>/dev/null || [[ ! -w "$BUILD_LOGS" ]]; then
+    echo "ERROR: cannot write native build logs under $BUILD_LOGS" >&2
+    ok=false
+  fi
+  if [[ "$ok" != true ]]; then
+    echo "Nothing was deployed. Install the toolchain or point JDK21= / ANDROID_SDK= at it and re-run." >&2
+    exit 1
+  fi
+}
+[[ "$BUILD_NATIVE" == true ]] && require_native_toolchain
 
 # Cap the Docker build cache before building.
 #
@@ -68,40 +133,59 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-# The native apps BUNDLE the frontend (capacitor webDir / electron renderer), so any deploy that
-# changes the UI but skips the native builds strands every installed app on the old interface
-# until someone remembers to run a full deploy. --web-only therefore only actually stays web-only
-# when the frontend is UNCHANGED since the last native publish — otherwise it escalates itself.
-# The operator asked for exactly this: "when we deploy updates, the apps update too."
-NATIVE_WEB_HASH_FILE=".last-native-frontend-hash"
-frontend_hash() {
-  find apps/frontend/src apps/frontend/public apps/frontend/index.html packages/shared/src -type f -print0 \
-    | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
-}
-
-if [[ "$WEB_ONLY" == true ]]; then
-  if [[ "$(frontend_hash)" != "$(cat "$NATIVE_WEB_HASH_FILE" 2>/dev/null)" ]]; then
-    echo "== --web-only requested, but the frontend changed since the last native build =="
-    echo "== escalating to a FULL deploy so installed Android/desktop apps update too =="
-    WEB_ONLY=false
-  else
-    # Backend-only change: the bundled app UI is identical, so natives genuinely need nothing.
-    # Open tabs still get told about the new backend.
-    if grep -q '^OPS_AGENT_SECRET=.\+' .env; then
-      curl -s -X POST http://127.0.0.1:4000/api/meta/announce-update \
-        -H "x-lumina-agent-secret: $(grep -oP '^OPS_AGENT_SECRET=\K.*' .env)" --max-time 15 >/dev/null || true
-    fi
-    echo "== --web-only: frontend unchanged since last native build — skipping Android + desktop =="
-    echo "Deploy complete: https://lumina.luxffa.com"
-    exit 0
+if [[ "$BUILD_NATIVE" == false ]]; then
+  # Backend-only change: the bundled app UI is identical, so natives genuinely need nothing.
+  # Open tabs still get told about the new backend.
+  if grep -q '^OPS_AGENT_SECRET=.\+' .env; then
+    curl -s -X POST http://127.0.0.1:4000/api/meta/announce-update \
+      -H "x-lumina-agent-secret: $(grep -oP '^OPS_AGENT_SECRET=\K.*' .env)" --max-time 15 >/dev/null || true
   fi
+  echo "== --web-only: frontend unchanged since last native build — skipping Android + desktop =="
+  echo "Deploy complete: https://lumina.luxffa.com"
+  exit 0
 fi
 
 echo "== 3/5: building Android debug APK =="
 # Bump the version the installed app checks itself against (see queries/meta.ts's
 # useAndroidUpdateAvailable + UpdateBanner.tsx) — only here, not in the --web-only path above,
 # since that path never actually rebuilds/republishes the APK this number is meant to describe.
-NEW_ANDROID_VERSION=$(( $(grep -oP 'ANDROID_VERSION_CODE=\K.*' .env) + 1 ))
+PREV_ANDROID_VERSION=$(grep -oP 'ANDROID_VERSION_CODE=\K.*' .env)
+NEW_ANDROID_VERSION=$(( PREV_ANDROID_VERSION + 1 ))
+
+# From here until the first artifact is published, a failure has to put the tree back. Five
+# tracked files plus the untracked .env carry the new build number, and the backend is restarted
+# below advertising it — left like that, every installed app is told an update exists that was
+# never published, and the next deploy bumps again on top of a phantom. Reversed by undoing each
+# substitution exactly (not `git checkout`, which would also throw away any real edit sitting in
+# those files). Once publishing has begun the opposite holds: a half-published release needs a
+# person, not an automatic rewind.
+PUBLISHING=false
+revert_version_bumps() {
+  echo "== deploy failed before publishing anything: undoing the bump ${PREV_ANDROID_VERSION} -> ${NEW_ANDROID_VERSION} =="
+  sed -i "s/versionCode ${NEW_ANDROID_VERSION}\b/versionCode ${PREV_ANDROID_VERSION}/" \
+    apps/mobile/android/app/build.gradle apps/owner-mobile/android/app/build.gradle
+  sed -i "s/versionName \"1\.${NEW_ANDROID_VERSION}\"/versionName \"1.${PREV_ANDROID_VERSION}\"/" \
+    apps/mobile/android/app/build.gradle apps/owner-mobile/android/app/build.gradle
+  sed -i "s/^VITE_APP_BUILD=${NEW_ANDROID_VERSION}$/VITE_APP_BUILD=${PREV_ANDROID_VERSION}/" \
+    apps/frontend/.env.mobile apps/frontend/.env.owner
+  sed -i "s/^ANDROID_VERSION_CODE=${NEW_ANDROID_VERSION}$/ANDROID_VERSION_CODE=${PREV_ANDROID_VERSION}/" .env
+  npm --prefix apps/desktop version "1.0.${PREV_ANDROID_VERSION}" --no-git-tag-version --allow-same-version >/dev/null 2>&1 || true
+  # Re-bake the old number into /api/meta/version, or the running backend keeps advertising it.
+  docker compose up -d backend >/dev/null 2>&1 || true
+  echo "== tree restored to build ${PREV_ANDROID_VERSION}; the web stack deployed above stays up =="
+}
+on_exit() {
+  local rc=$?
+  [[ "$rc" -eq 0 ]] && return
+  set +e  # the rewind must run to the end even if one of its own steps fails
+  if [[ "$PUBLISHING" == true ]]; then
+    echo "!! deploy failed DURING publishing: build ${NEW_ANDROID_VERSION} may be half-published. Check downloads/, downloads/desktop/ and R2 by hand before re-running." >&2
+  else
+    revert_version_bumps
+  fi
+}
+trap on_exit EXIT
+
 sed -i "s/^ANDROID_VERSION_CODE=.*/ANDROID_VERSION_CODE=${NEW_ANDROID_VERSION}/" .env
 sed -i "s/versionCode [0-9]\+/versionCode ${NEW_ANDROID_VERSION}/" apps/mobile/android/app/build.gradle
 sed -i "s/versionName \"[^\"]*\"/versionName \"1.${NEW_ANDROID_VERSION}\"/" apps/mobile/android/app/build.gradle
@@ -131,9 +215,10 @@ docker compose up -d backend
 # file, and the deploy fails loudly if ANY branch fails. Gradle keeps its daemon + build cache
 # (two cold no-daemon JVM starts per deploy were pure waste; the daemon survives between deploys
 # and makes incremental APK builds dramatically cheaper).
-BUILD_LOGS="/tmp/lumina-native-build-logs"
-mkdir -p "$BUILD_LOGS"
-
+#
+# -Dorg.gradle.java.home pins Gradle itself to $JDK21 (Capacitor 8 needs 21) without relying on the
+# shell's JAVA_HOME — the pin used to live in apps/mobile/android/gradle.properties as a hardcoded
+# path, which is one machine's path and broke the build on every other one.
 build_chat_apk() {
   npm run build:mobile --workspace=apps/frontend
   npx cap sync android --project apps/mobile 2>/dev/null || (cd apps/mobile && npx cap sync android)
@@ -142,7 +227,7 @@ build_chat_apk() {
     export JAVA_HOME="$JDK21"
     export ANDROID_HOME="$ANDROID_SDK"
     export PATH="$JAVA_HOME/bin:$PATH"
-    ./gradlew assembleDebug --build-cache
+    ./gradlew -Dorg.gradle.java.home="$JDK21" assembleDebug --build-cache
   )
 }
 
@@ -154,7 +239,7 @@ build_owner_apk() {
     export JAVA_HOME="$JDK21"
     export ANDROID_HOME="$ANDROID_SDK"
     export PATH="$JAVA_HOME/bin:$PATH"
-    ./gradlew assembleDebug --build-cache
+    ./gradlew -Dorg.gradle.java.home="$JDK21" assembleDebug --build-cache
   )
 }
 
@@ -191,6 +276,8 @@ if [[ -n "$FAILED" ]]; then
 fi
 echo "All three native builds succeeded."
 
+# Past this line a failure is no longer rewound (see on_exit) — artifacts start reaching users.
+PUBLISHING=true
 echo "== publishing chat APK to /downloads/ =="
 cp apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk downloads/lumina.apk
 echo "Published: https://lumina.luxffa.com/downloads/lumina.apk"
@@ -297,6 +384,8 @@ fi
 
 echo
 echo "Deploy complete."
+echo "  Build ${NEW_ANDROID_VERSION} is published, but its version bumps are NOT committed (this script never commits):"
+echo "    git commit -am 'Release build ${NEW_ANDROID_VERSION}: chat + owner APKs 1.${NEW_ANDROID_VERSION}, desktop 1.0.${NEW_ANDROID_VERSION}'"
 echo "  Web:     https://lumina.luxffa.com"
 echo "  Android: https://lumina.luxffa.com/downloads/lumina.apk"
 echo "  Owner:   https://lumina.luxffa.com/downloads/lumina-owner.apk"
