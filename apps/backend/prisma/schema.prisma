@@ -886,6 +886,9 @@ model DMParticipant {
   userId            String
   joinedAt          DateTime       @default(now())
   lastReadMessageId BigInt?
+  // A per-participant "closed" flag: hides the conversation from this user's DM list without
+  // deleting it or affecting anyone else. Reset to false for everyone when a new message arrives.
+  hidden            Boolean        @default(false)
   conversation      DMConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Plus, Settings, Users, X } from "lucide-react";
-import { useDMs, useCreateDM } from "../../../queries/dms";
+import { useDMs, useCreateDM, useHideDM } from "../../../queries/dms";
 import { useFriendRequests } from "../../../queries/friends";
 import { useAuthStore } from "../../../store/authStore";
 import { useUIStore } from "../../../store/uiStore";
@@ -22,6 +22,7 @@ import { cn } from "../../../lib/cn";
  */
 export function MessagesBranch() {
   const { data: conversations } = useDMs();
+  const hideDM = useHideDM();
   const { data: friendRequests } = useFriendRequests();
   const { conversationId: activeId } = useParams();
   const location = useLocation();
@@ -149,11 +150,22 @@ export function MessagesBranch() {
               <button
                 onClick={() => openModalWith("groupDMSettings", { conversationId: c.id })}
                 title="Group settings"
-                className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded p-1 text-signal-faint hover:text-signal group-hover:block max-md:block"
+                className="absolute right-7 top-1/2 hidden -translate-y-1/2 rounded p-1 text-signal-faint hover:text-signal group-hover:block max-md:block"
               >
                 <Settings size={13} />
               </button>
             )}
+            <button
+              onClick={() => {
+                hideDM.mutate(c.id);
+                if (c.id === activeId) navigate("/friends");
+              }}
+              title="Close conversation"
+              aria-label="Close conversation"
+              className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded p-1 text-signal-faint hover:text-dnd group-hover:block max-md:block"
+            >
+              <X size={13} />
+            </button>
           </div>
         );
       })}

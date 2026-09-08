@@ -330,6 +330,8 @@ export async function createDMMessage(params: {
   // Stickers are server-scoped, and a DM has no server to scope against — the same reason a
   // `:name:` custom emoji cannot resolve in a DM. Rejected explicitly so the error says why.
   if (params.stickerId) throw new BadRequestError("Stickers can only be sent in a server");
+  // A new message resurfaces the conversation for anyone (either side) who had closed/hidden it.
+  await prisma.dMParticipant.updateMany({ where: { conversationId: params.conversationId, hidden: true }, data: { hidden: false } });
 
   const message = await prisma.message.create({
     data: {
