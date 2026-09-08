@@ -41,7 +41,7 @@ import { ForgotPassword } from "./routes/ForgotPassword";
 import { ResetPassword } from "./routes/ResetPassword";
 import { LandingRoute } from "./routes/LandingRoute";
 import { DeepLinkHandler } from "./components/common/DeepLinkHandler";
-import { CLIENT_TYPE } from "./lib/platform";
+import { APP_HOME, CLIENT_TYPE } from "./lib/platform";
 
 /**
  * Decides what the web root shows.
@@ -154,6 +154,10 @@ export function App() {
             {import.meta.env.DEV && <Route path="/__boom" element={<CrashTest />} />}
           </Route>
         </Route>
+        {/* Anything matching nothing above — a stale /index.html after a hard reload, a typo, a
+            removed page still bookmarked — goes to the app home instead of a blank screen with no
+            way back. Lowest priority: react-router ranks "*" last regardless of order. */}
+        <Route path="*" element={<Navigate to={APP_HOME} replace />} />
       </Routes>
     </BrowserRouter>
   );

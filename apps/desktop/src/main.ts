@@ -67,7 +67,10 @@ function createWindow(): void {
     if (mainWindow === win) mainWindow = null;
   });
 
-  void win.loadURL("app://localhost/index.html");
+  // Load the app ROOT, not "/index.html". BrowserRouter matches on window.location.pathname;
+  // "/index.html" matches no <Route> (and there is a catch-all now, but the home path is the
+  // honest thing to open). The app:// handler already resolves "/" to index.html on disk.
+  void win.loadURL("app://localhost/");
   if (isDev) win.webContents.openDevTools({ mode: "detach" });
 }
 
