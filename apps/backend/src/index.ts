@@ -24,6 +24,7 @@ import opsRoutes from "./modules/ops/routes.js";
 import adRoutes from "./modules/ads/routes.js";
 import addonRoutes, { serverAddonRoutes } from "./modules/addons/routes.js";
 import serversRoutes from "./modules/servers/routes.js";
+import serverFolderRoutes from "./modules/serverFolders/routes.js";
 import moderationRoutes from "./modules/moderation/routes.js";
 import serverChannelsRoutes from "./modules/channels/serverRoutes.js";
 import channelRoutes from "./modules/channels/channelRoutes.js";
@@ -356,6 +357,7 @@ async function main() {
   await fastify.register(addonRoutes, { prefix: "/api/addons" });
   await fastify.register(serverAddonRoutes, { prefix: "/api/servers/:id/addons" });
   await fastify.register(serversRoutes, { prefix: "/api/servers" });
+  await fastify.register(serverFolderRoutes, { prefix: "/api/server-folders" });
   await fastify.register(moderationRoutes, { prefix: "/api/servers" });
   await fastify.register(serverChannelsRoutes, { prefix: "/api/servers" });
   await fastify.register(channelRoutes, { prefix: "/api/channels" });

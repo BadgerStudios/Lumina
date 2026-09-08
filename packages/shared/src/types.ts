@@ -251,6 +251,15 @@ export interface ServerDTO {
   isOfficial: boolean;
 }
 
+/** A per-user sidebar folder grouping some of the caller's own spaces. serverIds are the ids of the
+ * caller's memberships filed under it, in join order. Purely a personal organising device. */
+export interface ServerFolderDTO {
+  id: string;
+  name: string;
+  color: string | null;
+  serverIds: string[];
+}
+
 export interface AttachmentDTO {
   id: string;
   fileName: string;
