@@ -13,6 +13,7 @@ export type ModalType =
   | "serverEvents"
   | "game"
   | "userSettings"
+  | "report"
   | null;
 
 interface ModalPayloads {
@@ -28,6 +29,7 @@ interface ModalPayloads {
   game: { serverId: string };
   userSettings: undefined;
   createServer: undefined;
+  report: { targetType: "USER" | "MESSAGE"; targetId: string; label: string };
 }
 
 export type Density = "comfortable" | "compact";

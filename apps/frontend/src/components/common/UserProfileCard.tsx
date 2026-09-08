@@ -14,6 +14,7 @@ import {
 } from "../../queries/friends";
 import { useAuthStore } from "../../store/authStore";
 import { toast } from "../../store/toastStore";
+import { useUIStore } from "../../store/uiStore";
 
 /** Discord-style profile card — shown in a popover from clicking a name/avatar anywhere (member
  * list, messages). Was a real gap: bio/pronouns/banner (see UserSettingsModal.tsx's
@@ -29,13 +30,10 @@ export function UserProfileCard({
   user,
   nickname,
   onMessage,
-  onReport,
 }: {
   user: UserDTO;
   nickname?: string | null;
   onMessage?: () => void;
-  /** Opens the report flow for this user. Provided by callers that mount the report modal. */
-  onReport?: () => void;
 }) {
   const displayName = nickname ?? user.displayName ?? user.username;
   const me = useAuthStore((s) => s.user);
@@ -49,6 +47,7 @@ export function UserProfileCard({
   const removeFriend = useRemoveFriend();
   const blockUser = useBlockUser();
   const unblockUser = useUnblockUser();
+  const openReport = useUIStore((st) => st.openModalWith);
 
   const isFriend = friends?.some((f) => f.user.id === user.id) ?? false;
   const isBlocked = blocked?.some((b) => b.user.id === user.id) ?? false;
@@ -152,8 +151,11 @@ export function UserProfileCard({
                   <Ban size={15} /> Block
                 </button>
               ))}
-            {canRelate && onReport && (
-              <button className={dangerBtn} onClick={onReport}>
+            {canRelate && (
+              <button
+                className={dangerBtn}
+                onClick={() => openReport("report", { targetType: "USER", targetId: user.id, label: displayName })}
+              >
                 <Flag size={15} /> Report
               </button>
             )}

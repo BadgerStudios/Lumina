@@ -2892,3 +2892,39 @@ model BotRecipe {
 
   @@index([verified])
 }
+
+/// What a ContentReport points at. Videos have their own VideoReport; this covers the two
+/// surfaces that had no report path at all — a person and a chat/DM message.
+enum ReportTargetType {
+  USER
+  MESSAGE
+}
+
+/// A report filed against a USER or a MESSAGE. Separate from VideoReport (feed-only).
+///
+/// Target ids are plain scalars, not FK relations: a report must OUTLIVE the thing it is about —
+/// a message deleted seconds after being reported is exactly the case staff still need to see —
+/// and keeping it relation-less avoids threading back-relations through User and Message. Reason
+/// and status reuse the enums the video report queue already defines. Duplicate suppression (one
+/// open report per reporter+target) is enforced in the service rather than by a unique index,
+/// because a composite unique over nullable columns is a no-op in Postgres (NULLs compare distinct).
+model ContentReport {
+  id              String           @id @default(cuid())
+  reporterId      String
+  targetType      ReportTargetType
+  targetUserId    String?
+  targetMessageId BigInt?
+  reason          ReportReason
+  details         String?          @db.VarChar(1000)
+  status          ReportStatus     @default(OPEN)
+  assignedToId    String?
+  resolutionNote  String?          @db.VarChar(1000)
+  resolvedById    String?
+  resolvedAt      DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@index([status, createdAt])
+  @@index([reporterId])
+  @@index([targetUserId])
+  @@index([targetMessageId])
+}

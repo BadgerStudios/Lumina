@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag } from "lucide-react";
+import { useUIStore } from "../../store/uiStore";
 import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
 import type { MessageDTO } from "@lumina/shared";
@@ -88,6 +89,7 @@ export function MessageItem({
   const isOwn = message.authorId === currentUserId;
   const canEdit = isOwn;
   const canDelete = isOwn || canManage;
+  const openReport = useUIStore((s) => s.openModalWith);
   const author = message.author;
   const displayName = author?.displayName ?? author?.username ?? message.webhookUsername ?? "Unknown user";
   const avatarUrl = author?.avatarUrl ?? message.webhookAvatarUrl ?? null;
@@ -334,6 +336,16 @@ export function MessageItem({
               aria-label={message.pinned ? "Unpin" : "Pin"}
             >
               {message.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+            </button>
+          )}
+          {!isOwn && (
+            <button
+              onClick={() => openReport("report", { targetType: "MESSAGE", targetId: message.id, label: displayName })}
+              className={iconBtn}
+              title="Report message"
+              aria-label="Report message"
+            >
+              <Flag size={15} />
             </button>
           )}
           {canEdit && (

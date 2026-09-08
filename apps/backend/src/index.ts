@@ -64,6 +64,7 @@ import channelWebhookRoutes from "./modules/webhooks/channelWebhookRoutes.js";
 import serverWebhookRoutes from "./modules/webhooks/serverWebhookRoutes.js";
 import webhookRoutes from "./modules/webhooks/webhookRoutes.js";
 import friendRoutes from "./modules/friends/routes.js";
+import contentReportRoutes from "./modules/reports/routes.js";
 import voiceRoutes from "./modules/voice/routes.js";
 import oauth2Routes from "./modules/oauth2/routes.js";
 import pushRoutes from "./modules/push/routes.js";
@@ -408,6 +409,7 @@ async function main() {
   await fastify.register(serverWebhookRoutes, { prefix: "/api/servers" });
   await fastify.register(webhookRoutes, { prefix: "/api/webhooks" });
   await fastify.register(friendRoutes, { prefix: "/api/friends" });
+  await fastify.register(contentReportRoutes, { prefix: "/api/reports" });
   await fastify.register(voiceRoutes, { prefix: "/api/voice" });
   await fastify.register(oauth2Routes, { prefix: "/api/oauth2" });
   await fastify.register(pushRoutes, { prefix: "/api/push" });
