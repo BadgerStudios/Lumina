@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
+import { useMarkChannelUnread } from "../../queries/readState";
 import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
 import type { MessageDTO } from "@lumina/shared";
@@ -90,6 +91,7 @@ export function MessageItem({
   const canEdit = isOwn;
   const canDelete = isOwn || canManage;
   const openReport = useUIStore((s) => s.openModalWith);
+  const markUnread = useMarkChannelUnread();
   const author = message.author;
   const displayName = author?.displayName ?? author?.username ?? message.webhookUsername ?? "Unknown user";
   const avatarUrl = author?.avatarUrl ?? message.webhookAvatarUrl ?? null;
@@ -332,6 +334,16 @@ export function MessageItem({
           >
             <Forward size={15} />
           </button>
+          {message.channelId && (
+            <button
+              onClick={() => markUnread.mutate({ channelId: message.channelId!, messageId: message.id })}
+              className={iconBtn}
+              title="Mark unread"
+              aria-label="Mark unread from here"
+            >
+              <Mail size={15} />
+            </button>
+          )}
           {onStartThread && message.channelId && (
             <button
               onClick={() => (message.thread ? onOpenThread?.(message.thread.id) : onStartThread(message))}
