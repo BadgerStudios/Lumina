@@ -240,6 +240,8 @@ export function MessageItem({
                         preload="metadata"
                         className="max-h-80 max-w-sm rounded-xl border border-hairline"
                       />
+                    ) : a.mimeType.startsWith("audio/") ? (
+                      <audio src={attachmentUrl(a.url)} controls preload="metadata" className="max-w-xs" />
                     ) : (
                       <a
                         href={attachmentUrl(a.url)}
