@@ -48,6 +48,7 @@ export function ChatPane({
   onStartThread,
   focusMessageId,
   focusNonce,
+  composerDisabledReason,
 }: {
   title: string;
   topic?: string | null;
@@ -72,6 +73,9 @@ export function ChatPane({
   /** Jump-to-message target (from the ?message= deep link), threaded down to the list. */
   focusMessageId?: string | null;
   focusNonce?: number;
+  /** When set, the composer is replaced by a read-only notice (e.g. an announcement channel a
+   * non-moderator can read but not post in). The backend enforces this regardless. */
+  composerDisabledReason?: string | null;
 }) {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const editMessage = useEditMessage();
@@ -145,17 +149,23 @@ export function ChatPane({
         focusNonce={focusNonce}
       />
       {typingChannelId ? <TypingIndicator channelId={typingChannelId} serverId={serverId} /> : <div className="h-5" />}
-      <Composer
-        placeholder={`Message ${title}`}
-        onSend={onSend}
-        onSendWithAttachments={onSendWithAttachments}
-        onSendRich={onSendRich}
-        typingChannelId={typingChannelId}
-        serverId={serverId}
-        dmConversationId={target.dmConversationId}
-        replyTo={replyTo}
-        onCancelReply={() => setReplyTo(null)}
-      />
+      {composerDisabledReason ? (
+        <div className="mx-3 mb-3 rounded-xl border border-hairline bg-base-900/50 px-4 py-3 text-center text-sm text-signal-faint">
+          {composerDisabledReason}
+        </div>
+      ) : (
+        <Composer
+          placeholder={`Message ${title}`}
+          onSend={onSend}
+          onSendWithAttachments={onSendWithAttachments}
+          onSendRich={onSendRich}
+          typingChannelId={typingChannelId}
+          serverId={serverId}
+          dmConversationId={target.dmConversationId}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+        />
+      )}
     </div>
   );
 }

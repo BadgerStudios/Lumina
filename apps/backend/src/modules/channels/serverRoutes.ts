@@ -12,7 +12,7 @@ import { ServerEvents } from "@lumina/shared";
 
 const createChannelSchema = z.object({
   name: z.string().min(1).max(100),
-  type: z.enum(["TEXT", "CATEGORY", "VOICE"]).default("TEXT"),
+  type: z.enum(["TEXT", "CATEGORY", "VOICE", "ANNOUNCEMENT", "FORUM"]).default("TEXT"),
   topic: z.string().max(1024).nullable().optional(),
   parentId: z.string().nullable().optional(),
   position: z.number().int().optional(),

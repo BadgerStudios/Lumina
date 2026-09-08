@@ -28,6 +28,14 @@ enum ChannelType {
   // therefore works inside a thread with no duplication whatsoever. The alternative would have
   // meant reimplementing all of it against a second id column.
   THREAD
+  // An announcement channel is an ordinary TEXT surface with one difference enforced in
+  // createChannelMessage: posting requires MANAGE_MESSAGES, so everyone reads and only moderators
+  // write. No separate table — the type flag is the whole feature.
+  ANNOUNCEMENT
+  // A forum channel holds THREAD children as its "posts" (parentId points here). It stores no
+  // messages of its own; a post is a thread with a title and a first message, reusing every piece
+  // of thread/message machinery. Branched on in the client's channel view and createThread.
+  FORUM
 }
 
 enum FriendStatus {

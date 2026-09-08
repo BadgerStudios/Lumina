@@ -238,7 +238,12 @@ export async function createChannelMessage(params: {
   // gates because it is the broadest: it is not about this channel or this server.
   await assertNotLockedMinor(params.userId);
   await assertNotMuted(params.userId, channel.serverId);
-  await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.SEND_MESSAGES);
+  // Announcement channels are read-only for everyone except moderators: everyone can VIEW and read,
+  // but posting requires MANAGE_MESSAGES rather than SEND_MESSAGES. No separate table or overwrite
+  // config — the channel type is the whole gate (a THREAD started under a forum keeps SEND_MESSAGES,
+  // since only its FORUM/TEXT parent's own type would carry the announcement restriction).
+  const postBit = channel.type === "ANNOUNCEMENT" ? Permissions.MANAGE_MESSAGES : Permissions.SEND_MESSAGES;
+  await checkChannelPermission(params.userId, channel.serverId, channel.id, postBit);
   // Server verification gate. After the permission check (so a 403 for "you cannot post here" wins
   // over "verify your email", which is the more useful error) and before anything is written.
   await assertPassesVerification(params.userId, channel.serverId);

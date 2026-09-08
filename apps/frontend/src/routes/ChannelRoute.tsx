@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChatPane } from "../components/layout/ChatPane";
+import { ForumView } from "../components/chat/ForumView";
 import { ThreadPanel } from "../components/chat/ThreadPanel";
 import { ActivityFrame } from "../components/game/ActivityFrame";
 import { AsidePanel } from "../components/layout/AsidePanel";
@@ -68,6 +69,10 @@ export function ChannelRoute() {
 
   const me = members?.find((m) => m.userId === user?.id);
   const canManageMessages = can("MANAGE_MESSAGES", { userId: user?.id, server, member: me, roles });
+  const canSendMessages = can("SEND_MESSAGES", { userId: user?.id, server, member: me, roles });
+  // Announcement channels are read-only for everyone but moderators (enforced on the backend too).
+  const composerDisabledReason =
+    channel?.type === "ANNOUNCEMENT" && !canManageMessages ? "Only moderators can post in this channel." : null;
 
   // The nav deck links to `_` as a placeholder before a space's room list has loaded, and a
   // channel can also be deleted out from under a currently-viewing user — both cases redirect
@@ -85,41 +90,52 @@ export function ChannelRoute() {
 
   return (
     <>
-      <ChatPane
-        title={channel?.name ?? ""}
-        topic={channel?.topic}
-        messages={messagesQuery.data}
-        isLoading={messagesQuery.isLoading}
-        hasNextPage={messagesQuery.hasNextPage}
-        isFetchingNextPage={messagesQuery.isFetchingNextPage}
-        fetchNextPage={() => void messagesQuery.fetchNextPage()}
-        onSend={async (content, replyToId) => {
-          await sendMessage.mutateAsync({ content, replyToId });
-        }}
-        onSendWithAttachments={async (content, files, replyToId) => {
-          await sendWithAttachments.mutateAsync({ content, files, replyToId });
-        }}
-        onSendRich={async (payload) => {
-          await sendRich.mutateAsync(payload);
-        }}
-        typingChannelId={validChannelId}
-        serverId={serverId}
-        target={{ channelId: validChannelId }}
-        canManageMessages={canManageMessages}
-        focusMessageId={focusMessageId}
-        focusNonce={focusNonce}
-        onOpenThread={(threadId) => setOpenThreadId(threadId)}
-        onStartThread={async (message) => {
-          // Seeded from the message being threaded so the prompt is answerable without retyping —
-          // and trimmed to the same 100 characters the API accepts, so a long message cannot
-          // produce a name the server will reject.
-          const suggested = message.content.trim().slice(0, 100) || "New thread";
-          const name = window.prompt("Thread name", suggested);
-          if (!name?.trim()) return;
-          const thread = await createThread.mutateAsync({ name: name.trim(), originMessageId: message.id });
-          setOpenThreadId(thread.id);
-        }}
-      />
+      {channel?.type === "FORUM" ? (
+        <ForumView
+          serverId={serverId}
+          channel={channel}
+          canPost={canSendMessages}
+          activePostId={openThreadId}
+          onOpenPost={(threadId) => setOpenThreadId(threadId)}
+        />
+      ) : (
+        <ChatPane
+          title={channel?.name ?? ""}
+          topic={channel?.topic}
+          messages={messagesQuery.data}
+          isLoading={messagesQuery.isLoading}
+          hasNextPage={messagesQuery.hasNextPage}
+          isFetchingNextPage={messagesQuery.isFetchingNextPage}
+          fetchNextPage={() => void messagesQuery.fetchNextPage()}
+          onSend={async (content, replyToId) => {
+            await sendMessage.mutateAsync({ content, replyToId });
+          }}
+          onSendWithAttachments={async (content, files, replyToId) => {
+            await sendWithAttachments.mutateAsync({ content, files, replyToId });
+          }}
+          onSendRich={async (payload) => {
+            await sendRich.mutateAsync(payload);
+          }}
+          typingChannelId={validChannelId}
+          serverId={serverId}
+          target={{ channelId: validChannelId }}
+          canManageMessages={canManageMessages}
+          composerDisabledReason={composerDisabledReason}
+          focusMessageId={focusMessageId}
+          focusNonce={focusNonce}
+          onOpenThread={(threadId) => setOpenThreadId(threadId)}
+          onStartThread={async (message) => {
+            // Seeded from the message being threaded so the prompt is answerable without retyping —
+            // and trimmed to the same 100 characters the API accepts, so a long message cannot
+            // produce a name the server will reject.
+            const suggested = message.content.trim().slice(0, 100) || "New thread";
+            const name = window.prompt("Thread name", suggested);
+            if (!name?.trim()) return;
+            const thread = await createThread.mutateAsync({ name: name.trim(), originMessageId: message.id });
+            setOpenThreadId(thread.id);
+          }}
+        />
+      )}
       {openThreadId && (
         <ThreadPanel
           threadId={openThreadId}

@@ -9,6 +9,7 @@ import {
   FolderPlus,
   Gamepad2,
   LogOut,
+  Megaphone,
   MessagesSquare,
   MoreHorizontal,
   Plus,
@@ -94,6 +95,7 @@ function TextRoomRow({
   unread,
   serverId,
   canManageChannels,
+  icon,
   onMoveUp,
   onMoveDown,
 }: {
@@ -102,6 +104,8 @@ function TextRoomRow({
   unread: boolean;
   serverId: string;
   canManageChannels: boolean;
+  /** Replaces the default hash glyph — a megaphone for announcements, a board for forums. */
+  icon?: React.ReactNode;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
 }) {
@@ -119,7 +123,13 @@ function TextRoomRow({
         data-unread={unread}
         className="lx-row lx-focus text-sm"
       >
-        <span className="lx-mark" aria-hidden="true" />
+        {icon ? (
+          <span className="grid size-4 shrink-0 place-items-center text-signal-faint" aria-hidden="true">
+            {icon}
+          </span>
+        ) : (
+          <span className="lx-mark" aria-hidden="true" />
+        )}
         <span className="min-w-0 flex-1 truncate">{channel.name}</span>
         {unread && <span className="sr-only">(unread)</span>}
       </button>
@@ -367,13 +377,16 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
   const me = members?.find((m) => m.userId === user?.id);
   const canManageChannels = can("MANAGE_CHANNELS", { userId: user?.id, server, member: me, roles });
 
+  // A "room" is any non-category channel in the list (the API already excludes threads). TEXT,
+  // VOICE, ANNOUNCEMENT and FORUM all belong in the tree either at the top level or under a category.
+  const isRoom = (c: ChannelDTO) => c.type !== "CATEGORY";
   const categories = (channels ?? []).filter((c) => c.type === "CATEGORY").sort((a, b) => a.position - b.position);
   const topLevel = (channels ?? [])
-    .filter((c) => (c.type === "TEXT" || c.type === "VOICE") && !c.parentId)
+    .filter((c) => isRoom(c) && !c.parentId)
     .sort((a, b) => a.position - b.position);
   const byParent = new Map<string, ChannelDTO[]>();
   for (const c of channels ?? []) {
-    if ((c.type === "TEXT" || c.type === "VOICE") && c.parentId) {
+    if (isRoom(c) && c.parentId) {
       const list = byParent.get(c.parentId) ?? [];
       list.push(c);
       byParent.set(c.parentId, list);
@@ -402,9 +415,10 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
   }
 
   function renderChannel(c: ChannelDTO, index: number, list: ChannelDTO[]) {
-    return c.type === "VOICE" ? (
-      <VoiceRoomRow key={c.id} channel={c} serverId={serverId} />
-    ) : (
+    if (c.type === "VOICE") return <VoiceRoomRow key={c.id} channel={c} serverId={serverId} />;
+    const icon =
+      c.type === "ANNOUNCEMENT" ? <Megaphone size={13} /> : c.type === "FORUM" ? <MessagesSquare size={13} /> : undefined;
+    return (
       <div key={c.id}>
         <TextRoomRow
           channel={c}
@@ -412,9 +426,11 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
           unread={c.id !== routeChannelId && unreadChannelIds.has(c.id)}
           serverId={serverId}
           canManageChannels={canManageChannels}
+          icon={icon}
           onMoveUp={index > 0 ? () => moveChannel(c, -1) : undefined}
           onMoveDown={index < list.length - 1 ? () => moveChannel(c, 1) : undefined}
         />
+        {/* The active TEXT channel shows its threads inline; a forum shows its posts in the main pane. */}
         {c.id === routeChannelId && c.type === "TEXT" && <ThreadList channelId={c.id} />}
       </div>
     );
