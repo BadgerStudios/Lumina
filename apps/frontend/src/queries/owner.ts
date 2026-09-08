@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PlatformRole, UserDTO } from "@lumina/shared";
+import type { PlatformRole, UserDTO, VideoDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { reportError } from "../store/toastStore";
 
@@ -131,6 +131,8 @@ export interface OwnerUserDetail {
   createdAt: string;
   counts: { messages: number; videos: number; ownedServers: number; servers: number };
   servers: Array<{ id: string; name: string }>;
+  /** Newest first, at most six; the same shape the staff queue renders. */
+  recentVideos: VideoDTO[];
   /** IPs are unhashed here by design — the owner needs them to make an informed ban decision. */
   sessions: Array<{
     id: string;

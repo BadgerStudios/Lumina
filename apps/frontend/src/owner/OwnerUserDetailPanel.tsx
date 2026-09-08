@@ -1,5 +1,6 @@
 import { Loader2, X, Monitor, Globe, Shield, MessageSquare, Video, Server as ServerIcon } from "lucide-react";
 import { useOwnerUserDetail } from "../queries/owner";
+import { videoMediaUrl } from "../queries/videos";
 import { UserAvatar } from "../components/common/UserAvatar";
 
 /**
@@ -120,6 +121,43 @@ export function OwnerUserDetailPanel({ userId, onClose }: { userId: string; onCl
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+              </Section>
+
+              <Section title={`Recent videos (${data.recentVideos.length} of ${data.counts.videos})`}>
+                {data.recentVideos.length === 0 ? (
+                  <p className="text-xs text-signal-faint">No uploads.</p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {data.recentVideos.map((v) => {
+                      const src = videoMediaUrl(v.playbackUrl);
+                      return (
+                        <div key={v.id} className="overflow-hidden rounded-lg border border-hairline bg-base-900">
+                          <div className="aspect-video bg-black">
+                            {src ? (
+                              // A real player, not a poster: judging an account means watching
+                              // what it posts. preload=metadata so six of them don't all download.
+                              <video src={src} controls preload="metadata" className="h-full w-full object-contain" />
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-xs text-signal-faint">
+                                No playable media{v.failureReason ? ` — ${v.failureReason}` : ""}
+                              </div>
+                            )}
+                          </div>
+                          <div className="space-y-0.5 p-2 text-xs">
+                            {v.caption && <p className="truncate text-signal">{v.caption}</p>}
+                            <p className="text-signal-faint">
+                              {new Date(v.createdAt).toLocaleString()}
+                              {v.durationMs ? ` · ${Math.round(v.durationMs / 1000)}s` : ""}
+                              {" · "}
+                              {v.likeCount} likes · {v.viewCount} views
+                            </p>
+                            {v.rejectionReason && <p className="text-flare">Rejected: {v.rejectionReason}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </Section>

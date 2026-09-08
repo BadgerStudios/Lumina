@@ -11,6 +11,7 @@ import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { applyRoleGrant } from "../../lib/roleGrant.js";
 import { assignableRoles, isOwner } from "../../lib/platformRole.js";
 import { serializeUser } from "../../lib/serialize.js";
+import { serializeVideoWithStatus, VIDEO_AUTHOR_SELECT, VIDEO_TAGS_INCLUDE, VIDEO_SOURCE_INCLUDE } from "../videos/serialize.js";
 import { banUser, liftBan, resolveAppeal } from "../bans/service.js";
 import { getTranscodeQueue } from "../videos/queue.js";
 import { getBandwidthSeries, getDownloadStats, getRevenueStats } from "../metrics/service.js";
@@ -435,6 +436,14 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       take: 20,
       select: { id: true, userAgent: true, ipAddress: true, createdAt: true, expiresAt: true },
     });
+    // The six most recent uploads, with playback URLs: the account sheet can show what this person
+    // actually posts. A count alone was never enough to judge an account by.
+    const recentVideos = await prisma.video.findMany({
+      where: { authorId: id },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      include: { author: { select: VIDEO_AUTHOR_SELECT }, ...VIDEO_TAGS_INCLUDE, ...VIDEO_SOURCE_INCLUDE },
+    });
 
     return {
       ...serializeUser(user),
@@ -448,6 +457,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         servers: user._count.memberships,
       },
       servers: user.memberships.map((m) => m.server),
+      recentVideos: recentVideos.map((v) => serializeVideoWithStatus(v)),
       // IPs are shown unhashed here (they are stored unhashed on RefreshToken, unlike in the ban
       // table) because the owner needs them to make an informed ban decision.
       sessions: sessions.map((s) => ({

@@ -21,6 +21,7 @@ import {
   Palette as PaletteIcon,
   BookLock,
   Radio,
+  Film,
 } from "lucide-react";
 import {
   usePlatformStats,
@@ -47,6 +48,9 @@ import { OwnerActivityPanel } from "./OwnerActivityPanel";
 import { OwnerAdsPanel } from "./OwnerAdsPanel";
 import { OwnerInfrastructurePanel } from "./OwnerInfrastructurePanel";
 import { OwnerOfficialAccountsPanel } from "./OwnerOfficialAccountsPanel";
+// The staff review queue, mounted as-is: one component for both consoles, so the owner reviews
+// with the same player, tabs and decisions as staff, and the two can never drift apart.
+import { StaffVideosRoute } from "../routes/StaffVideosRoute";
 import {
   Metric,
   Group,
@@ -81,7 +85,8 @@ type Section =
   | "ads"
   | "infrastructure"
   | "ageReviews"
-  | "official";
+  | "official"
+  | "videos";
 
 /**
  * Navigation, grouped by what you'd be doing rather than as one flat list.
@@ -120,6 +125,7 @@ const NAV_GROUPS: Array<{
     group: "People",
     items: [
       { key: "users", label: "Users", icon: Users },
+      { key: "videos", label: "Videos", icon: Film },
       { key: "bans", label: "Bans & appeals", icon: Gavel },
       { key: "ageReviews", label: "Age reviews", icon: ShieldCheck },
       { key: "team", label: "Team & access", icon: UserCog },
@@ -162,6 +168,7 @@ const SECTION_LABELS: Record<Section, string> = {
   infrastructure: "Infrastructure — Lumina Control",
   ageReviews: "Age reviews",
   official: "Official accounts",
+  videos: "Videos — review queue",
 };
 
 export function OwnerApp() {
@@ -388,6 +395,7 @@ export function OwnerApp() {
               )}
               {section === "system" && <SystemSection />}
               {section === "users" && <OwnerUsersPanel />}
+              {section === "videos" && <StaffVideosRoute />}
               {section === "bans" && <OwnerBansPanel />}
               {section === "ageReviews" && <OwnerAgeReviewsPanel />}
               {section === "team" && <TeamPanel />}
@@ -587,6 +595,7 @@ function OverviewSection({ onNavigate }: { onNavigate: (s: Section) => void }) {
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
           <Metric
             label="Pending review"
+            onClick={() => onNavigate("videos")}
             value={stats.videos.pendingReview}
             state={stats.videos.pendingReview > 0 ? "warn" : "good"}
           />
