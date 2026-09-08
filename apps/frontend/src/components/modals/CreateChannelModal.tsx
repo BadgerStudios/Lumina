@@ -4,7 +4,7 @@ import { Modal } from "./Modal";
 import { useUIStore } from "../../store/uiStore";
 import { useCreateChannel } from "../../queries/channels";
 
-type ChannelKind = "TEXT" | "ANNOUNCEMENT" | "FORUM" | "VOICE" | "CATEGORY";
+type ChannelKind = "TEXT" | "ANNOUNCEMENT" | "FORUM" | "VOICE" | "STAGE" | "CATEGORY";
 
 // Order shown in the picker; text first, structural (category) last.
 const CHANNEL_KINDS: { value: ChannelKind; label: string; hint: string }[] = [
@@ -12,6 +12,7 @@ const CHANNEL_KINDS: { value: ChannelKind; label: string; hint: string }[] = [
   { value: "ANNOUNCEMENT", label: "Announcement", hint: "Only moderators post; everyone reads" },
   { value: "FORUM", label: "Forum", hint: "Threaded posts, like a message board" },
   { value: "VOICE", label: "Voice", hint: "Talk and share video" },
+  { value: "STAGE", label: "Stage", hint: "Moderated audio: speakers present, an audience listens" },
   { value: "CATEGORY", label: "Category", hint: "A collapsible group of channels" },
 ];
 
@@ -49,7 +50,12 @@ export function CreateChannelModal() {
     closeModal();
     closeMobileDrawer();
     // Everything with a channel view (not a category or a voice room) opens on create.
-    if (channel.type === "TEXT" || channel.type === "ANNOUNCEMENT" || channel.type === "FORUM") {
+    if (
+      channel.type === "TEXT" ||
+      channel.type === "ANNOUNCEMENT" ||
+      channel.type === "FORUM" ||
+      channel.type === "STAGE"
+    ) {
       navigate(`/channels/${modalPayload.serverId}/${channel.id}`);
     }
   }

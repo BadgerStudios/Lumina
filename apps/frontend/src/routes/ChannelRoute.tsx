@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChatPane } from "../components/layout/ChatPane";
 import { ForumView } from "../components/chat/ForumView";
+import { StageView } from "../components/chat/StageView";
 import { ThreadPanel } from "../components/chat/ThreadPanel";
 import { ActivityFrame } from "../components/game/ActivityFrame";
 import { AsidePanel } from "../components/layout/AsidePanel";
@@ -69,6 +70,7 @@ export function ChannelRoute() {
 
   const me = members?.find((m) => m.userId === user?.id);
   const canManageMessages = can("MANAGE_MESSAGES", { userId: user?.id, server, member: me, roles });
+  const canManageChannels = can("MANAGE_CHANNELS", { userId: user?.id, server, member: me, roles });
   const canSendMessages = can("SEND_MESSAGES", { userId: user?.id, server, member: me, roles });
   // Announcement channels are read-only for everyone but moderators (enforced on the backend too).
   const composerDisabledReason =
@@ -98,6 +100,8 @@ export function ChannelRoute() {
           activePostId={openThreadId}
           onOpenPost={(threadId) => setOpenThreadId(threadId)}
         />
+      ) : channel?.type === "STAGE" ? (
+        <StageView serverId={serverId} channel={channel} canModerate={canManageChannels} />
       ) : (
         <ChatPane
           title={channel?.name ?? ""}

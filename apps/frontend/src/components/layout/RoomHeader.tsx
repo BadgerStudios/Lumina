@@ -1,9 +1,10 @@
 import { useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Menu, Pin, Rocket, Search, User, UserPlus, Users, X } from "lucide-react";
+import { Menu, Phone, PhoneOff, Pin, Rocket, Search, User, UserPlus, Users, X } from "lucide-react";
 import { useActivities } from "../../queries/game";
 import { useServer } from "../../queries/servers";
 import { useActiveSelectionStore } from "../../store/activeSelectionStore";
+import { useVoiceStore } from "../../store/voiceStore";
 import { useUIStore, selectAsideOpen } from "../../store/uiStore";
 import { cn } from "../../lib/cn";
 import { OfficialServerBadge } from "../common/OfficialBadge";
@@ -32,6 +33,7 @@ export function RoomHeader({
   onTogglePins,
   pinsOpen,
   dmUser,
+  dmConversationId,
 }: {
   title: string;
   topic?: string | null;
@@ -42,11 +44,17 @@ export function RoomHeader({
   pinsOpen?: boolean;
   /** The other person in a 1:1 DM. When set, the header offers their profile + block/report/etc. */
   dmUser?: UserDTO;
+  /** The DM this header belongs to — enables the call button. */
+  dmConversationId?: string;
 }) {
   const toggleAside = useUIStore((s) => s.toggleAside);
   const asideOpen = useUIStore(selectAsideOpen);
   const openModalWith = useUIStore((s) => s.openModalWith);
   const openMobileDrawer = useUIStore((s) => s.openMobileDrawer);
+  const activeCallConvo = useVoiceStore((s) => s.dmConversationId);
+  const startCall = useVoiceStore((s) => s.startCall);
+  const leaveCall = useVoiceStore((s) => s.leave);
+  const inThisCall = !!dmConversationId && activeCallConvo === dmConversationId;
   const { data: server } = useServer(serverId);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -97,6 +105,16 @@ export function RoomHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
+        {dmConversationId ? (
+          <button
+            onClick={() => (inThisCall ? leaveCall() : void startCall(dmConversationId))}
+            className={cn(btn, inThisCall && "bg-flare/15 text-flare")}
+            title={inThisCall ? "Leave call" : "Start a voice call"}
+            aria-label={inThisCall ? "Leave call" : "Start a voice call"}
+          >
+            {inThisCall ? <PhoneOff size={16} /> : <Phone size={16} />}
+          </button>
+        ) : null}
         {dmUser ? (
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>

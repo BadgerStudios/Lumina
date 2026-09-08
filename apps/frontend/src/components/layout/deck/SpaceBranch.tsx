@@ -13,6 +13,7 @@ import {
   MessagesSquare,
   MoreHorizontal,
   Plus,
+  Radio,
   Settings,
   Trophy,
   UserPlus,
@@ -471,7 +472,13 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
   function renderChannel(c: ChannelDTO, index: number, list: ChannelDTO[]) {
     if (c.type === "VOICE") return <VoiceRoomRow key={c.id} channel={c} serverId={serverId} />;
     const icon =
-      c.type === "ANNOUNCEMENT" ? <Megaphone size={13} /> : c.type === "FORUM" ? <MessagesSquare size={13} /> : undefined;
+      c.type === "ANNOUNCEMENT" ? (
+        <Megaphone size={13} />
+      ) : c.type === "FORUM" ? (
+        <MessagesSquare size={13} />
+      ) : c.type === "STAGE" ? (
+        <Radio size={13} />
+      ) : undefined;
     return (
       <div key={c.id}>
         <TextRoomRow

@@ -270,6 +270,17 @@ export function useSocketEvents(): void {
       useVoiceStore.getState().setChannelRoster(payload.channelId, payload.participants);
     };
 
+    // Incoming DM call ring — surface it globally (an IncomingCall banner in AppShell answers off
+    // this). Ignore a ring for a call we're already in.
+    const onCallIncoming = (payload: { conversationId: string; from: UserDTO }) => {
+      if (useVoiceStore.getState().dmConversationId === payload.conversationId) return;
+      useVoiceStore.getState().setIncomingCall(payload);
+    };
+    const onCallEnded = (payload: { conversationId: string }) => {
+      const voice = useVoiceStore.getState();
+      if (voice.incomingCall?.conversationId === payload.conversationId) voice.setIncomingCall(null);
+    };
+
     // A deploy just published. Every platform re-runs the check it already owns: Android refetches
     // the version manifest, the web build re-compares its entry-script hash, and desktop is handled
     // in the Electron main process. Nothing here decides whether an update exists — it only decides
@@ -317,8 +328,12 @@ export function useSocketEvents(): void {
     socket.on(ServerEvents.FRIEND_REQUEST_CREATE, onFriendRequestChange);
     socket.on(ServerEvents.FRIEND_REQUEST_UPDATE, onFriendRequestChange);
     socket.on(ServerEvents.VOICE_ROSTER_UPDATE, onVoiceRosterUpdate);
+    socket.on(ServerEvents.CALL_INCOMING, onCallIncoming);
+    socket.on(ServerEvents.CALL_ENDED, onCallEnded);
 
     return () => {
+      socket.off(ServerEvents.CALL_INCOMING, onCallIncoming);
+      socket.off(ServerEvents.CALL_ENDED, onCallEnded);
       socket.off(ServerEvents.APP_UPDATE_AVAILABLE, onAppUpdate);
       socket.off(ServerEvents.MESSAGE_CREATE, onMessageCreate);
       socket.off(ServerEvents.MESSAGE_UPDATE, onMessageUpdate);

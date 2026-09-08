@@ -121,6 +121,7 @@ export function ChatPane({
         onTogglePins={canShowPins ? () => openAsideTab("pins") : undefined}
         pinsOpen={canShowPins && asideTab === "pins" && asideOpen}
         dmUser={dmUser}
+        dmConversationId={!serverId ? target.dmConversationId : undefined}
       />
       {serverId && searchQuery.trim().length > 1 ? (
         <SearchResultsPanel serverId={serverId} query={searchQuery.trim()} onClose={() => setSearchQuery("")} />

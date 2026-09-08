@@ -6,6 +6,7 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { ActivityFeed } from "./ActivityFeed";
 import { VoiceVideoGrid } from "./VoiceVideoGrid";
 import { VoiceDock } from "./VoiceDock";
+import { IncomingCallBanner } from "./IncomingCallBanner";
 import { CommandPalette } from "./CommandPalette";
 import { UpdateBanner } from "./UpdateBanner";
 import { ModalRoot } from "../modals/ModalRoot";
@@ -221,6 +222,7 @@ export function AppShell() {
       <ModalRoot />
       <VoiceVideoGrid />
       <VoiceDock />
+      <IncomingCallBanner />
       <CommandPalette />
       {mobileDrawer === "activity" && <ActivityFeed />}
       <ToastHost />

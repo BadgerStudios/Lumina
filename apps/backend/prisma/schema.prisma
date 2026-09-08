@@ -36,6 +36,10 @@ enum ChannelType {
   // messages of its own; a post is a thread with a title and a first message, reusing every piece
   // of thread/message machinery. Branched on in the client's channel view and createThread.
   FORUM
+  // A stage channel is a voice room with speaker/audience roles: everyone joins as audience (no
+  // mic) and moderators promote raised hands to speaker. Purely ephemeral over Socket.IO like
+  // VOICE — the type flag only changes join semantics (realtime/handlers/voice.ts).
+  STAGE
 }
 
 enum FriendStatus {

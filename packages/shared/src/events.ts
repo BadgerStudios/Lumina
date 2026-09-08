@@ -24,6 +24,16 @@ export const ClientEvents = {
   // actually in the voice channel they claim, and relays. A client never gets to name the URL that
   // everyone else's browser will fetch and play.
   SOUNDBOARD_PLAY: "soundboard:play",
+  // Stage channels (a voice room with speaker/audience roles). STAGE_HAND toggles the caller's
+  // raised hand; STAGE_SET_ROLE is a moderator promoting/demoting a target between speaker and
+  // audience. Both re-broadcast the roster; the role change also reaches the target directly.
+  STAGE_HAND: "stage:hand",
+  STAGE_SET_ROLE: "stage:set-role",
+  // 1:1 / group DM calls. CALL_RING rings the other DM participants (they answer with an ordinary
+  // VOICE_JOIN on the conversation); CALL_DECLINE declines a ring. Media/signalling reuse the voice
+  // relay entirely — a DM call is just a voice room keyed on the conversation.
+  CALL_RING: "call:ring",
+  CALL_DECLINE: "call:decline",
 } as const;
 
 export const ServerEvents = {
@@ -95,6 +105,14 @@ export const ServerEvents = {
   // Broadcast to the whole server room (not just the voice room itself) so members can see who's
   // in a voice channel without joining it — see realtime/handlers/voice.ts.
   VOICE_ROSTER_UPDATE: "voice:roster-update",
+  // Sent to one socket when a moderator changes its stage role, so that client starts (speaker) or
+  // stops (audience) publishing its microphone. Carries { channelId, stageRole }.
+  STAGE_ROLE_SET: "stage:role-set",
+  // DM call signalling to a callee's user room(s): CALL_INCOMING announces a ring
+  // ({ conversationId, from: UserDTO }); CALL_ENDED means the ring was cancelled or declined
+  // ({ conversationId }).
+  CALL_INCOMING: "call:incoming",
+  CALL_ENDED: "call:ended",
   // Broadcast to EVERY connected socket the moment a deploy finishes publishing.
   //
   // Each client already knows how to check whether it is out of date — the Android app compares
