@@ -94,6 +94,14 @@ interface VoiceState {
    * and the gate. Components render the mic indicator off this rather than re-deriving it. */
   transmitting: boolean;
   videoSource: VideoSource;
+  // Stage channels: this client's own role in the current stage (null when the call isn't a stage).
+  // A `speaker` publishes a mic; an `audience` member listens and may raise a hand to be promoted.
+  stageRole: "speaker" | "audience" | null;
+  handRaised: boolean;
+  // DM calls: the conversation this call belongs to (null for a server voice/stage channel), and
+  // an incoming ring awaiting answer (shown wherever the app is mounted — see useSocketEvents.ts).
+  dmConversationId: string | null;
+  incomingCall: { conversationId: string; from: UserDTO } | null;
   participants: Record<string, VoiceParticipant>; // keyed by socketId, excludes self
   // Server-wide "who's in which voice channel" roster, keyed by channelId — populated for
   // EVERY voice channel in the server regardless of whether you're connected to it (see
@@ -105,7 +113,21 @@ interface VoiceState {
   setChannelRoster: (channelId: string, participants: VoiceParticipantDTO[]) => void;
   seedRoster: (snapshot: Record<string, VoiceParticipantDTO[]>) => void;
   error: string | null;
-  join: (serverId: string, channelId: string) => Promise<void>;
+  join: (serverId: string, channelId: string, opts?: { stage?: boolean }) => Promise<void>;
+  /** Join (or answer) a DM call — reuses the entire voice engine on the conversation's room. */
+  joinDM: (conversationId: string) => Promise<void>;
+  /** Place a DM call: join, then ring the other participants. */
+  startCall: (conversationId: string) => Promise<void>;
+  /** Answer / decline the current incomingCall. */
+  acceptCall: () => Promise<void>;
+  declineCall: () => void;
+  setIncomingCall: (call: { conversationId: string; from: UserDTO } | null) => void;
+  /** Stage: raise or lower your hand (audience only). */
+  raiseHand: (raised: boolean) => void;
+  /** Stage moderator: promote/demote a participant. */
+  setStageRole: (targetSocketId: string, role: "speaker" | "audience") => void;
+  /** Applied when the server tells us our own stage role changed (STAGE_ROLE_SET). */
+  applyOwnStageRole: (role: "speaker" | "audience") => Promise<void>;
   leave: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
@@ -443,6 +465,11 @@ function attachSignalingListeners(): void {
   socket.on(ServerEvents.VOICE_SIGNAL, (payload: Parameters<typeof handleSignal>[0]) => {
     void handleSignal(payload);
   });
+
+  // A moderator changed our stage role — start (speaker) or stop (audience) publishing the mic.
+  socket.on(ServerEvents.STAGE_ROLE_SET, (payload: { channelId: string; stageRole: "speaker" | "audience" }) => {
+    void useVoiceStore.getState().applyOwnStageRole(payload.stageRole);
+  });
 }
 
 /** Tell the server what we're broadcasting so LIVE badges update server-wide (the media itself
@@ -459,6 +486,120 @@ function announceStreamState(kind: "screen" | "camera" | null): void {
 function stopLocalVideo(): void {
   localVideoStream?.getTracks().forEach((t) => t.stop());
   localVideoStream = null;
+}
+
+/**
+ * Acquire the microphone and publish it into every existing peer — used both on an ordinary join
+ * and when a stage audience member is promoted to speaker (adding a track fires
+ * onnegotiationneeded, which the perfect-negotiation path renegotiates). No-op if already live.
+ */
+async function acquireMic(): Promise<boolean> {
+  if (localAudioStream) return true;
+  try {
+    localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    useVoiceStore.setState({ error: "Microphone access denied or unavailable." });
+    return false;
+  }
+  syncVadEngine();
+  applyMicGate();
+  for (const { pc } of peers.values()) {
+    for (const track of localAudioStream.getTracks()) pc.addTrack(track, localAudioStream);
+  }
+  return true;
+}
+
+/** Stop publishing the microphone — a stage speaker demoted to audience. Removes the audio senders
+ * (renegotiated by the same path) and releases the hardware so the recording indicator clears. */
+function dropMic(): void {
+  for (const { pc } of peers.values()) {
+    pc.getSenders()
+      .filter((s) => s.track?.kind === "audio")
+      .forEach((s) => pc.removeTrack(s));
+  }
+  stopLocalVad();
+  localAudioStream?.getAudioTracks().forEach((t) => t.stop());
+  localAudioStream = null;
+  if (useVoiceStore.getState().transmitting) useVoiceStore.setState({ transmitting: false });
+}
+
+/**
+ * The shared connect path behind join (server voice/stage) and joinDM (calls). `channelId` is the
+ * roster key the store tracks — a real channel id, or `dm:<conversationId>` for a call — and `emit`
+ * is what the backend's VOICE_JOIN expects. Stage joins defer the mic until the ack reveals whether
+ * this client is a speaker; everything else takes the mic up front, exactly as before.
+ */
+async function doConnect(opts: {
+  serverId: string | null;
+  channelId: string;
+  dmConversationId: string | null;
+  emit: { channelId?: string; conversationId?: string };
+  stage: boolean;
+}): Promise<void> {
+  const store = useVoiceStore;
+  if (store.getState().channelId === opts.channelId) return;
+  if (store.getState().channelId) store.getState().leave();
+
+  store.setState({
+    connecting: true,
+    error: null,
+    serverId: opts.serverId,
+    channelId: opts.channelId,
+    dmConversationId: opts.dmConversationId,
+    stageRole: null,
+    handRaised: false,
+  });
+  const iceServersReady = refreshIceServers();
+  if (!opts.stage) {
+    try {
+      localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      syncVadEngine();
+      applyMicGate();
+    } catch {
+      store.setState({
+        connecting: false,
+        serverId: null,
+        channelId: null,
+        dmConversationId: null,
+        error: "Microphone access denied or unavailable.",
+      });
+      return;
+    }
+  }
+  await iceServersReady;
+
+  attachSignalingListeners();
+
+  const ack = await new Promise<{
+    ok: boolean;
+    participants?: VoiceParticipantDTO[];
+    stageRole?: "speaker" | "audience";
+    error?: string;
+  }>((resolve) => {
+    getSocket().emit(ClientEvents.VOICE_JOIN, opts.emit, resolve);
+  });
+
+  if (!ack.ok) {
+    teardown();
+    store.setState({
+      connecting: false,
+      serverId: null,
+      channelId: null,
+      dmConversationId: null,
+      error: ack.error ?? "Failed to join.",
+    });
+    return;
+  }
+
+  const stageRole = ack.stageRole ?? null;
+  // A speaker (a stage moderator, or anyone who joined a stage as a speaker) needs the mic before
+  // peers are created so their first negotiation already carries the audio track.
+  if (opts.stage && stageRole === "speaker" && !localAudioStream) await acquireMic();
+
+  const participants: Record<string, VoiceParticipant> = {};
+  for (const p of ack.participants ?? []) participants[p.socketId] = { ...p, speaking: false, hasVideo: false };
+  store.setState({ connecting: false, participants, stageRole, handRaised: false });
+  for (const p of ack.participants ?? []) getOrCreatePeer(p.socketId);
 }
 
 function teardown(): void {
@@ -484,6 +625,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   vadOpen: false,
   transmitting: false,
   videoSource: null,
+  stageRole: null,
+  handRaised: false,
+  dmConversationId: null,
+  incomingCall: null,
   participants: {},
   roster: {},
   error: null,
@@ -498,47 +643,57 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     set((s) => ({ roster: { ...snapshot, ...s.roster } }));
   },
 
-  join: async (serverId, channelId) => {
-    if (get().channelId === channelId) return;
-    if (get().channelId) get().leave();
+  // Server voice/stage channel. `stage` defers the mic until the ack reveals whether we're a
+  // speaker — see doConnect. TURN creds are fetched in parallel with the mic prompt (doConnect).
+  join: (serverId, channelId, opts) =>
+    doConnect({ serverId, channelId, dmConversationId: null, emit: { channelId }, stage: Boolean(opts?.stage) }),
 
-    set({ connecting: true, error: null, serverId, channelId });
-    // Run alongside the mic permission prompt rather than before it — TURN creds are only
-    // needed once a peer connection is actually created below, and fetching them in parallel
-    // with getUserMedia (rather than blocking on either sequentially) keeps join latency the
-    // same as before this existed in the common case where both finish quickly.
-    const iceServersReady = refreshIceServers();
-    try {
-      localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // The gate is applied before the first peer connection exists, so in push-to-talk or
-      // voice-activity mode nothing is ever transmitted between joining and the first time you
-      // actually mean to speak.
-      syncVadEngine();
-      applyMicGate();
-    } catch {
-      set({ connecting: false, serverId: null, channelId: null, error: "Microphone access denied or unavailable." });
-      return;
-    }
-    await iceServersReady;
+  // A DM call is the same engine on the conversation's own room. The store's channelId is the
+  // roster key `dm:<conversationId>`; dmConversationId carries the real id for the call UI.
+  joinDM: (conversationId) =>
+    doConnect({
+      serverId: null,
+      channelId: `dm:${conversationId}`,
+      dmConversationId: conversationId,
+      emit: { conversationId },
+      stage: false,
+    }),
 
-    attachSignalingListeners();
+  startCall: async (conversationId) => {
+    await get().joinDM(conversationId);
+    if (get().dmConversationId === conversationId) getSocket().emit(ClientEvents.CALL_RING, { conversationId });
+  },
 
-    const ack = await new Promise<{ ok: boolean; participants?: VoiceParticipantDTO[]; error?: string }>((resolve) => {
-      getSocket().emit(ClientEvents.VOICE_JOIN, { channelId }, resolve);
-    });
+  acceptCall: async () => {
+    const call = get().incomingCall;
+    if (!call) return;
+    set({ incomingCall: null });
+    await get().joinDM(call.conversationId);
+  },
 
-    if (!ack.ok) {
-      teardown();
-      set({ connecting: false, serverId: null, channelId: null, error: ack.error ?? "Failed to join voice channel." });
-      return;
-    }
+  declineCall: () => {
+    const call = get().incomingCall;
+    if (call) getSocket().emit(ClientEvents.CALL_DECLINE, { conversationId: call.conversationId });
+    set({ incomingCall: null });
+  },
 
-    const participants: Record<string, VoiceParticipant> = {};
-    for (const p of ack.participants ?? []) participants[p.socketId] = { ...p, speaking: false, hasVideo: false };
-    set({ connecting: false, participants });
-    // Every existing participant gets its own RTCPeerConnection created now, symmetric with
-    // how VOICE_PARTICIPANT_JOINED handles it on the other side — see that handler's comment.
-    for (const p of ack.participants ?? []) getOrCreatePeer(p.socketId);
+  setIncomingCall: (incomingCall) => set({ incomingCall }),
+
+  raiseHand: (raised) => {
+    if (get().stageRole !== "audience") return;
+    getSocket().emit(ClientEvents.STAGE_HAND, { raised });
+    set({ handRaised: raised });
+  },
+
+  setStageRole: (targetSocketId, role) => {
+    getSocket().emit(ClientEvents.STAGE_SET_ROLE, { targetSocketId, role });
+  },
+
+  applyOwnStageRole: async (role) => {
+    if (get().stageRole === role) return;
+    set({ stageRole: role, handRaised: false });
+    if (role === "speaker") await acquireMic();
+    else dropMic();
   },
 
   leave: () => {
@@ -548,6 +703,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     set({
       serverId: null,
       channelId: null,
+      dmConversationId: null,
+      stageRole: null,
+      handRaised: false,
       participants: {},
       connecting: false,
       error: null,

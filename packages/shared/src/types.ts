@@ -13,7 +13,7 @@ export type AgeBracket = "UNDER_18" | "AGE_18_24" | "AGE_25_34" | "AGE_35_49" | 
 /** THREAD exists in the enum because a thread IS a Channel row, but it never appears in a
  * ChannelDTO the client receives — the channel-list route filters it out (threads are fetched
  * through their parent, as ThreadDTO). It is here so serializeChannel's type stays honest. */
-export type ChannelType = "TEXT" | "CATEGORY" | "VOICE" | "THREAD" | "ANNOUNCEMENT" | "FORUM";
+export type ChannelType = "TEXT" | "CATEGORY" | "VOICE" | "THREAD" | "ANNOUNCEMENT" | "FORUM" | "STAGE";
 
 export interface UserDTO {
   id: string;
@@ -560,6 +560,10 @@ export interface VoiceParticipantDTO {
    * LIVE treatment, "camera" the plain video indicator. Carried on the server-wide roster so
    * people OUTSIDE the call can see someone has gone live without joining first. */
   streaming?: "screen" | "camera" | null;
+  /** Stage channels only: whether this participant may speak. Absent in ordinary voice channels. */
+  stageRole?: "speaker" | "audience";
+  /** Stage channels only: an audience member has raised their hand to speak. */
+  handRaised?: boolean;
 }
 
 /** One RefreshToken row, i.e. one logged-in device/browser (see UserSettingsModal.tsx's
