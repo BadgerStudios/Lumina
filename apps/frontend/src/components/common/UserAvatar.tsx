@@ -8,6 +8,7 @@ const presenceColor: Record<PresenceStatus, string> = {
   IDLE: "bg-idle",
   DND: "bg-dnd",
   OFFLINE: "bg-offline",
+  INVISIBLE: "bg-offline",
 };
 
 export function UserAvatar({

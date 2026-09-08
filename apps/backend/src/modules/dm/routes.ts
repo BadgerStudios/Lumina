@@ -49,7 +49,7 @@ async function loadLastMessage(conversationId: string) {
 export default async function dmRoutes(fastify: FastifyInstance) {
   fastify.get("/", { preHandler: [requireAuth] }, async (request) => {
     const participations = await prisma.dMParticipant.findMany({
-      where: { userId: request.userId! },
+      where: { userId: request.userId!, hidden: false },
       include: { conversation: { include: conversationInclude } },
     });
 
@@ -313,6 +313,19 @@ export default async function dmRoutes(fastify: FastifyInstance) {
     // "you're no longer here" case the frontend would have to special-case.
     getIO().to(`user:${targetUserId}`).emit(ServerEvents.DM_PARTICIPANT_REMOVED, { conversationId: id });
 
+    reply.code(204).send();
+  });
+
+  // Close/hide a conversation for yourself only (1:1 or group). It drops off your DM list until the
+  // next message in it (the send path clears `hidden` for everyone). Nothing is deleted and the
+  // other side is unaffected — the reason 1:1 conversations can't be "left" like a group can.
+  fastify.post("/:id/hide", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { count } = await prisma.dMParticipant.updateMany({
+      where: { conversationId: id, userId: request.userId! },
+      data: { hidden: true },
+    });
+    if (count === 0) throw new NotFoundError("You're not in that conversation");
     reply.code(204).send();
   });
 

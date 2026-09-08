@@ -1,12 +1,14 @@
 import { useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Menu, Pin, Rocket, Search, UserPlus, Users, X } from "lucide-react";
+import { Menu, Pin, Rocket, Search, User, UserPlus, Users, X } from "lucide-react";
 import { useActivities } from "../../queries/game";
 import { useServer } from "../../queries/servers";
 import { useActiveSelectionStore } from "../../store/activeSelectionStore";
 import { useUIStore, selectAsideOpen } from "../../store/uiStore";
 import { cn } from "../../lib/cn";
 import { OfficialServerBadge } from "../common/OfficialBadge";
+import { UserProfileCard } from "../common/UserProfileCard";
+import type { UserDTO } from "@lumina/shared";
 
 /**
  * The room's context bar.
@@ -29,6 +31,7 @@ export function RoomHeader({
   pinnedCount,
   onTogglePins,
   pinsOpen,
+  dmUser,
 }: {
   title: string;
   topic?: string | null;
@@ -37,6 +40,8 @@ export function RoomHeader({
   pinnedCount?: number;
   onTogglePins?: () => void;
   pinsOpen?: boolean;
+  /** The other person in a 1:1 DM. When set, the header offers their profile + block/report/etc. */
+  dmUser?: UserDTO;
 }) {
   const toggleAside = useUIStore((s) => s.toggleAside);
   const asideOpen = useUIStore(selectAsideOpen);
@@ -92,6 +97,24 @@ export function RoomHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
+        {dmUser ? (
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                className={btn}
+                title={`${dmUser.displayName ?? dmUser.username} — profile & actions`}
+                aria-label="Profile and actions"
+              >
+                <User size={16} />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content side="bottom" align="end" className="z-50">
+                <UserProfileCard user={dmUser} />
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        ) : null}
         {onSearch ? (
           searchOpen ? (
             <div className="flex items-center gap-1 rounded-lg border border-hairline bg-base-900/60 px-2 py-1">

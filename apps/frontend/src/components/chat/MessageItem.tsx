@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail } from "lucide-react";
+import { useUIStore } from "../../store/uiStore";
+import { useMarkChannelUnread } from "../../queries/readState";
 import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
 import type { MessageDTO } from "@lumina/shared";
@@ -88,6 +90,8 @@ export function MessageItem({
   const isOwn = message.authorId === currentUserId;
   const canEdit = isOwn;
   const canDelete = isOwn || canManage;
+  const openReport = useUIStore((s) => s.openModalWith);
+  const markUnread = useMarkChannelUnread();
   const author = message.author;
   const displayName = author?.displayName ?? author?.username ?? message.webhookUsername ?? "Unknown user";
   const avatarUrl = author?.avatarUrl ?? message.webhookAvatarUrl ?? null;
@@ -236,6 +240,8 @@ export function MessageItem({
                         preload="metadata"
                         className="max-h-80 max-w-sm rounded-xl border border-hairline"
                       />
+                    ) : a.mimeType.startsWith("audio/") ? (
+                      <audio src={attachmentUrl(a.url)} controls preload="metadata" className="max-w-xs" />
                     ) : (
                       <a
                         href={attachmentUrl(a.url)}
@@ -316,6 +322,30 @@ export function MessageItem({
           <button onClick={() => onReply(message)} className={iconBtn} title="Reply" aria-label="Reply">
             <Reply size={15} />
           </button>
+          <button
+            onClick={() =>
+              openReport("forward", {
+                content: message.content,
+                authorLabel: displayName,
+                attachmentCount: message.attachments.length,
+              })
+            }
+            className={iconBtn}
+            title="Forward"
+            aria-label="Forward message"
+          >
+            <Forward size={15} />
+          </button>
+          {message.channelId && (
+            <button
+              onClick={() => markUnread.mutate({ channelId: message.channelId!, messageId: message.id })}
+              className={iconBtn}
+              title="Mark unread"
+              aria-label="Mark unread from here"
+            >
+              <Mail size={15} />
+            </button>
+          )}
           {onStartThread && message.channelId && (
             <button
               onClick={() => (message.thread ? onOpenThread?.(message.thread.id) : onStartThread(message))}
@@ -334,6 +364,16 @@ export function MessageItem({
               aria-label={message.pinned ? "Unpin" : "Pin"}
             >
               {message.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+            </button>
+          )}
+          {!isOwn && (
+            <button
+              onClick={() => openReport("report", { targetType: "MESSAGE", targetId: message.id, label: displayName })}
+              className={iconBtn}
+              title="Report message"
+              aria-label="Report message"
+            >
+              <Flag size={15} />
             </button>
           )}
           {canEdit && (

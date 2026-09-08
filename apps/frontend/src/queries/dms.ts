@@ -3,6 +3,7 @@ import type { DMConversationDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
 import { reconnectSocket } from "../socket/socketClient";
+import { reportError } from "../store/toastStore";
 
 export function useDMs() {
   return useQuery({
@@ -73,5 +74,19 @@ export function useRemoveDMParticipant(conversationId: string) {
 export function useMarkDMRead(conversationId: string) {
   return useMutation({
     mutationFn: () => api.patch<void>(`/dm/${conversationId}/read`),
+  });
+}
+
+/** Close (hide) a conversation for yourself only. It drops off your DM list until the next message
+ * in it (the backend clears the flag for everyone on send). Nothing is deleted; the other side is
+ * unaffected — which is why even a 1:1, which can't be "left", can still be closed. */
+export function useHideDM() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) => api.post<void>(`/dm/${conversationId}/hide`),
+    onMutate: (conversationId) => {
+      queryClient.setQueryData<DMConversationDTO[]>(queryKeys.dms(), (old) => old?.filter((c) => c.id !== conversationId));
+    },
+    onError: (e) => reportError(e, "Couldn't close that conversation"),
   });
 }

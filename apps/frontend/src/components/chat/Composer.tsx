@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from "react";
-import { BarChart3, EyeOff, Plus, Send, X } from "lucide-react";
+import { BarChart3, EyeOff, Mic, Plus, Send, Square, X } from "lucide-react";
 import { ClientEvents } from "@lumina/shared";
 import { getSocket } from "../../socket/socketClient";
 import { StickerPicker } from "./StickerPicker";
@@ -42,7 +42,44 @@ export function Composer({
   const [commandIndex, setCommandIndex] = useState(0);
   const lastTypingSentAt = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Voice messages: record with MediaRecorder, then send the clip straight through the existing
+  // attachment path (uploads already accept audio; MessageItem renders audio/* as an <audio> player).
+  async function toggleRecord() {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        const type = rec.mimeType || "audio/webm";
+        const blob = new Blob(chunks, { type });
+        if (blob.size > 0 && onSendWithAttachments) {
+          const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "mp4" : "webm";
+          const file = new File([blob], `voice-message-${Date.now()}.${ext}`, { type });
+          try {
+            await onSendWithAttachments("", [file], replyTo?.id ?? null);
+          } catch {
+            setError("Couldn't send the voice message.");
+          }
+        }
+      };
+      mediaRecorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch {
+      setError("A microphone is needed to record a voice message.");
+    }
+  }
 
   const { data: commands } = useServerCommands(serverId);
   const invokeCommand = useInvokeCommand();
@@ -281,6 +318,17 @@ export function Composer({
               aria-label="Upload a file"
             >
               <Plus size={19} />
+            </button>
+            <button
+              onClick={toggleRecord}
+              className={
+                "lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition " +
+                (recording ? "bg-dnd/20 text-dnd" : "text-signal-dim hover:bg-base-600 hover:text-signal")
+              }
+              title={recording ? "Stop and send voice message" : "Record a voice message"}
+              aria-label={recording ? "Stop and send voice message" : "Record a voice message"}
+            >
+              {recording ? <Square size={16} /> : <Mic size={18} />}
             </button>
           </>
         )}

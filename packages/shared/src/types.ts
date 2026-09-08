@@ -2,7 +2,7 @@
 // bitfields) are always serialized as decimal strings over the wire — plain JSON.stringify
 // can't handle bigint, so both backend responses and frontend parsing treat these as strings.
 
-export type PresenceStatus = "ONLINE" | "IDLE" | "DND" | "OFFLINE";
+export type PresenceStatus = "ONLINE" | "IDLE" | "DND" | "OFFLINE" | "INVISIBLE";
 
 /** Platform-wide authority ladder, strictly ordered — each rank implies everything below it.
  * MASTER is a single account and is assignable only from the server's MASTER_EMAIL env var. */

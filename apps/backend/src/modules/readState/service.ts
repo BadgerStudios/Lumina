@@ -1,6 +1,6 @@
 import type { UnreadDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
-import { NotFoundError } from "../../lib/errors.js";
+import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 
 /**
  * Backs the Signal panel (frontend components/layout/SignalPanel.tsx). Uses the
@@ -26,6 +26,25 @@ export async function markChannelRead(params: { userId: string; channelId: strin
     where: { userId_channelId: { userId: params.userId, channelId: params.channelId } },
     create: { userId: params.userId, channelId: params.channelId, lastReadMessageId: latest.id, lastReadAt: new Date() },
     update: { lastReadMessageId: latest.id, lastReadAt: new Date() },
+  });
+}
+
+/** Marks a channel UNREAD from `messageId` onward: sets the caller's read position to the message
+ * immediately before it (or null — fully unread — if there is none). The inverse of markChannelRead. */
+export async function markChannelUnread(params: { userId: string; channelId: string; messageId: string }): Promise<void> {
+  const channel = await prisma.channel.findUnique({ where: { id: params.channelId }, select: { id: true } });
+  if (!channel) throw new NotFoundError("Channel not found");
+  let messageId: bigint;
+  try { messageId = BigInt(params.messageId); } catch { throw new BadRequestError("Invalid message id."); }
+  const prev = await prisma.message.findFirst({
+    where: { channelId: params.channelId, deletedAt: null, id: { lt: messageId } },
+    orderBy: { id: "desc" },
+    select: { id: true },
+  });
+  await prisma.channelReadState.upsert({
+    where: { userId_channelId: { userId: params.userId, channelId: params.channelId } },
+    create: { userId: params.userId, channelId: params.channelId, lastReadMessageId: prev?.id ?? null, lastReadAt: new Date() },
+    update: { lastReadMessageId: prev?.id ?? null, lastReadAt: new Date() },
   });
 }
 

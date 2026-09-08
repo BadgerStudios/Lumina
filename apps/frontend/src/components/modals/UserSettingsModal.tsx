@@ -53,7 +53,7 @@ import { FamilySection } from "../parental/FamilySection";
 import { useGameLinks, useLinkMinecraft, useUnlinkMinecraft, useActivities, useCreateActivity, useDeleteActivity } from "../../queries/game";
 import { useMinorState } from "../../queries/parental";
 
-const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND"];
+const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND", "INVISIBLE"];
 
 type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about";
 
