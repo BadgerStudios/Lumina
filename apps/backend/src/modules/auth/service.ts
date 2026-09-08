@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
@@ -43,7 +44,7 @@ export function readDeviceFingerprint(request: FastifyRequest): string | null {
   return trimmed || null;
 }
 
-export async function issueTokenPair(userId: string, request: FastifyRequest): Promise<IssuedTokens> {
+export async function issueTokenPair(userId: string, request: FastifyRequest, familyId?: string | null): Promise<IssuedTokens> {
   const accessToken = signAccessToken(userId);
   const refreshToken = generateRefreshToken();
   const tokenHash = hashRefreshToken(refreshToken);
@@ -63,6 +64,8 @@ export async function issueTokenPair(userId: string, request: FastifyRequest): P
       // Client-supplied and therefore trivially forgeable; it raises the cost of casual ban evasion
       // and is never treated as proof of identity.
       deviceFingerprint: readDeviceFingerprint(request),
+      // A rotation stays in its family; a login starts one (see the RefreshToken model).
+      familyId: familyId ?? crypto.randomUUID(),
     },
   });
 

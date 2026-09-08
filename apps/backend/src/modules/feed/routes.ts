@@ -5,7 +5,7 @@ import { redis } from "../../db/redis.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { NotFoundError, BadRequestError } from "../../lib/errors.js";
 import { serializeVideo, VIDEO_AUTHOR_SELECT, VIDEO_TAGS_INCLUDE, VIDEO_SOURCE_INCLUDE } from "../videos/serialize.js";
-import { adSlotIndexes, eligibleCampaigns, selectForSlots } from "../ads/delivery.js";
+import { adSlotIndexes, eligibleCampaigns, markServed, selectForSlots } from "../ads/delivery.js";
 import { rankVideos } from "./ranking.js";
 import { getTasteProfile, videoAffinity, invalidateTasteProfile } from "./taste.js";
 import { requireAdult } from "../age/guard.js";
@@ -77,6 +77,7 @@ export default async function feedRoutes(fastify: FastifyInstance) {
         const picked = selectForSlots(campaigns, slots.length, userId, viewerTags);
 
         if (picked.length > 0) {
+          void markServed(picked.map((c) => c.id), userId);
           const adVideos = await prisma.video.findMany({
             // Restated even though eligibleCampaigns() already filtered on the video's status: that
             // filter ran moments earlier in the same request, and every other place a video reaches

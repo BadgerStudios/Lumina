@@ -132,7 +132,25 @@ export function adSlotIndexes(count: number): number[] {
  * daily rollup move together in one transaction: a spend figure that can disagree with the
  * impression count it was derived from is a spend figure nobody can defend in a dispute.
  */
+/** The feed marks a campaign as served to a viewer when it places it; the beacon is only honoured
+ * against that mark. A bare campaign id from a client is otherwise a free "charge the advertiser"
+ * button, once per account per dedupe window (2026-09-08 audit). Best effort: a Redis outage
+ * means no billing, never over-billing. */
+const SERVED_TTL_SEC = 15 * 60;
+export async function markServed(campaignIds: string[], viewerId: string): Promise<void> {
+  try {
+    await Promise.all(campaignIds.map((id) => redis.set(`ad:served:${id}:${viewerId}`, "1", "EX", SERVED_TTL_SEC)));
+  } catch {
+    /* the impression will simply not bill */
+  }
+}
+
 export async function recordImpression(campaignId: string, viewerId: string): Promise<void> {
+  try {
+    if ((await redis.get(`ad:served:${campaignId}:${viewerId}`)) !== "1") return;
+  } catch {
+    return;
+  }
   try {
     const claimed = await redis.set(
       `ad:imp:${campaignId}:${viewerId}`,
@@ -148,8 +166,10 @@ export async function recordImpression(campaignId: string, viewerId: string): Pr
     return;
   }
 
-  const campaign = await prisma.adCampaign.findUnique({
-    where: { id: campaignId },
+  const now = new Date();
+  const campaign = await prisma.adCampaign.findFirst({
+    // Live campaigns only — a beacon must not add spend to one that is paused, finished or not yet started.
+    where: { id: campaignId, status: "APPROVED", startsAt: { lte: now }, endsAt: { gte: now } },
     select: { cpmCents: true, spentCents: true, totalBudgetCents: true },
   });
   if (!campaign) return;

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol } from "electron";
+import { app, BrowserWindow, protocol, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { contentTypeFor, resolveRendererFile } from "./protocolHandler";
@@ -65,6 +65,22 @@ function createWindow(): void {
   mainWindow = win;
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
+  });
+
+  // A target=_blank link in chat (link embeds carry attacker-chosen URLs) would otherwise open a
+  // second BrowserWindow: no address bar, no menu, indistinguishable from the app — a phishing
+  // surface Electron's own checklist tells you to close. Links go to the system browser; the
+  // window itself may only navigate within the app or to Stripe's hosted pages (2026-09-08 audit).
+  const IN_WINDOW = new Set(["app://localhost", "https://checkout.stripe.com", "https://billing.stripe.com"]);
+  const originOf = (url: string) => { try { return new URL(url).origin; } catch { return ""; } };
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    if (IN_WINDOW.has(originOf(url))) return;
+    event.preventDefault();
+    if (/^https?:/i.test(url)) void shell.openExternal(url);
   });
 
   // Load the app ROOT, not "/index.html". BrowserRouter matches on window.location.pathname;

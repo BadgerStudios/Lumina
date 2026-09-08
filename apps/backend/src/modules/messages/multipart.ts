@@ -47,7 +47,8 @@ export async function parseMessageMultipart(request: FastifyRequest): Promise<Pa
         attachments.push({
           id: attachmentId,
           fileName: part.filename,
-          mimeType: part.mimetype,
+          // Kept for display only — Content-Type on serve is decided by safeAttachmentType, never by this.
+          mimeType: String(part.mimetype || "application/octet-stream").split(";")[0].trim().toLowerCase().slice(0, 100),
           sizeBytes: buffer.length,
           url: `/api/files/${attachmentId}`,
         });

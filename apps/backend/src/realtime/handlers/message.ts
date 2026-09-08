@@ -18,6 +18,10 @@ import {
  */
 export function registerMessageHandlers(_io: SocketIOServer, socket: Socket): void {
   const userId = socket.data.userId as string;
+  // Flood control for the one write path that bypasses the HTTP rate limiter: socket events never
+  // pass through Fastify's pipeline, slowmode is off by default and absent for DMs. Same shape as
+  // the soundboard limiter — five sends per five seconds, then a clear error (2026-09-08 audit).
+  const sendHistory: number[] = [];
 
   socket.on(
     ClientEvents.MESSAGE_SEND,
@@ -26,6 +30,13 @@ export function registerMessageHandlers(_io: SocketIOServer, socket: Socket): vo
       ack?: (res: { ok: true; data: unknown } | { ok: false; error: string }) => void,
     ) => {
       try {
+        const now = Date.now();
+        while (sendHistory.length > 0 && now - sendHistory[0] > 5_000) sendHistory.shift();
+        if (sendHistory.length >= 5) {
+          ack?.({ ok: false, error: "You're sending messages too quickly" });
+          return;
+        }
+        sendHistory.push(now);
         let dto;
         if (payload.channelId) {
           dto = await createChannelMessage({

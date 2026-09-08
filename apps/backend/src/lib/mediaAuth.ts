@@ -38,7 +38,11 @@ export function extractMediaUserId(request: FastifyRequest): string {
   const bearer = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
   const queryToken = (request.query as { token?: string } | undefined)?.token;
   const cookieToken = request.cookies?.[MEDIA_COOKIE_NAME];
-  const token = bearer ?? queryToken ?? cookieToken;
+  // The URL form exists only because a native WebView's <video>/<img> can neither set a header nor
+  // hold our cookie. A browser opening the URL as a PAGE (Sec-Fetch-Dest: document) is a link that
+  // leaked — pasted into a ticket, shared, screenshotted — and gets nothing from it (2026-09-08 audit).
+  const isNavigation = String(request.headers["sec-fetch-dest"] || "").toLowerCase() === "document";
+  const token = bearer ?? (queryToken && !isNavigation ? queryToken : undefined) ?? cookieToken;
   if (!token) throw new UnauthorizedError("Missing access token");
   try {
     return verifyAccessToken(token).sub;

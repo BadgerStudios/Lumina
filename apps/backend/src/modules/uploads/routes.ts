@@ -15,6 +15,18 @@ import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
  */
 
 /** Mounted under /api/files */
+/** Types a browser may render inline from a user upload. Anything else downloads as an opaque blob. */
+const INLINE_SAFE = new Set([
+  "image/png", "image/jpeg", "image/webp", "image/gif", "image/avif",
+  "video/mp4", "video/webm", "video/quicktime",
+  "audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav", "audio/webm", "audio/flac", "audio/aac",
+]);
+export function safeAttachmentType(declared: string | null | undefined): { mimeType: string; inline: boolean } {
+  const type = String(declared || "").split(";")[0].trim().toLowerCase();
+  if (INLINE_SAFE.has(type)) return { mimeType: type, inline: true };
+  return { mimeType: "application/octet-stream", inline: false };
+}
+
 export default async function uploadsRoutes(fastify: FastifyInstance) {
   fastify.get("/:attachmentId", async (request, reply) => {
     const userId = extractMediaUserId(request);
@@ -57,11 +69,18 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
     // whole-file 200 and no Accept-Ranges. Images are unaffected — they never send a Range.
     recordBandwidth("attachment", attachment.sizeBytes);
 
+    // The stored type is whatever the uploader's client DECLARED. Replaying it as Content-Type on
+    // this origin let a member post a text/html "attachment" that loads a text/javascript one —
+    // both same-origin, both allowed by script-src 'self' — and run script with any clicker's
+    // session (2026-09-08 audit). Only types a browser can render harmlessly are served inline;
+    // everything else is a download with an opaque type, and SVG/HTML/JS/XML never render here.
+    const served = safeAttachmentType(attachment.mimeType);
     return sendFileWithRange(reply, filePath, {
-      mimeType: attachment.mimeType,
+      mimeType: served.mimeType,
       sizeBytes: attachment.sizeBytes,
       rangeHeader: request.headers.range,
       fileName: attachment.fileName,
+      inline: served.inline,
     });
   });
 }

@@ -743,9 +743,25 @@ export default async function authRoutes(fastify: FastifyInstance) {
     if (!incoming) throw new UnauthorizedError("Missing refresh token");
 
     const tokenHash = hashRefreshToken(incoming);
-    const row = await prisma.refreshToken.findFirst({
-      where: { tokenHash, revokedAt: null },
-    });
+    const row = await prisma.refreshToken.findFirst({ where: { tokenHash } });
+
+    if (row?.revokedAt) {
+      // A token that was already rotated away is being presented again. Two tabs sharing the one
+      // HttpOnly cookie do this constantly within a second or two of each other — that is the
+      // false positive the previous same-instant check tripped on. Outside that window there is
+      // no innocent explanation: someone else holds a copy. Revoke the whole family so the thief's
+      // rotated descendant dies with it, flag the account, and fail this request like any other.
+      const REPLAY_GRACE_MS = 60_000;
+      if (Date.now() - row.revokedAt.getTime() > REPLAY_GRACE_MS && row.familyId) {
+        const revoked = await prisma.refreshToken.updateMany({
+          where: { familyId: row.familyId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        request.log.warn({ userId: row.userId, familyId: row.familyId, revoked: revoked.count }, "refresh token replay: family revoked");
+        void recordFlag({ userId: row.userId, ipAddress: request.ip ?? null, reasonCode: "SESSION_REPLAY", detail: `retired refresh token presented ${Math.round((Date.now() - row.revokedAt.getTime()) / 1000)}s after rotation; ${revoked.count} session(s) revoked` });
+      }
+      throw new UnauthorizedError("Refresh token invalid or expired");
+    }
 
     if (!row) {
       // A prior version of this route treated a hash matching an ALREADY-REVOKED row as proof of
@@ -780,7 +796,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const user = await prisma.user.findUnique({ where: { id: row.userId } });
     if (!user) throw new UnauthorizedError("User no longer exists");
 
-    const tokens = await issueTokenPair(user.id, request);
+    const tokens = await issueTokenPair(user.id, request, row.familyId);
     sendTokenResponse(reply, request, serializeMe(user), tokens);
   });
 

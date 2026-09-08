@@ -248,6 +248,21 @@ export async function hasAdminOrOwner(userId: string, serverId: string): Promise
  * isDefault role's identity (delete/rename) and blocks assigning a role at or
  * above the actor's own highest position (self-escalation guard).
  */
+/**
+ * MANAGE_ROLES lets you shape roles below you, not mint authority you don't hold: a role you
+ * create, edit or hand out may not carry a permission your own effective set lacks. Owner and
+ * ADMINISTRATOR are exempt (they already hold everything). Without this a moderator could write
+ * ADMINISTRATOR into any lower role, assign it to themselves, and own the server (2026-09-08 audit) —
+ * the channel-overwrite route already guarded exactly this; the role routes never did.
+ */
+export async function assertPermissionSubset(userId: string, serverId: string, requested: bigint): Promise<void> {
+  if (await hasAdminOrOwner(userId, serverId)) return;
+  const mine = await computeEffectivePermissions(userId, serverId);
+  if ((requested & ~mine) !== 0n) {
+    throw new ForbiddenError("A role can't carry permissions you don't have yourself");
+  }
+}
+
 export async function checkRoleHierarchy(
   actorId: string,
   serverId: string,

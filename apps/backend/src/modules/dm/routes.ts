@@ -266,6 +266,24 @@ export default async function dmRoutes(fastify: FastifyInstance) {
         throw new BadRequestError("Already a participant");
       }
 
+      // The same checks creation runs, against EVERY existing participant: a group was "the obvious
+      // way around a rule that only looked at 1:1s", and adding someone one step later was the
+      // obvious way around a check that only ran at creation (2026-09-08 audit).
+      await assertNotLockedMinor(request.userId!);
+      const added = await prisma.user.findUnique({ where: { id: body.userId } });
+      if (!added) throw new NotFoundError("User not found");
+      if (added.ageRecordedAt === null) throw new ForbiddenError("That account hasn't finished setting up yet");
+      const members = await prisma.user.findMany({ where: { id: { in: conversation.participants.map((p) => p.userId) } } });
+      for (const member of members) {
+        if (await isBlockedEitherWay(member.id, body.userId)) {
+          throw new ForbiddenError("You can't add this person to this conversation");
+        }
+        if ((await checkContactWithApprovals(member, added)) !== "ok") {
+          void recordFlag({ userId: request.userId!, reasonCode: "AGE_CONTACT_RESTRICTED", detail: `group dm add ${body.userId} to ${id}` });
+          throw new ForbiddenError("You can't add this person to this conversation");
+        }
+      }
+
       await prisma.dMParticipant.create({ data: { conversationId: id, userId: body.userId } });
       const updated = await prisma.dMConversation.update({ where: { id }, data: {}, include: conversationInclude });
       const lastMessage = await loadLastMessage(id);

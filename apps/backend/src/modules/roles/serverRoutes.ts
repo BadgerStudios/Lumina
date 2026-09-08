@@ -4,7 +4,7 @@ import { Permissions, ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeMember, serializeRole } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
-import { checkRoleHierarchy, getHighestRolePosition, hasAdminOrOwner } from "../../permissions/permissionService.js";
+import { assertPermissionSubset, checkRoleHierarchy, getHighestRolePosition, hasAdminOrOwner } from "../../permissions/permissionService.js";
 import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { getIO } from "../../realtime/io.js";
@@ -66,6 +66,7 @@ export default async function serverRolesRoutes(fastify: FastifyInstance) {
       if (!bypass && position >= actorHighest) {
         throw new ForbiddenError("Cannot create a role at or above your own highest role");
       }
+      await assertPermissionSubset(request.userId!, request.serverId!, BigInt(body.permissions));
 
       const role = await prisma.role.create({
         data: {
@@ -168,6 +169,8 @@ export default async function serverRolesRoutes(fastify: FastifyInstance) {
       if (!role || role.serverId !== request.serverId) throw new NotFoundError("Role not found");
 
       await checkRoleHierarchy(request.userId!, request.serverId!, role.position);
+      // Handing out a role is granting its permissions: same rule as writing them.
+      await assertPermissionSubset(request.userId!, request.serverId!, role.permissions);
 
       const membership = await prisma.membership.findUnique({
         where: { userId_serverId: { userId: targetUserId, serverId: request.serverId! } },

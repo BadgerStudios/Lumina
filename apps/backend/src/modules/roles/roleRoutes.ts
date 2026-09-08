@@ -4,7 +4,7 @@ import { Permissions, ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeRole } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
-import { checkRoleHierarchy, deleteOverwritesForTarget } from "../../permissions/permissionService.js";
+import { assertPermissionSubset, checkRoleHierarchy, deleteOverwritesForTarget } from "../../permissions/permissionService.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { getIO } from "../../realtime/io.js";
@@ -48,6 +48,9 @@ export default async function roleRoutes(fastify: FastifyInstance) {
       if (body.position !== undefined) {
         // moving this role also subject to hierarchy vs the *new* position
         await checkRoleHierarchy(request.userId!, request.serverId!, body.position);
+      }
+      if (body.permissions !== undefined) {
+        await assertPermissionSubset(request.userId!, request.serverId!, BigInt(body.permissions));
       }
 
       const updated = await prisma.role.update({

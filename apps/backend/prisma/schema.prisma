@@ -422,12 +422,17 @@ model RefreshToken {
   // banning an account can collect its known devices without a parallel table. Nullable: older
   // sessions predate it and non-browser clients may not send one.
   deviceFingerprint String?
+  // One login = one family; every rotation stays in it. Presenting a token that was already
+  // rotated away, after the multi-tab grace window, means someone else has a copy: the whole
+  // family is revoked. Nullable: rows from before the column.
+  familyId          String?
   expiresAt         DateTime
   revokedAt         DateTime?
   createdAt         DateTime  @default(now())
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([familyId])
 }
 
 model Server {
