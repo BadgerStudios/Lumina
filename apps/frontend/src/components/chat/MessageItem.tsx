@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
 import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
@@ -317,6 +317,20 @@ export function MessageItem({
           <ReactionPicker onPick={(emoji) => onReact(message.id, emoji)} />
           <button onClick={() => onReply(message)} className={iconBtn} title="Reply" aria-label="Reply">
             <Reply size={15} />
+          </button>
+          <button
+            onClick={() =>
+              openReport("forward", {
+                content: message.content,
+                authorLabel: displayName,
+                attachmentCount: message.attachments.length,
+              })
+            }
+            className={iconBtn}
+            title="Forward"
+            aria-label="Forward message"
+          >
+            <Forward size={15} />
           </button>
           {onStartThread && message.channelId && (
             <button
