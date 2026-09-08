@@ -415,6 +415,18 @@ export async function decideManualReview(
       purgeAfter: new Date(Date.now() + DOC_RETENTION_HOURS * 60 * 60 * 1000),
     },
   });
+  // Every other consequential staff/owner action lands in the platform audit trail; this one — a
+  // permanent ban, or a verification that unlocks payouts — did not, so a wrong decision left no
+  // trace in the views owners actually check (2026-09-08 audit).
+  await prisma.staffAuditLog.create({
+    data: {
+      actorId: adminId,
+      actionType: decision === "ADULT" ? "AGE_REVIEW_APPROVE" : "AGE_REVIEW_MINOR",
+      targetType: "user",
+      targetId: review.userId,
+      reason: note ? note.slice(0, 300) : null,
+    },
+  });
 }
 
 // ---- shared transitions -------------------------------------------------------------------------

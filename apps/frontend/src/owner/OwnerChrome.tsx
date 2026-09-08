@@ -274,3 +274,53 @@ export function EmptyState({
 export function Toolbar({ children }: { children: ReactNode }) {
   return <div className="oc-toolbar">{children}</div>;
 }
+
+
+/**
+ * A rank change is one click on a <select> — on a phone, a misclick. Every other consequential
+ * action in this console (ban, restart a service) makes you read a sentence first; this makes the
+ * role controls hold themselves to the same bar. Server-audited either way, but "recoverable
+ * after the fact" is not the standard the rest of the console sets.
+ */
+export function ConfirmRoleChange({
+  username,
+  fromLabel,
+  toLabel,
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  username: string;
+  fromLabel: string;
+  toLabel: string;
+  pending: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const removing = toLabel === "User";
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-sm rounded-lg bg-base-800 p-4 shadow-xl">
+        <h3 className="text-base font-semibold text-signal">
+          {removing ? `Remove @${username}'s access?` : `Make @${username} ${toLabel}?`}
+        </h3>
+        <p className="mt-2 text-sm text-signal-dim">
+          {fromLabel} → {toLabel}. Takes effect on their next request and is recorded in the audit log.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded px-3 py-1.5 text-sm text-signal-dim hover:bg-base-700">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onConfirm}
+            className={removing ? "rounded bg-dnd px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50" : "rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"}
+          >
+            {removing ? "Yes, remove access" : `Yes, make ${toLabel}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

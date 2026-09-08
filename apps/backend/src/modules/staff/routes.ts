@@ -6,6 +6,7 @@ import { getIO } from "../../realtime/io.js";
 import { requireAuth, requireStaff } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { parseCursor, parseLimit } from "../../lib/pagination.js";
+import { isOwner } from "../../lib/platformRole.js";
 import { serializeVideoWithStatus, VIDEO_AUTHOR_SELECT, VIDEO_TAGS_INCLUDE, VIDEO_SOURCE_INCLUDE } from "../videos/serialize.js";
 import { VIDEO_DIRS, unlinkOrThrow } from "../videos/storage.js";
 import path from "node:path";
@@ -121,7 +122,24 @@ export default async function staffRoutes(fastify: FastifyInstance) {
 
   fastify.get("/audit", { preHandler: [requireAuth, requireStaff] }, async (request) => {
     const query = request.query as { limit?: string };
+    // Staff see the moderation trail (video, report and ad decisions) plus whatever they did
+    // themselves. Who banned, promoted or demoted whom, provenance reads, official-account and ops
+    // changes are owner business — and this unfiltered list was handing all of it to any STAFF
+    // account (2026-09-08 audit). Owners and master still get everything.
+    const me = await prisma.user.findUnique({ where: { id: request.userId! }, select: { platformRole: true } });
+    const where = isOwner(me?.platformRole)
+      ? {}
+      : {
+          OR: [
+            { actionType: { startsWith: "VIDEO_" } },
+            { actionType: { startsWith: "REPORT_" } },
+            { actionType: { startsWith: "video." } },
+            { actionType: { startsWith: "ad." } },
+            { actorId: request.userId! },
+          ],
+        };
     const entries = await prisma.staffAuditLog.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       take: parseLimit(query.limit),
       include: { actor: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },

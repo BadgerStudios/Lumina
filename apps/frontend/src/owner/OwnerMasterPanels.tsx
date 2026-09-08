@@ -9,6 +9,7 @@ import { UserSearchInput } from "../components/common/UserSearchInput";
 import { SectionHeading, StatTile, formatBytes } from "./OwnerBusinessPanels";
 import { cn } from "../lib/cn";
 import { isMaster } from "../lib/platformRole";
+import { ConfirmRoleChange } from "./OwnerChrome";
 
 interface TeamMember extends UserDTO {
   email: string;
@@ -58,6 +59,7 @@ export function TeamPanel() {
   const grant = useGrantRole();
   const me = useAuthStore((s) => s.user);
   const [pending, setPending] = useState<UserDTO | null>(null);
+  const [roleChange, setRoleChange] = useState<{ id: string; username: string; from: PlatformRole; role: PlatformRole } | null>(null);
 
   if (isLoading || !data) {
     return (
@@ -181,10 +183,7 @@ export function TeamPanel() {
                       value={member.platformRole}
                       disabled={grant.isPending}
                       onChange={(e) =>
-                        grant.mutate({
-                          userId: member.id,
-                          platformRole: e.target.value as PlatformRole,
-                        })
+                        setRoleChange({ id: member.id, username: member.username, from: member.platformRole, role: e.target.value as PlatformRole })
                       }
                       className="rounded-lg border border-hairline bg-base-700 px-2 py-1 text-xs text-signal disabled:opacity-50"
                     >
@@ -203,7 +202,7 @@ export function TeamPanel() {
                       type="button"
                       aria-label={`Remove platform access from ${member.username}`}
                       disabled={grant.isPending}
-                      onClick={() => grant.mutate({ userId: member.id, platformRole: "USER" })}
+                      onClick={() => setRoleChange({ id: member.id, username: member.username, from: member.platformRole, role: "USER" })}
                       className="rounded-lg bg-base-600 px-3 py-1.5 text-xs text-signal hover:bg-flare hover:text-white disabled:opacity-50"
                     >
                       Remove access
@@ -220,6 +219,19 @@ export function TeamPanel() {
           <code>STAFF_EMAILS</code> only act as a bootstrapping floor and never revoke a role.
         </p>
       </section>
+
+      {roleChange && (
+        <ConfirmRoleChange
+          username={roleChange.username}
+          fromLabel={ROLE_META[roleChange.from].label}
+          toLabel={ROLE_META[roleChange.role].label}
+          pending={grant.isPending}
+          onCancel={() => setRoleChange(null)}
+          onConfirm={() =>
+            grant.mutate({ userId: roleChange.id, platformRole: roleChange.role }, { onSettled: () => setRoleChange(null) })
+          }
+        />
+      )}
     </div>
   );
 }

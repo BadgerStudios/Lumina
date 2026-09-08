@@ -11,7 +11,7 @@ import {
   type OwnerUserRow,
 } from "../queries/owner";
 import { UserAvatar } from "../components/common/UserAvatar";
-import { Badge, DataList, DataRow, EmptyState, Toolbar } from "./OwnerChrome";
+import { Badge, ConfirmRoleChange, DataList, DataRow, EmptyState, Toolbar } from "./OwnerChrome";
 import { OwnerUserDetailPanel } from "./OwnerUserDetailPanel";
 import { cn } from "../lib/cn";
 
@@ -33,6 +33,7 @@ export function OwnerUsersPanel() {
   const [page, setPage] = useState(0);
   const [banTarget, setBanTarget] = useState<OwnerUserRow | null>(null);
   const [detailUserId, setDetailUserId] = useState<string | null>(null);
+  const [roleChange, setRoleChange] = useState<{ user: OwnerUserRow; role: PlatformRole } | null>(null);
   const { data, isLoading } = useOwnerUsers(search, page);
   const setRole = useSetPlatformRole();
   const liftBan = useLiftBan();
@@ -124,9 +125,7 @@ export function OwnerUsersPanel() {
                             aria-label={`Platform role for ${u.username}`}
                             value={u.platformRole}
                             disabled={setRole.isPending}
-                            onChange={(e) =>
-                              setRole.mutate({ userId: u.id, platformRole: e.target.value as PlatformRole })
-                            }
+                            onChange={(e) => setRoleChange({ user: u, role: e.target.value as PlatformRole })}
                             className="rounded-lg border border-[var(--oc-line)] bg-[var(--oc-panel-raised)] px-1.5 py-1 text-xs text-signal disabled:opacity-50"
                           >
                             {assignable.map((role) => (
@@ -198,6 +197,22 @@ export function OwnerUsersPanel() {
       )}
 
       <BanDialog user={banTarget} onClose={() => setBanTarget(null)} />
+
+      {roleChange && (
+        <ConfirmRoleChange
+          username={roleChange.user.username}
+          fromLabel={ROLE_LABELS[roleChange.user.platformRole]}
+          toLabel={ROLE_LABELS[roleChange.role]}
+          pending={setRole.isPending}
+          onCancel={() => setRoleChange(null)}
+          onConfirm={() =>
+            setRole.mutate(
+              { userId: roleChange.user.id, platformRole: roleChange.role },
+              { onSettled: () => setRoleChange(null) },
+            )
+          }
+        />
+      )}
 
       {detailUserId && (
         <OwnerUserDetailPanel userId={detailUserId} onClose={() => setDetailUserId(null)} />
