@@ -89,6 +89,10 @@ export function ChatPane({
   // Pins live in the aside, and the aside only exists inside a space — a DM has no third column to
   // put them in, and no pins either.
   const canShowPins = Boolean(serverId && target.channelId);
+  // In a 1:1 DM the header had no handle on the other person — no profile, no block, no report. Give
+  // it the same profile card the member list uses. Only for 1:1: a group DM has no single "other".
+  const dmOthers = !serverId ? dmParticipants?.filter((p) => p.id !== currentUserId) : undefined;
+  const dmUser = dmOthers?.length === 1 ? dmOthers[0] : undefined;
 
   return (
     <div className="lx-pane relative flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0">
@@ -107,6 +111,7 @@ export function ChatPane({
         pinnedCount={canShowPins ? pins?.length : undefined}
         onTogglePins={canShowPins ? () => openAsideTab("pins") : undefined}
         pinsOpen={canShowPins && asideTab === "pins" && asideOpen}
+        dmUser={dmUser}
       />
       {serverId && searchQuery.trim().length > 1 ? (
         <SearchResultsPanel serverId={serverId} query={searchQuery.trim()} onClose={() => setSearchQuery("")} />
