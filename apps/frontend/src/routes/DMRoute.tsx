@@ -4,6 +4,7 @@ import { ChatPane } from "../components/layout/ChatPane";
 import { useDMs, useMarkDMRead } from "../queries/dms";
 import {
   useDMMessages,
+  useMessageFocus,
   useSendDMMessage,
   useSendDMMessageWithAttachments,
   useSendDMMessageRich,
@@ -17,6 +18,7 @@ export function DMRoute() {
   const conversation = conversations?.find((c) => c.id === conversationId);
 
   const messagesQuery = useDMMessages(conversationId);
+  const { focusMessageId, focusNonce } = useMessageFocus({ dmConversationId: conversationId }, !messagesQuery.isLoading);
   const sendMessage = useSendDMMessage(conversationId ?? "");
   const sendWithAttachments = useSendDMMessageWithAttachments(conversationId ?? "");
   const sendRich = useSendDMMessageRich(conversationId ?? "");
@@ -62,6 +64,8 @@ export function DMRoute() {
       canManageMessages={false}
       dmReadStates={conversation?.readStates}
       dmParticipants={conversation?.participants}
+      focusMessageId={focusMessageId}
+      focusNonce={focusNonce}
     />
   );
 }

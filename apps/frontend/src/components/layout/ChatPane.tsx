@@ -46,6 +46,8 @@ export function ChatPane({
   dmParticipants,
   onOpenThread,
   onStartThread,
+  focusMessageId,
+  focusNonce,
 }: {
   title: string;
   topic?: string | null;
@@ -67,6 +69,9 @@ export function ChatPane({
   /** Both absent in DMs — threads exist only inside server channels. */
   onOpenThread?: (threadId: string) => void;
   onStartThread?: (message: MessageDTO) => void;
+  /** Jump-to-message target (from the ?message= deep link), threaded down to the list. */
+  focusMessageId?: string | null;
+  focusNonce?: number;
 }) {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const editMessage = useEditMessage();
@@ -136,6 +141,8 @@ export function ChatPane({
         onStartThread={onStartThread}
         dmReadStates={dmReadStates}
         dmParticipants={dmParticipants}
+        focusMessageId={focusMessageId}
+        focusNonce={focusNonce}
       />
       {typingChannelId ? <TypingIndicator channelId={typingChannelId} serverId={serverId} /> : <div className="h-5" />}
       <Composer

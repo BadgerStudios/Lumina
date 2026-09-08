@@ -11,6 +11,7 @@ import { useMembers } from "../queries/members";
 import { useRoles } from "../queries/roles";
 import {
   useMessages,
+  useMessageFocus,
   useSendChannelMessage,
   useSendChannelMessageWithAttachments,
   useSendChannelMessageRich,
@@ -60,6 +61,7 @@ export function ChannelRoute() {
   const createThread = useCreateThread(validChannelId ?? "");
 
   const messagesQuery = useMessages(validChannelId);
+  const { focusMessageId, focusNonce } = useMessageFocus({ channelId: validChannelId }, !messagesQuery.isLoading);
   const sendMessage = useSendChannelMessage(validChannelId ?? "");
   const sendWithAttachments = useSendChannelMessageWithAttachments(validChannelId ?? "");
   const sendRich = useSendChannelMessageRich(validChannelId ?? "");
@@ -104,6 +106,8 @@ export function ChannelRoute() {
         serverId={serverId}
         target={{ channelId: validChannelId }}
         canManageMessages={canManageMessages}
+        focusMessageId={focusMessageId}
+        focusNonce={focusNonce}
         onOpenThread={(threadId) => setOpenThreadId(threadId)}
         onStartThread={async (message) => {
           // Seeded from the message being threaded so the prompt is answerable without retyping —

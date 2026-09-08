@@ -149,6 +149,55 @@ export async function listDMMessages(params: {
   return messages.map((m) => serializeMessage(m, params.userId));
 }
 
+/**
+ * A symmetric window of messages centred on one message — the data behind "jump to message" and a
+ * shared message link, for a target that may be far outside the client's currently-loaded window.
+ * Authorized exactly like the two list endpoints above (channel VIEW_CHANNELS, or DM participation)
+ * and returned newest-first, the same shape a normal page has, so the client can seed it directly
+ * as a single infinite-query page and keep paginating older from its tail.
+ */
+export async function getMessageContext(params: {
+  userId: string;
+  messageId: string;
+  limit?: string;
+}): Promise<MessageDTO[]> {
+  const anchorId = parseBigIntId(params.messageId);
+  if (anchorId === null) throw new NotFoundError("Message not found");
+
+  const anchor = await prisma.message.findUnique({ where: { id: anchorId }, include: messageInclude });
+  if (!anchor || anchor.deletedAt) throw new NotFoundError("Message not found");
+
+  // Same authorization as the list endpoints for whichever container the message lives in — never
+  // leak a message (or a channel/DM's existence) to someone who could not have listed it.
+  if (anchor.channelId) {
+    const channel = await prisma.channel.findUnique({ where: { id: anchor.channelId } });
+    if (!channel) throw new NotFoundError("Message not found");
+    await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.VIEW_CHANNELS);
+  } else if (anchor.dmConversationId) {
+    const participant = await prisma.dMParticipant.findUnique({
+      where: { conversationId_userId: { conversationId: anchor.dmConversationId, userId: params.userId } },
+    });
+    if (!participant) throw new ForbiddenError("Not a participant in this conversation");
+  } else {
+    throw new NotFoundError("Message not found");
+  }
+
+  const half = Math.max(1, Math.floor(parseLimit(params.limit) / 2));
+  const scope: { channelId?: string; dmConversationId?: string; deletedAt: null } = anchor.channelId
+    ? { channelId: anchor.channelId, deletedAt: null }
+    : { dmConversationId: anchor.dmConversationId!, deletedAt: null };
+
+  const [older, newer] = await Promise.all([
+    prisma.message.findMany({ where: { ...scope, id: { lt: anchorId } }, orderBy: { id: "desc" }, take: half, include: messageInclude }),
+    prisma.message.findMany({ where: { ...scope, id: { gt: anchorId } }, orderBy: { id: "asc" }, take: half, include: messageInclude }),
+  ]);
+
+  // Newest-first overall: the nearest-newer messages (fetched ascending) reversed to newest-first,
+  // then the anchor, then the older messages (already newest-first).
+  const combined = [...newer.reverse(), anchor, ...older];
+  return combined.map((m) => serializeMessage(m, params.userId));
+}
+
 /** Slowmode (Channel.slowmodeSeconds, set via ChannelSettingsModal) — MANAGE_MESSAGES bypasses
  * it, matching Discord's own moderator exemption. Reuses checkPermission (which already knows
  * owner/ADMINISTRATOR bypass) rather than re-deriving the effective bitfield here. */
