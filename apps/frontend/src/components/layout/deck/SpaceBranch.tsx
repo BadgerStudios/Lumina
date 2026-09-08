@@ -24,6 +24,7 @@ import { useServer, useLeaveServer } from "../../../queries/servers";
 import { useMembers } from "../../../queries/members";
 import { useRoles } from "../../../queries/roles";
 import { useThreads } from "../../../queries/threads";
+import { useServerFolders, useSetServerFolder, useCreateFolder } from "../../../queries/serverFolders";
 import { useMinecraftStatus } from "../../../queries/game";
 import { useVoiceRoster } from "../../../queries/voice";
 import { useUnread } from "../../../queries/readState";
@@ -282,6 +283,11 @@ export function SpaceMenu({ serverId }: { serverId: string }) {
   const isOwner = server?.ownerId === user?.id;
   const leaveServer = useLeaveServer(serverId);
 
+  const { data: folders } = useServerFolders();
+  const setFolder = useSetServerFolder();
+  const createFolder = useCreateFolder();
+  const currentFolderId = folders?.find((f) => f.serverIds.includes(serverId))?.id ?? null;
+
   const item = "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600";
 
   return (
@@ -318,6 +324,54 @@ export function SpaceMenu({ serverId }: { serverId: string }) {
           <DropdownMenu.Item onSelect={() => openModalWith("notificationSettings", { serverId })} className={item}>
             <Bell size={15} /> Notifications
           </DropdownMenu.Item>
+
+          <DropdownMenu.Separator className="my-1 h-px bg-hairline" />
+          <DropdownMenu.Sub>
+            <DropdownMenu.SubTrigger className={item}>
+              <FolderPlus size={15} /> Move to folder
+            </DropdownMenu.SubTrigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.SubContent className="lx-raised z-50 w-52 p-1.5">
+                {(folders ?? []).map((f) => (
+                  <DropdownMenu.Item
+                    key={f.id}
+                    onSelect={() => setFolder.mutate({ serverId, folderId: f.id })}
+                    className={cn(item, f.id === currentFolderId && "text-accent")}
+                  >
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ background: f.color ?? "var(--accent, #888)" }}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                  </DropdownMenu.Item>
+                ))}
+                {currentFolderId && (
+                  <DropdownMenu.Item
+                    onSelect={() => setFolder.mutate({ serverId, folderId: null })}
+                    className={item}
+                  >
+                    <LogOut size={15} /> Remove from folder
+                  </DropdownMenu.Item>
+                )}
+                <DropdownMenu.Separator className="my-1 h-px bg-hairline" />
+                <DropdownMenu.Item
+                  onSelect={() => {
+                    const name = window.prompt("New folder name");
+                    if (name?.trim()) {
+                      createFolder.mutate(
+                        { name: name.trim() },
+                        { onSuccess: (folder) => setFolder.mutate({ serverId, folderId: folder.id }) },
+                      );
+                    }
+                  }}
+                  className={item}
+                >
+                  <Plus size={15} /> New folder…
+                </DropdownMenu.Item>
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Sub>
+
           {canManageChannels && (
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-hairline" />

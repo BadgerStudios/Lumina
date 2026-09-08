@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  FolderPlus,
   Search,
   Settings,
   ShieldCheck,
@@ -18,10 +19,13 @@ import {
   Store,
   X,
 } from "lucide-react";
+import type { ServerDTO } from "@lumina/shared";
 import { APP_HOME } from "../../lib/platform";
 import { useAuthStore } from "../../store/authStore";
 import { isStaff as checkStaff, isOwner as checkOwner } from "../../lib/platformRole";
 import { useServers } from "../../queries/servers";
+import { useServerFolders, useCreateFolder } from "../../queries/serverFolders";
+import { DeckFolder } from "./deck/DeckFolder";
 import { useInboxUnread } from "../../queries/inbox";
 import { useUIStore } from "../../store/uiStore";
 import { resolveAssetUrl } from "../../lib/apiClient";
@@ -155,6 +159,92 @@ export function NavDeck() {
   const mobileDrawer = useUIStore((s) => s.mobileDrawer);
   const closeMobileDrawer = useUIStore((s) => s.closeMobileDrawer);
   const isSheetOpen = mobileDrawer === "deck";
+
+  // Per-user sidebar folders. Grouping is a personal organising device (see the ServerFolder model);
+  // servers not filed in any folder render loose, exactly as before folders existed.
+  const { data: folders } = useServerFolders();
+  const createFolder = useCreateFolder();
+  const serverById = new Map((servers ?? []).map((s) => [s.id, s] as const));
+  const inAFolder = new Set<string>();
+  (folders ?? []).forEach((f) => f.serverIds.forEach((id) => inAFolder.add(id)));
+  const looseServers = (servers ?? []).filter((s) => !inAFolder.has(s.id));
+
+  // Folder open/closed is a per-device convenience, kept in localStorage; folders default to open.
+  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("lumina.openFolders") ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const isFolderOpen = (id: string) => openFolders[id] ?? true;
+  const toggleFolder = (id: string) =>
+    setOpenFolders((s) => {
+      const next = { ...s, [id]: !(s[id] ?? true) };
+      try {
+        localStorage.setItem("lumina.openFolders", JSON.stringify(next));
+      } catch {
+        /* private mode / disabled storage — folder state just won't persist */
+      }
+      return next;
+    });
+
+  // One space row — the single definition of what a space looks like, reused for both loose spaces
+  // and the spaces nested inside a folder.
+  const renderSpace = (s: ServerDTO) => {
+    const isCurrent = s.id === serverId;
+    const isExpanded = !collapsed && expandedSpaceId === s.id;
+    return (
+      <div key={s.id}>
+        <div className="group relative flex items-center">
+          <button
+            onClick={() => {
+              if (collapsed) {
+                // No room to expand anything — go straight in. ChannelRoute resolves the
+                // `_` placeholder to the space's first text room once its list loads.
+                go(`/channels/${s.id}/_`);
+                return;
+              }
+              if (isSheetOpen) {
+                // In the phone sheet, tapping a space ONLY expands it. Navigating here
+                // as well would dismiss the sheet in the same gesture (see `go`), so the
+                // rooms you just asked to see would be gone before you saw them — you
+                // would land in whichever room happened to be first, every time.
+                setExpandedSpace(isExpanded ? null : s.id);
+                return;
+              }
+              if (isExpanded) {
+                setExpandedSpace(null);
+              } else {
+                setExpandedSpace(s.id);
+                if (!isCurrent) go(`/channels/${s.id}/_`);
+              }
+            }}
+            data-active={isCurrent}
+            aria-expanded={collapsed ? undefined : isExpanded}
+            title={s.name}
+            className={cn("lx-row lx-focus text-sm", collapsed && "justify-center")}
+          >
+            {!collapsed && (
+              <ChevronRight
+                size={13}
+                className={cn("shrink-0 text-signal-faint transition-transform", isExpanded && "rotate-90")}
+              />
+            )}
+            <SpaceAvatar name={s.name} iconUrl={s.iconUrl} size={collapsed ? 28 : 22} />
+            {!collapsed && <span className="min-w-0 flex-1 truncate">{s.name}</span>}
+          </button>
+          {!collapsed && (
+            // Opacity, never `display`, for anything a popover anchors to: see SpaceMenu.
+            <span className="absolute right-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-state=open]]:opacity-100 max-md:opacity-100">
+              <SpaceMenu serverId={s.id} />
+            </span>
+          )}
+        </div>
+        {isExpanded && <SpaceBranch serverId={s.id} />}
+      </div>
+    );
+  };
 
   const inMessages = pathname === "/" || pathname === "/app" || pathname.startsWith("/dm") || pathname === "/friends";
   const [messagesOpen, setMessagesOpen] = useState(inMessages);
@@ -325,60 +415,29 @@ export function NavDeck() {
           {!collapsed && <DeckSectionLabel>Spaces</DeckSectionLabel>}
           {collapsed && <div className="my-1.5 h-px bg-hairline" />}
           <div className="flex flex-col gap-px">
-            {servers?.map((s) => {
-              const isCurrent = s.id === serverId;
-              const isExpanded = !collapsed && expandedSpaceId === s.id;
-              return (
-                <div key={s.id}>
-                  <div className="group relative flex items-center">
-                    <button
-                      onClick={() => {
-                        if (collapsed) {
-                          // No room to expand anything — go straight in. ChannelRoute resolves the
-                          // `_` placeholder to the space's first text room once its list loads.
-                          go(`/channels/${s.id}/_`);
-                          return;
-                        }
-                        if (isSheetOpen) {
-                          // In the phone sheet, tapping a space ONLY expands it. Navigating here
-                          // as well would dismiss the sheet in the same gesture (see `go`), so the
-                          // rooms you just asked to see would be gone before you saw them — you
-                          // would land in whichever room happened to be first, every time.
-                          setExpandedSpace(isExpanded ? null : s.id);
-                          return;
-                        }
-                        if (isExpanded) {
-                          setExpandedSpace(null);
-                        } else {
-                          setExpandedSpace(s.id);
-                          if (!isCurrent) go(`/channels/${s.id}/_`);
-                        }
-                      }}
-                      data-active={isCurrent}
-                      aria-expanded={collapsed ? undefined : isExpanded}
-                      title={s.name}
-                      className={cn("lx-row lx-focus text-sm", collapsed && "justify-center")}
+            {/* Collapsed to avatars-only, folders don't read — show every space flat. Expanded, the
+                spaces filed into folders group under them, then the loose ones. */}
+            {collapsed
+              ? servers?.map(renderSpace)
+              : (
+                <>
+                  {(folders ?? []).map((f) => (
+                    <DeckFolder
+                      key={f.id}
+                      folder={f}
+                      count={f.serverIds.length}
+                      open={isFolderOpen(f.id)}
+                      onToggle={() => toggleFolder(f.id)}
                     >
-                      {!collapsed && (
-                        <ChevronRight
-                          size={13}
-                          className={cn("shrink-0 text-signal-faint transition-transform", isExpanded && "rotate-90")}
-                        />
-                      )}
-                      <SpaceAvatar name={s.name} iconUrl={s.iconUrl} size={collapsed ? 28 : 22} />
-                      {!collapsed && <span className="min-w-0 flex-1 truncate">{s.name}</span>}
-                    </button>
-                    {!collapsed && (
-                      // Opacity, never `display`, for anything a popover anchors to: see SpaceMenu.
-                      <span className="absolute right-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-state=open]]:opacity-100 max-md:opacity-100">
-                        <SpaceMenu serverId={s.id} />
-                      </span>
-                    )}
-                  </div>
-                  {isExpanded && <SpaceBranch serverId={s.id} />}
-                </div>
-              );
-            })}
+                      {f.serverIds
+                        .map((id) => serverById.get(id))
+                        .filter((s): s is ServerDTO => Boolean(s))
+                        .map(renderSpace)}
+                    </DeckFolder>
+                  ))}
+                  {looseServers.map(renderSpace)}
+                </>
+              )}
 
             <button
               onClick={() => openModalWith("createServer")}
@@ -389,6 +448,21 @@ export function NavDeck() {
               <Plus size={collapsed ? 17 : 15} className="shrink-0" />
               {!collapsed && <span className="min-w-0 flex-1 truncate">Add a space</span>}
             </button>
+
+            {!collapsed && (
+              <button
+                onClick={() => {
+                  const name = window.prompt("New folder name");
+                  if (name?.trim()) createFolder.mutate({ name: name.trim() });
+                }}
+                title="New folder"
+                aria-label="New folder"
+                className="lx-row lx-focus text-sm text-signal-faint"
+              >
+                <FolderPlus size={15} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">New folder</span>
+              </button>
+            )}
           </div>
         </div>
 

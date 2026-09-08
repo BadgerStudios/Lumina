@@ -257,6 +257,7 @@ model User {
   refreshTokens          RefreshToken[]
   ownedServers           Server[]                 @relation("ServerOwner")
   memberships            Membership[]
+  serverFolders          ServerFolder[]
   messages               Message[]
   reactions              Reaction[]
   dmParticipation        DMParticipant[]
@@ -517,12 +518,35 @@ model Membership {
   nickname   String?
   mutedUntil DateTime?
   joinedAt   DateTime         @default(now())
+  // Per-user sidebar grouping — a membership is exactly the per-user-per-server row, so which
+  // folder this user filed this server under lives here, not on the shared Server. Null = loose.
+  folderId   String?
   user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   server     Server           @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  folder     ServerFolder?    @relation(fields: [folderId], references: [id], onDelete: SetNull)
   roles      RoleAssignment[]
 
   @@unique([userId, serverId])
   @@index([serverId])
+  @@index([folderId])
+}
+
+/**
+ * A per-user sidebar folder grouping some of that user's spaces. Purely a client-side organising
+ * device — it confers no permissions and is invisible to anyone else. Membership.folderId points a
+ * server into one of these; deleting a folder simply loosens its servers (onDelete: SetNull above).
+ */
+model ServerFolder {
+  id          String       @id @default(cuid())
+  userId      String
+  name        String
+  color       String?
+  position    Int          @default(0)
+  createdAt   DateTime     @default(now())
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memberships Membership[]
+
+  @@index([userId])
 }
 
 model Role {
