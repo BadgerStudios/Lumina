@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ChannelDTO } from "@lumina/shared";
+import type { ChannelDTO, ChannelType } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
 import { upsertChannel } from "../socket/cachePatches";
@@ -16,7 +16,7 @@ export function useChannels(serverId: string | undefined) {
 export function useCreateChannel(serverId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; type?: "TEXT" | "CATEGORY" | "VOICE"; topic?: string | null; parentId?: string | null }) =>
+    mutationFn: (body: { name: string; type?: ChannelType; topic?: string | null; parentId?: string | null }) =>
       api.post<ChannelDTO>(`/servers/${serverId}/channels`, body),
     onSuccess: (channel) => {
       // upsertChannel (not a raw append) — the creator's own socket now also receives the

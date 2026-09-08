@@ -29,7 +29,11 @@ async function loadParent(channelId: string) {
     // every permission and read-state lookup that currently resolves exactly one level up.
     throw new BadRequestError("Cannot start a thread inside a thread");
   }
-  if (parent.type !== "TEXT") throw new BadRequestError("Threads can only be started in text channels");
+  // TEXT hosts message-origin threads; FORUM hosts its posts (also threads). Both keep every piece
+  // of thread/message machinery — see the header comment.
+  if (parent.type !== "TEXT" && parent.type !== "FORUM") {
+    throw new BadRequestError("Threads can only be started in text or forum channels");
+  }
   return parent;
 }
 
@@ -39,6 +43,8 @@ export async function createThread(params: {
   name: string;
   autoArchiveMinutes?: number;
   originMessageId?: string;
+  /** Forum posts only: the post's first message body. Ignored for message-origin text threads. */
+  content?: string;
 }) {
   const parent = await loadParent(params.channelId);
 
@@ -56,6 +62,31 @@ export async function createThread(params: {
   });
   if (activeCount >= MAX_ACTIVE_THREADS_PER_CHANNEL) {
     throw new BadRequestError("This channel has too many active threads. Archive some first.");
+  }
+
+  // Forum post: a titled thread with a first message and no origin. Create the thread, then post
+  // its opening message through the ordinary channel-message pipeline (automod, mentions, XP, the
+  // channel:<id> broadcast, thread activity) so a post is indistinguishable from any other thread.
+  // Dynamic import breaks the messages<->threads service cycle (messages imports touchThreadActivity).
+  if (parent.type === "FORUM") {
+    if (params.originMessageId) throw new BadRequestError("A forum post has no origin message");
+    const content = (params.content ?? "").trim();
+    if (!content) throw new BadRequestError("A forum post needs a body");
+    const thread = await prisma.channel.create({
+      data: {
+        serverId: parent.serverId,
+        name: params.name.trim().slice(0, 100),
+        type: "THREAD",
+        parentId: parent.id,
+        position: 0,
+        autoArchiveMinutes: params.autoArchiveMinutes ?? 4320,
+        lastActivityAt: new Date(),
+        threadMembers: { create: { userId: params.userId } },
+      },
+    });
+    const { createChannelMessage } = await import("../messages/service.js");
+    await createChannelMessage({ userId: params.userId, channelId: thread.id, content });
+    return getThread(thread.id, params.userId);
   }
 
   let originId: bigint | undefined;

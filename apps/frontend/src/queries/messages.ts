@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MessageDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
@@ -186,6 +188,77 @@ export function useSendDMMessageRich(conversationId: string) {
 
 function messageQueryKeyFor(message: MessageDTO): readonly unknown[] {
   return message.channelId ? queryKeys.messages(message.channelId) : queryKeys.dmMessages(message.dmConversationId!);
+}
+
+/**
+ * Ensures a target message is present in the channel/DM message cache so the list can scroll to it,
+ * fetching a window centred on it (GET /messages/:id/context) and seeding it as the cache's single
+ * page when it isn't already loaded. Returns whether the message is now available.
+ *
+ * Seeding replaces the current pages with the fetched window; the user can still scroll UP for older
+ * messages (the seeded page's tail is a valid `before` cursor) and a scroll-to-present resets to the
+ * newest page. This is the deliberate v1 scope — there is no forward/newer pagination server-side.
+ */
+export function useJumpToMessage(target: { channelId?: string; dmConversationId?: string }) {
+  const queryClient = useQueryClient();
+  return async (messageId: string): Promise<boolean> => {
+    const key = target.channelId
+      ? queryKeys.messages(target.channelId)
+      : target.dmConversationId
+        ? queryKeys.dmMessages(target.dmConversationId)
+        : null;
+    if (!key) return false;
+    const cache = queryClient.getQueryData<MessagePages>(key);
+    if (cache?.pages.some((p) => p.some((m) => m.id === messageId))) return true;
+    try {
+      const window = await api.get<MessageDTO[]>(`/messages/${messageId}/context?limit=${PAGE_SIZE}`);
+      if (!window.some((m) => m.id === messageId)) return false;
+      queryClient.setQueryData<MessagePages>(key, (): MessagePages => ({ pages: [window], pageParams: [undefined] }));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+}
+
+/**
+ * Reads a `?message=<id>` deep link, jumps to it once the message list is ready, then clears the
+ * param so a refresh or a back-nav doesn't re-fire the jump. Returns the id+nonce to hand to
+ * MessageList (via ChatPane) — nonce changes on each jump so re-jumping the same id still scrolls.
+ *
+ * Gated on `ready` (the list's initial page has loaded) so seeding a fetched context window can't
+ * be clobbered by the list's own in-flight first fetch.
+ */
+export function useMessageFocus(
+  target: { channelId?: string; dmConversationId?: string },
+  ready: boolean,
+): { focusMessageId: string | null; focusNonce: number } {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const jumpTo = useJumpToMessage(target);
+  const [focus, setFocus] = useState<{ id: string; nonce: number }>({ id: "", nonce: 0 });
+  const wanted = searchParams.get("message");
+  const containerId = target.channelId ?? target.dmConversationId;
+  useEffect(() => {
+    if (!wanted || !containerId || !ready) return;
+    let cancelled = false;
+    void (async () => {
+      const ok = await jumpTo(wanted);
+      if (!cancelled && ok) setFocus({ id: wanted, nonce: Date.now() });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("message");
+          return next;
+        },
+        { replace: true },
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, containerId, ready]);
+  return { focusMessageId: focus.id || null, focusNonce: focus.nonce };
 }
 
 export function useEditMessage() {

@@ -26,6 +26,8 @@ export function MessageList({
   dmParticipants,
   onOpenThread,
   onStartThread,
+  focusMessageId,
+  focusNonce,
 }: {
   data: InfiniteData<MessageDTO[]> | undefined;
   isLoading: boolean;
@@ -45,9 +47,14 @@ export function MessageList({
   dmParticipants?: DMConversationDTO["participants"];
   onOpenThread?: (threadId: string) => void;
   onStartThread?: (message: MessageDTO) => void;
+  // Jump-to-message: the id to scroll to and briefly highlight. focusNonce lets the same id be
+  // re-jumped (e.g. clicking the same link twice) since the id alone wouldn't change.
+  focusMessageId?: string | null;
+  focusNonce?: number;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   // The compact density setting had no effect at all before this: the CSS that implements it keys
   // off a `density-compact` class on this scroller, and nothing had ever added it.
   const density = useUIStore((s) => s.density);
@@ -69,6 +76,36 @@ export function MessageList({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ordered.length]);
+
+  // Scroll to and flash the focused message. It may not be in the DOM yet — the parent seeds the
+  // cache first, then bumps focusNonce, so the render lands a tick later; retry across a few frames
+  // until the row exists, then centre it and flash it for a couple of seconds.
+  useEffect(() => {
+    if (!focusMessageId) return;
+    setAutoScroll(false);
+    let tries = 0;
+    let raf = 0;
+    let clearTimer = 0;
+    const tick = () => {
+      const el = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${focusMessageId}"]`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        setHighlightId(focusMessageId);
+        clearTimer = window.setTimeout(
+          () => setHighlightId((cur) => (cur === focusMessageId ? null : cur)),
+          2200,
+        );
+        return;
+      }
+      if (tries++ < 40) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(clearTimer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusMessageId, focusNonce]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -108,6 +145,7 @@ export function MessageList({
                 key={message.id}
                 message={message}
                 showHeader={showHeader}
+                highlighted={message.id === highlightId}
                 canManage={canManage}
                 currentUserId={currentUserId}
                 onEdit={onEdit}

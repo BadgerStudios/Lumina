@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Link as LinkIcon } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
 import { useMarkChannelUnread } from "../../queries/readState";
 import { BotBadge } from "../common/BotBadge";
@@ -18,7 +18,7 @@ import { useCustomEmojis } from "../../queries/emoji";
 import { ReactionPicker } from "./ReactionPicker";
 import { cn } from "../../lib/cn";
 import { useCreateDM } from "../../queries/dms";
-import { reportError } from "../../store/toastStore";
+import { reportError, toast } from "../../store/toastStore";
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -52,6 +52,7 @@ function formatFullDate(iso: string): string {
 export function MessageItem({
   message,
   showHeader,
+  highlighted,
   canManage,
   currentUserId,
   onEdit,
@@ -65,6 +66,8 @@ export function MessageItem({
 }: {
   message: MessageDTO;
   showHeader: boolean;
+  /** Briefly flashed after a jump-to-message — see MessageList. */
+  highlighted?: boolean;
   canManage: boolean;
   currentUserId: string | undefined;
   onEdit: (messageId: string, content: string) => Promise<void>;
@@ -122,9 +125,35 @@ export function MessageItem({
 
   const iconBtn = "rounded-md p-1 text-signal-dim transition hover:bg-base-600 hover:text-signal";
 
+  // A shareable deep link to this exact message. Channel links need the serverId from the route
+  // (/channels/:serverId/:channelId); a DM link needs only the conversation. When neither can be
+  // built (a channel message rendered without a serverId in the route), the button is omitted.
+  const linkPath =
+    message.channelId && serverId
+      ? `/channels/${serverId}/${message.channelId}?message=${message.id}`
+      : message.dmConversationId
+        ? `/dm/${message.dmConversationId}?message=${message.id}`
+        : null;
+
+  async function copyMessageLink() {
+    if (!linkPath) return;
+    const url = `${window.location.origin}${linkPath}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Message link copied");
+    } catch {
+      reportError(null, "Couldn't copy the link");
+    }
+  }
+
   return (
     <div
-      className={cn("lx-msg group", showHeader && "lx-msg--head", isOwn && "lx-msg--own")}
+      className={cn(
+        "lx-msg group",
+        showHeader && "lx-msg--head",
+        isOwn && "lx-msg--own",
+        highlighted && "rounded-lg bg-accent/10 transition-colors duration-500",
+      )}
       data-message-id={message.id}
     >
       <span className="lx-spine" aria-hidden="true" />
@@ -344,6 +373,16 @@ export function MessageItem({
               aria-label="Mark unread from here"
             >
               <Mail size={15} />
+            </button>
+          )}
+          {linkPath && (
+            <button
+              onClick={() => void copyMessageLink()}
+              className={iconBtn}
+              title="Copy message link"
+              aria-label="Copy message link"
+            >
+              <LinkIcon size={15} />
             </button>
           )}
           {onStartThread && message.channelId && (

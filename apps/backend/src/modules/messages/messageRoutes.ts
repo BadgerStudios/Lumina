@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../../plugins/authenticate.js";
-import { addReaction, deleteMessage, editMessage, removeReaction, togglePinMessage } from "./service.js";
+import { addReaction, deleteMessage, editMessage, getMessageContext, removeReaction, togglePinMessage } from "./service.js";
 
 const editSchema = z.object({ content: z.string().min(1) });
 const reactionSchema = z.object({ emoji: z.string().min(1).max(32) });
 const pinSchema = z.object({ pinned: z.boolean() });
+const contextSchema = z.object({ limit: z.string().optional() });
 
 /**
  * Mounted under /api/messages. No requireMembership/requirePermission
@@ -46,5 +47,14 @@ export default async function messageRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const body = request.body as z.infer<typeof pinSchema>;
     return togglePinMessage({ userId: request.userId!, messageId: id, pinned: body.pinned });
+  });
+
+  // A window of messages centred on :id — backs "jump to message" / a shared message link when the
+  // target is outside the loaded page. Authorization lives in the service (channel or DM), same as
+  // the list endpoints, since this route serves both shapes.
+  fastify.get("/:id/context", { schema: { querystring: contextSchema }, preHandler: [requireAuth] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const { limit } = request.query as z.infer<typeof contextSchema>;
+    return getMessageContext({ userId: request.userId!, messageId: id, limit });
   });
 }

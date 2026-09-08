@@ -13,7 +13,7 @@ export type AgeBracket = "UNDER_18" | "AGE_18_24" | "AGE_25_34" | "AGE_35_49" | 
 /** THREAD exists in the enum because a thread IS a Channel row, but it never appears in a
  * ChannelDTO the client receives — the channel-list route filters it out (threads are fetched
  * through their parent, as ThreadDTO). It is here so serializeChannel's type stays honest. */
-export type ChannelType = "TEXT" | "CATEGORY" | "VOICE" | "THREAD";
+export type ChannelType = "TEXT" | "CATEGORY" | "VOICE" | "THREAD" | "ANNOUNCEMENT" | "FORUM";
 
 export interface UserDTO {
   id: string;

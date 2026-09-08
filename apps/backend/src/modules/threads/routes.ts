@@ -16,6 +16,8 @@ const createThreadSchema = z.object({
   name: z.string().min(1).max(100),
   autoArchiveMinutes: z.number().int().refine((v) => AUTO_ARCHIVE_CHOICES.includes(v)).optional(),
   originMessageId: z.string().regex(/^\d+$/).optional(),
+  // Forum posts only: the opening message body. Ignored for message-origin text threads.
+  content: z.string().min(1).max(4000).optional(),
 });
 
 const archiveSchema = z.object({ archived: z.boolean() });

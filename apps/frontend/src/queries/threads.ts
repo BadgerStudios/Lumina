@@ -23,7 +23,7 @@ export function useThread(threadId: string | undefined) {
 export function useCreateThread(channelId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; originMessageId?: string; autoArchiveMinutes?: number }) =>
+    mutationFn: (body: { name: string; originMessageId?: string; autoArchiveMinutes?: number; content?: string }) =>
       api.post<ThreadDTO>(`/channels/${channelId}/threads`, body),
     onSuccess: (thread) => {
       queryClient.setQueryData<ThreadDTO>(queryKeys.thread(thread.id), thread);

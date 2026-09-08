@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "ChannelType" ADD VALUE 'ANNOUNCEMENT';
+ALTER TYPE "ChannelType" ADD VALUE 'FORUM';
