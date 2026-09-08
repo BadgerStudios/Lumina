@@ -19,7 +19,7 @@ const updateMeSchema = z.object({
 });
 
 const presenceSchema = z.object({
-  presence: z.enum(["ONLINE", "IDLE", "DND", "OFFLINE"]),
+  presence: z.enum(["ONLINE", "IDLE", "DND", "OFFLINE", "INVISIBLE"]),
 });
 
 const updateUsernameSchema = z.object({

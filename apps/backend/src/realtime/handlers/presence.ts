@@ -27,8 +27,11 @@ async function setPresenceAndBroadcast(io: SocketIOServer, userId: string, prese
   const { count } = await prisma.user.updateMany({ where: { id: userId }, data: { presence } });
   if (count === 0) return;
 
+  // INVISIBLE is stored (so it survives reconnects) but never broadcast — everyone else, on every
+  // room, sees plain OFFLINE. serializeUser applies the same map to REST reads.
+  const publicPresence: PresenceStatus = presence === "INVISIBLE" ? "OFFLINE" : presence;
   const memberships = await prisma.membership.findMany({ where: { userId }, select: { serverId: true } });
-  const payload = { userId, presence };
+  const payload = { userId, presence: publicPresence };
   for (const m of memberships) {
     io.to(`server:${m.serverId}`).emit(ServerEvents.PRESENCE_UPDATE, payload);
   }
@@ -47,11 +50,14 @@ export async function registerPresenceHandlers(io: SocketIOServer, socket: Socke
 
   const count = await redis.incr(connKey(userId));
   if (count === 1) {
-    await setPresenceAndBroadcast(io, userId, "ONLINE");
+    // Coming online must not blow away a chosen invisibility: a user who set INVISIBLE and then
+    // reconnects should stay invisible, not silently reappear as ONLINE.
+    const existing = await prisma.user.findUnique({ where: { id: userId }, select: { presence: true } });
+    await setPresenceAndBroadcast(io, userId, existing?.presence === "INVISIBLE" ? "INVISIBLE" : "ONLINE");
   }
 
-  socket.on(ClientEvents.PRESENCE_SET, async (payload: { presence: "ONLINE" | "IDLE" | "DND" }) => {
-    if (!["ONLINE", "IDLE", "DND"].includes(payload?.presence)) return;
+  socket.on(ClientEvents.PRESENCE_SET, async (payload: { presence: "ONLINE" | "IDLE" | "DND" | "INVISIBLE" }) => {
+    if (!["ONLINE", "IDLE", "DND", "INVISIBLE"].includes(payload?.presence)) return;
     await setPresenceAndBroadcast(io, userId, payload.presence);
   });
 }
@@ -70,7 +76,10 @@ export async function handlePresenceDisconnect(io: SocketIOServer, socket: Socke
         try {
           const current = await redis.get(connKey(userId));
           if (Number(current ?? "0") <= 0) {
-            await setPresenceAndBroadcast(io, userId, "OFFLINE");
+            // Don't overwrite a deliberate INVISIBLE with OFFLINE on disconnect — others already see
+            // them as offline, and keeping INVISIBLE stored is what makes it persist to next login.
+            const existing = await prisma.user.findUnique({ where: { id: userId }, select: { presence: true } });
+            if (existing?.presence !== "INVISIBLE") await setPresenceAndBroadcast(io, userId, "OFFLINE");
           }
         } catch (err) {
           // Belt and braces alongside the updateMany above: nothing that happens in a detached

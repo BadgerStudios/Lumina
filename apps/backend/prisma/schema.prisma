@@ -12,6 +12,7 @@ enum PresenceStatus {
   IDLE
   DND
   OFFLINE
+  INVISIBLE
 }
 
 enum ChannelType {

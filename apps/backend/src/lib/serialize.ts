@@ -48,7 +48,9 @@ export function serializeUser(user: UserLike): UserDTO {
     bio: user.bio,
     bannerUrl: user.bannerUrl,
     pronouns: user.pronouns,
-    presence: user.presence as UserDTO["presence"],
+    // INVISIBLE is a self-only truth: to everyone else an invisible user is simply offline. This
+    // is the REST guard (the socket broadcast maps it too); serializeMe returns the real value.
+    presence: (user.presence === "INVISIBLE" ? "OFFLINE" : user.presence) as UserDTO["presence"],
     isBot: user.isBot,
     isOfficial: user.isOfficial ?? false,
   };
