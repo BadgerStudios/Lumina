@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { PlatformRole } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
+import { notifyAccountChange } from "../../lib/accountNotice.js";
 import { hashPassword, verifyPassword } from "../../lib/password.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { signAccessToken } from "../../lib/jwt.js";
@@ -758,6 +759,14 @@ export default async function authRoutes(fastify: FastifyInstance) {
           data: { revokedAt: new Date() },
         });
         request.log.warn({ userId: row.userId, familyId: row.familyId, revoked: revoked.count }, "refresh token replay: family revoked");
+        // The one moment there is hard evidence of theft was also the one moment the account
+        // owner heard nothing: the family was revoked, a flag was written, and they were logged
+        // out with no explanation and no prompt to change a password the thief may also hold.
+        void notifyAccountChange(
+          row.userId,
+          "A sign-in token was reused from somewhere unexpected",
+          "Every session was signed out as a precaution. If this was not you, change your password now.",
+        );
         void recordFlag({ userId: row.userId, ipAddress: request.ip ?? null, reasonCode: "SESSION_REPLAY", detail: `retired refresh token presented ${Math.round((Date.now() - row.revokedAt.getTime()) / 1000)}s after rotation; ${revoked.count} session(s) revoked` });
       }
       throw new UnauthorizedError("Refresh token invalid or expired");

@@ -8,6 +8,7 @@ import { MyReportsPanel } from "../feed/MyReportsPanel";
 import { CLIENT_TYPE } from "../../lib/platform";
 import { getInstalledVersion } from "../../lib/appUpdater";
 import { MfaSetup } from "./MfaSetup";
+import { PasskeyPanel } from "./PasskeyPanel";
 import {
   biometricAvailability,
   isBiometricLockEnabled,
@@ -1094,6 +1095,13 @@ function PrivacySection() {
       {/* Native builds only — the web app uses passkeys instead, which are a stronger mechanism
           and available there. */}
       <BiometricLockSetting />
+
+      <div>
+        <span className="text-xs font-bold uppercase text-signal-dim">Passkeys</span>
+        <div className="mt-2">
+          <PasskeyPanel />
+        </div>
+      </div>
 
       <div>
         <span className="text-xs font-bold uppercase text-signal-dim">Two-factor authentication</span>

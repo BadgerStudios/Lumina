@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
+import { notifyAccountChange } from "../../lib/accountNotice.js";
 import { serializeUser, serializeMe } from "../../lib/serialize.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { hashPassword, verifyPassword } from "../../lib/password.js";
@@ -99,6 +100,7 @@ export default async function usersRoutes(fastify: FastifyInstance) {
       where: { userId: request.userId!, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    void notifyAccountChange(request.userId!, "Your password was changed");
     return { ok: true };
   });
 
