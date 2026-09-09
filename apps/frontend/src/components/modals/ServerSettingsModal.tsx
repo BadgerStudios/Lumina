@@ -1,4 +1,4 @@
-import { APP_HOME } from "../../lib/platform";
+import { APP_HOME, PUBLIC_ORIGIN } from "../../lib/platform";
 import { ServerAddonsPanel } from "./ServerAddonsPanel";
 import { ServerBotsPanel } from "./ServerBotsPanel";
 import { ServerAutoModPanel } from "./ServerAutoModPanel";
@@ -45,7 +45,7 @@ function WebhooksTab({ serverId }: { serverId: string }) {
   async function handleCreate() {
     if (!channelId || !name.trim()) return;
     const result = await createWebhook.mutateAsync({ channelId, name: name.trim() });
-    setJustCreatedUrl(`${window.location.origin}/api/webhooks/${result.id}/${result.token}`);
+    setJustCreatedUrl(`${PUBLIC_ORIGIN}/api/webhooks/${result.id}/${result.token}`);
     setName("");
   }
 

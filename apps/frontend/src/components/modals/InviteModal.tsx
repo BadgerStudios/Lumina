@@ -3,6 +3,7 @@ import { Copy, Check } from "lucide-react";
 import { Modal } from "./Modal";
 import { useUIStore } from "../../store/uiStore";
 import { useCreateInvite, useInvites, useRevokeInvite } from "../../queries/invites";
+import { PUBLIC_ORIGIN } from "../../lib/platform";
 
 export function InviteModal() {
   const openModal = useUIStore((s) => s.openModal);
@@ -17,7 +18,7 @@ export function InviteModal() {
   const [copied, setCopied] = useState<string | null>(null);
 
   function inviteUrl(code: string) {
-    return `${window.location.origin}/invite/${code}`;
+    return `${PUBLIC_ORIGIN}/invite/${code}`;
   }
 
   async function copy(code: string) {

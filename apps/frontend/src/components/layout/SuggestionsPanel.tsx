@@ -5,6 +5,7 @@ import { UserAvatar } from "../common/UserAvatar";
 import { FriendActionButton } from "../common/FriendActionButton";
 import { toast } from "../../store/toastStore";
 import { cn } from "../../lib/cn";
+import { PUBLIC_ORIGIN } from "../../lib/platform";
 
 /**
  * "People you may know".
@@ -39,7 +40,7 @@ export function SuggestionsPanel({ className }: { className?: string }) {
         <button
           onClick={async () => {
             try {
-              await navigator.clipboard.writeText(window.location.origin);
+              await navigator.clipboard.writeText(PUBLIC_ORIGIN);
               setCopied(true);
               setTimeout(() => setCopied(false), 2000);
             } catch {

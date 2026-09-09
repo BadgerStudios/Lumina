@@ -441,6 +441,12 @@ export interface ServerTemplateDTO {
 }
 
 export interface InviteDTO {
+  /**
+   * Who is inviting you. Present on the public preview so the landing page can
+   * say what the invite is FOR; omitted from the management list, which is only
+   * ever read by people already inside that server.
+   */
+  server?: { id: string; name: string; iconUrl: string | null };
   code: string;
   serverId: string;
   creatorId: string;

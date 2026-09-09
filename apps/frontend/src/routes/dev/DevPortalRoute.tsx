@@ -16,6 +16,7 @@ import {
   useUpdateIntents,
 } from "../../queries/applications";
 import { DOC_PAGES, NAV_SECTIONS, type DocBlock } from "../../devportal/content";
+import { PUBLIC_ORIGIN } from "../../lib/platform";
 
 /**
  * The developer portal: a real web suite at /developers rather than a settings tab. Docs are
@@ -209,7 +210,7 @@ function BotInstallLink({ appId }: { appId: string }) {
     Permissions.VIEW_CHANNELS | Permissions.SEND_MESSAGES | Permissions.ADD_REACTIONS | Permissions.ATTACH_FILES,
   );
   const [open, setOpen] = useState(false);
-  const url = `${window.location.origin}/oauth2/authorize?client_id=${encodeURIComponent(appId)}&scope=bot&permissions=${bits.toString()}`;
+  const url = `${PUBLIC_ORIGIN}/oauth2/authorize?client_id=${encodeURIComponent(appId)}&scope=bot&permissions=${bits.toString()}`;
 
   return (
     <div className="mt-3 rounded-lg bg-base-800 p-3">

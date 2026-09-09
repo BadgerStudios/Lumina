@@ -19,6 +19,7 @@ import { ReactionPicker } from "./ReactionPicker";
 import { cn } from "../../lib/cn";
 import { useCreateDM } from "../../queries/dms";
 import { reportError, toast } from "../../store/toastStore";
+import { PUBLIC_ORIGIN } from "../../lib/platform";
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -137,7 +138,7 @@ export function MessageItem({
 
   async function copyMessageLink() {
     if (!linkPath) return;
-    const url = `${window.location.origin}${linkPath}`;
+    const url = `${PUBLIC_ORIGIN}${linkPath}`;
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Message link copied");

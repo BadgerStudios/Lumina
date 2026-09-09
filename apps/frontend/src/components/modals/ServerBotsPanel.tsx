@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Check, Loader2, X, Copy } from "lucide-react";
 import { api, ApiError } from "../../lib/apiClient";
+import { PUBLIC_ORIGIN } from "../../lib/platform";
 
 interface Step {
   at: string;
@@ -336,7 +337,7 @@ function RequestCard({ req }: { req: InstallRequest }) {
 
 function InstallLink({ appId }: { appId: string }) {
   const [copied, setCopied] = useState(false);
-  const url = `${window.location.origin}/oauth2/authorize?client_id=${encodeURIComponent(appId)}&scope=bot&permissions=1027`;
+  const url = `${PUBLIC_ORIGIN}/oauth2/authorize?client_id=${encodeURIComponent(appId)}&scope=bot&permissions=1027`;
   return (
     <div className="mt-2 flex items-center gap-1 rounded bg-base-800 p-2">
       <code className="min-w-0 flex-1 truncate text-xs text-signal">{url}</code>

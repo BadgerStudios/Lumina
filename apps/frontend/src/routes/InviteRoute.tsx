@@ -2,6 +2,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import { useInvitePreview, useJoinInvite } from "../queries/invites";
 import { useAuthStore } from "../store/authStore";
 import { ApiError } from "../lib/apiClient";
+import { returnToQuery } from "../lib/returnTo";
 
 export function InviteRoute() {
   const { code } = useParams<{ code: string }>();
@@ -9,6 +10,8 @@ export function InviteRoute() {
   const { data: invite, isLoading, isError, error } = useInvitePreview(code);
   const joinInvite = useJoinInvite();
   const navigate = useNavigate();
+  // Signing in must come back here, or the invite is lost on the way.
+  const backHere = returnToQuery(code ? `/invite/${code}` : null);
 
   async function handleJoin() {
     if (!code) return;
@@ -29,7 +32,22 @@ export function InviteRoute() {
           </>
         ) : invite ? (
           <>
-            <h1 className="mb-1 text-xl font-bold text-signal">You've been invited to join a server</h1>
+            {invite.server?.iconUrl ? (
+              <img
+                src={invite.server.iconUrl}
+                alt=""
+                className="mx-auto mb-3 h-20 w-20 rounded-2xl object-cover"
+              />
+            ) : null}
+            <h1 className="mb-1 text-xl font-bold text-signal">
+              {invite.server ? (
+                <>
+                  You've been invited to <span className="text-accent">{invite.server.name}</span>
+                </>
+              ) : (
+                "You've been invited to join a server"
+              )}
+            </h1>
             <p className="mb-6 text-sm text-signal-dim">
               {invite.uses} join{invite.uses === 1 ? "" : "s"} so far
               {invite.maxUses ? ` · ${invite.maxUses - invite.uses} remaining` : ""}
@@ -46,10 +64,10 @@ export function InviteRoute() {
             ) : (
               <div className="flex flex-col gap-2">
                 <p className="text-sm text-signal-dim">Log in or register to accept this invite.</p>
-                <Link to="/login" className="w-full rounded bg-accent py-2.5 font-medium text-white hover:bg-accent-hover">
+                <Link to={`/login${backHere}`} className="w-full rounded bg-accent py-2.5 font-medium text-white hover:bg-accent-hover">
                   Log In
                 </Link>
-                <Link to="/register" className="w-full rounded bg-base-600 py-2.5 font-medium text-signal hover:bg-base-500">
+                <Link to={`/register${backHere}`} className="w-full rounded bg-base-600 py-2.5 font-medium text-signal hover:bg-base-500">
                   Register
                 </Link>
               </div>

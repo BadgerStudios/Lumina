@@ -35,3 +35,26 @@ export const USES_BODY_REFRESH_TOKEN: boolean = CLIENT_TYPE === "mobile" || CLIE
  * the two diverged.
  */
 export const APP_HOME: string = CLIENT_TYPE ? "/" : "/app";
+
+/**
+ * Where this app lives on the public web — the origin to put in a link you hand
+ * to someone else.
+ *
+ * `window.location.origin` is the wrong answer everywhere except the browser: the
+ * desktop app runs on `app://localhost` and the Capacitor apps on
+ * `https://localhost`, so an invite copied from either was a dead link for
+ * whoever received it. Native builds already carry an absolute
+ * VITE_API_BASE_URL, so the public site is that URL's origin; on the web it is
+ * simply where we already are.
+ */
+export const PUBLIC_ORIGIN: string = (() => {
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (apiBase && /^https?:\/\//i.test(apiBase)) {
+    try {
+      return new URL(apiBase).origin;
+    } catch {
+      // A malformed override: fall back to wherever the page actually is.
+    }
+  }
+  return typeof window === "undefined" ? "" : window.location.origin;
+})();

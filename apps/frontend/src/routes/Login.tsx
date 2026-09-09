@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Fingerprint } from "lucide-react";
 import { SiteThemeMenu } from "../components/SiteThemeMenu";
 import { Turnstile } from "../components/Turnstile";
 import { isMfaChallenge, useLogin, useVerifyMfa } from "../queries/auth";
 import { ApiError } from "../lib/apiClient";
+import { returnToQuery, returnToTarget } from "../lib/returnTo";
 import {
   isPasskeySupported,
   passkeyErrorMessage,
@@ -21,6 +22,11 @@ export function Login() {
   const login = useLogin();
   const verifyMfa = useVerifyMfa();
   const navigate = useNavigate();
+  // Someone who arrived from an invite or a shared link is trying to get THERE,
+  // not to the home page. ?next= carries it through the sign-in.
+  const afterLogin = returnToTarget(useLocation().search, "/");
+  // Hopping to Register must not drop the destination either.
+  const carry = afterLogin === "/" ? "" : returnToQuery(afterLogin);
   // Held in state rather than a route: a ticket in a URL ends up in history and in any shared link,
   // and it is a credential for the five minutes it lives.
   const [mfaTicket, setMfaTicket] = useState<string | null>(null);
@@ -55,7 +61,7 @@ export function Login() {
         setPassword("");
         return;
       }
-      navigate("/", { replace: true });
+      navigate(afterLogin, { replace: true });
     } catch {
       // A Turnstile token is single-use: siteverify consumes it on the first attempt, so a retry
       // with the same token is rejected as TURNSTILE_FAILED no matter what the user fixes.
@@ -71,7 +77,7 @@ export function Login() {
     if (!mfaTicket) return;
     try {
       await verifyMfa.mutateAsync({ mfaTicket, code });
-      navigate("/", { replace: true });
+      navigate(afterLogin, { replace: true });
     } catch {
       // A spent or expired ticket cannot be retried — the server deletes it on redemption so a
       // wrong code cannot be brute-forced against the same ticket. Sending the user back to the
@@ -226,7 +232,7 @@ export function Login() {
                   try {
                     const result = await signInWithPasskey();
                     setSession(result.accessToken, result.user);
-                    navigate("/", { replace: true });
+                    navigate(afterLogin, { replace: true });
                   } catch (err) {
                     // Returns null for a deliberate cancel, which must not be reported as an
                     // error — the user chose that.
@@ -247,7 +253,7 @@ export function Login() {
 
         <p className="mt-4 text-sm text-signal-dim">
           Need an account?{" "}
-          <Link to="/register" className="text-accent hover:underline">
+          <Link to={`/register${carry}`} className="text-accent hover:underline">
             Register
           </Link>
         </p>

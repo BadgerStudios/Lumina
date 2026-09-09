@@ -24,16 +24,20 @@ const memberInclude = { user: true, roles: { select: { roleId: true } } } as con
  * keeps working even if a collision were somehow introduced out of band.
  */
 async function resolveInviteCode(code: string) {
-  const invite = await prisma.invite.findUnique({ where: { code } });
-  if (invite) return { invite, isVanity: false as const };
+  const invite = await prisma.invite.findUnique({
+    where: { code },
+    include: { server: { select: { id: true, name: true, iconUrl: true } } },
+  });
+  if (invite) return { invite, server: invite.server, isVanity: false as const };
 
   const server = await prisma.server.findUnique({
     where: { vanityCode: code.toLowerCase() },
-    select: { id: true },
+    select: { id: true, name: true, iconUrl: true },
   });
   if (!server) return null;
 
   return {
+    server,
     invite: {
       code,
       serverId: server.id,
@@ -54,10 +58,12 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
     const { code } = request.params as { code: string };
     const resolved = await resolveInviteCode(code);
     if (!resolved) throw new NotFoundError("Invite not found");
-    const { invite } = resolved;
+    const { invite, server } = resolved;
     if (invite.revokedAt) throw new NotFoundError("Invite not found");
     if (invite.expiresAt && invite.expiresAt.getTime() < Date.now()) throw new NotFoundError("Invite expired");
-    return serializeInvite(invite);
+    // The name and icon travel with the preview: without them the landing page
+    // cannot tell a stranger what they are being invited to.
+    return serializeInvite(invite, server);
   });
 
   fastify.post("/:code/join", { preHandler: [requireAuth] }, async (request, reply) => {

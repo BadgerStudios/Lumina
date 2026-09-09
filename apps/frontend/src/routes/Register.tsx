@@ -1,10 +1,11 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { SiteThemeMenu } from "../components/SiteThemeMenu";
 import { CodeInput } from "../components/common/CodeInput";
 import { useVerifyEmailCode, useResendEmailCode } from "../queries/auth";
 import { useRegister } from "../queries/auth";
 import { ApiError } from "../lib/apiClient";
+import { returnToQuery, returnToTarget } from "../lib/returnTo";
 import type { AgeBracket } from "@lumina/shared";
 import { Turnstile } from "../components/Turnstile";
 import { getNativeAgeSignal } from "../lib/ageSignals";
@@ -58,6 +59,10 @@ export function Register() {
   const [turnstileKey, setTurnstileKey] = useState(0);
   const register = useRegister();
   const navigate = useNavigate();
+  // Same as the login screen: finish where they were headed, not at the top.
+  const afterRegister = returnToTarget(useLocation().search, "/");
+  // Hopping to Log in must not drop the destination either.
+  const carry = afterRegister === "/" ? "" : returnToQuery(afterRegister);
   // Sign-up succeeded and we are now asking for the emailed code. The account already exists and
   // the session is live at this point, so this step asks — it does not hold anyone hostage.
   const [awaitingCode, setAwaitingCode] = useState(false);
@@ -114,7 +119,7 @@ export function Register() {
   // real bug, just a quiet one.
   useEffect(() => {
     if (!codeOk) return;
-    const timer = window.setTimeout(() => navigate("/", { replace: true }), 420);
+    const timer = window.setTimeout(() => navigate(afterRegister, { replace: true }), 420);
     return () => window.clearTimeout(timer);
   }, [codeOk, navigate]);
 
@@ -212,7 +217,7 @@ export function Register() {
                 signed up for — that is how a funnel dies. */}
             <button
               type="button"
-              onClick={() => navigate("/", { replace: true })}
+              onClick={() => navigate(afterRegister, { replace: true })}
               className="text-base-400 underline"
             >
               I'll do this later
@@ -374,7 +379,7 @@ export function Register() {
 
         <p className="mt-4 text-sm text-signal-dim">
           Already have an account?{" "}
-          <Link to="/login" className="text-accent hover:underline">
+          <Link to={`/login${carry}`} className="text-accent hover:underline">
             Log in
           </Link>
         </p>
