@@ -116,7 +116,8 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
         if (result.count === 0) throw new BadRequestError("Invite has reached its max uses");
       }
       const created = await tx.membership.create({
-        data: { userId: request.userId!, serverId: invite.serverId },
+        // Recorded at the join, the only point where the code is still known.
+        data: { userId: request.userId!, serverId: invite.serverId, joinedViaCode: code },
         include: memberInclude,
       });
       return created;

@@ -287,6 +287,67 @@ export default async function serversRoutes(fastify: FastifyInstance) {
     },
   );
 
+  /**
+   * Hand the server to another member.
+   *
+   * Two separate error messages have told owners to do this since before it existed — when they
+   * try to leave their own server, and when they try to delete their account while owning one.
+   */
+  fastify.post(
+    "/:id/transfer-ownership",
+    {
+      schema: { body: z.object({ userId: z.string().min(1) }) },
+      preHandler: [requireAuth, requireMembership(resolveServerId.fromParam("id"))],
+    },
+    async (request) => {
+      const { userId: newOwnerId } = request.body as { userId: string };
+      const server = await prisma.server.findUnique({ where: { id: request.serverId! } });
+      if (!server) throw new NotFoundError("Server not found");
+
+      // Not MANAGE_SERVER: giving the server away is the one action that must stay with the
+      // person who actually holds it, or an admin could quietly take it.
+      if (server.ownerId !== request.userId) {
+        throw new ForbiddenError("Only the server owner can transfer ownership");
+      }
+      if (newOwnerId === server.ownerId) {
+        throw new BadRequestError("They already own this server");
+      }
+
+      const recipient = await prisma.user.findUnique({
+        where: { id: newOwnerId },
+        select: { id: true, isBot: true, username: true },
+      });
+      if (!recipient) throw new NotFoundError("No such person");
+      if (recipient.isBot) throw new BadRequestError("A bot can't own a server");
+
+      // Must already be a member: handing a community to someone who has never been in it is not
+      // something anyone means to do, and it would be unrecoverable if it were a typo.
+      const membership = await prisma.membership.findUnique({
+        where: { userId_serverId: { userId: newOwnerId, serverId: server.id } },
+      });
+      if (!membership) throw new BadRequestError("They need to be a member of this server first");
+
+      const [updated] = await prisma.$transaction([
+        prisma.server.update({ where: { id: server.id }, data: { ownerId: newOwnerId } }),
+        prisma.auditLogEntry.create({
+          data: {
+            serverId: server.id,
+            actorId: request.userId!,
+            actionType: "SERVER_OWNERSHIP_TRANSFER",
+            targetId: newOwnerId,
+            targetType: "USER",
+            metadata: { previousOwnerId: server.ownerId },
+          },
+        }),
+      ]);
+
+      // The old owner keeps their membership — transferring is not leaving. Now that this exists,
+      // leaving afterwards is finally possible.
+      getIO().to(`server:${server.id}`).emit(ServerEvents.SERVER_UPDATE, serializeServer(updated));
+      return { id: updated.id, ownerId: updated.ownerId };
+    },
+  );
+
   fastify.post(
     "/:id/leave",
     { preHandler: [requireAuth, requireMembership(resolveServerId.fromParam("id"))] },

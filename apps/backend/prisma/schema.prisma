@@ -527,6 +527,13 @@ model Membership {
   nickname   String?
   mutedUntil DateTime?
   joinedAt   DateTime         @default(now())
+  /// The invite or vanity code this member arrived through, as typed at the time.
+  ///
+  /// Null is meaningful rather than missing: a join through the discovery directory has no
+  /// invite behind it, and every membership predating this column has none recorded. Kept as
+  /// a plain string with no relation, so revoking or deleting an invite never erases the
+  /// history of who it brought in.
+  joinedViaCode String?
   // Per-user sidebar grouping — a membership is exactly the per-user-per-server row, so which
   // folder this user filed this server under lives here, not on the shared Server. Null = loose.
   folderId   String?
@@ -534,6 +541,8 @@ model Membership {
   server     Server           @relation(fields: [serverId], references: [id], onDelete: Cascade)
   folder     ServerFolder?    @relation(fields: [folderId], references: [id], onDelete: SetNull)
   roles      RoleAssignment[]
+
+  @@index([joinedViaCode])
 
   @@unique([userId, serverId])
   @@index([serverId])
