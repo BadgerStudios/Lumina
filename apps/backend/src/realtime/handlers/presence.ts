@@ -19,6 +19,40 @@ function connKey(userId: string): string {
   return `presence:conn:${userId}`;
 }
 
+/**
+ * How long a connection counter may sit untouched before Redis forgets it.
+ *
+ * The counter is incremented on connect and decremented on disconnect, but a backend that stops
+ * never runs the disconnect half — every socket dies with the process and its increment is
+ * stranded. Redis is a separate container that outlives the backend across every deploy, so the
+ * counters only ever climbed. Worse, once a user's counter was stuck above zero, `INCR` never
+ * returned 1 again and that person was never marked ONLINE — they looked offline to everyone
+ * while genuinely connected.
+ *
+ * Two independent guards, either of which is sufficient: the sweep at boot below, and this TTL
+ * refreshed on every connect and disconnect.
+ */
+const CONN_TTL_SECONDS = 6 * 60 * 60;
+
+/**
+ * Clear every presence counter. Called once, before the server accepts connections: at that
+ * moment there are zero live sockets by definition, so anything still in Redis is a leak from a
+ * previous life. Also self-heals drift that has already accumulated.
+ */
+export async function resetPresenceCounters(): Promise<void> {
+  let cursor = "0";
+  let cleared = 0;
+  do {
+    const [next, keys] = await redis.scan(cursor, "MATCH", "presence:conn:*", "COUNT", 500);
+    cursor = next;
+    if (keys.length) {
+      await redis.del(...keys);
+      cleared += keys.length;
+    }
+  } while (cursor !== "0");
+  if (cleared) console.log(`presence: cleared ${cleared} stale connection counter(s) at boot`);
+}
+
 async function setPresenceAndBroadcast(io: SocketIOServer, userId: string, presence: PresenceStatus): Promise<void> {
   // updateMany, not update: `update` throws P2025 when the row is gone, and this runs from a
   // detached disconnect timer where that rejection is unhandled and kills the process. A user
@@ -49,6 +83,7 @@ export async function registerPresenceHandlers(io: SocketIOServer, socket: Socke
   }
 
   const count = await redis.incr(connKey(userId));
+  await redis.expire(connKey(userId), CONN_TTL_SECONDS);
   if (count === 1) {
     // Coming online must not blow away a chosen invisibility: a user who set INVISIBLE and then
     // reconnects should stay invisible, not silently reappear as ONLINE.
@@ -67,8 +102,9 @@ export async function handlePresenceDisconnect(io: SocketIOServer, socket: Socke
   if (!userId) return;
 
   const count = await redis.decr(connKey(userId));
+  await redis.expire(connKey(userId), CONN_TTL_SECONDS);
   if (count <= 0) {
-    await redis.set(connKey(userId), "0");
+    await redis.set(connKey(userId), "0", "EX", CONN_TTL_SECONDS);
 
     const timeout = setTimeout(() => {
       void (async () => {

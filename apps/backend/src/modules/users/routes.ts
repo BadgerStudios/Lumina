@@ -92,6 +92,13 @@ export default async function usersRoutes(fastify: FastifyInstance) {
     }
     const passwordHash = await hashPassword(body.newPassword);
     await prisma.user.update({ where: { id: request.userId! }, data: { passwordHash } });
+    // Same reasoning as the reset flow, which has always done this: changing a password is what
+    // someone does when they think an account is compromised, and it did nothing to the sessions
+    // an attacker already held — a stolen refresh token stayed valid for up to 30 days.
+    await prisma.refreshToken.updateMany({
+      where: { userId: request.userId!, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
     return { ok: true };
   });
 

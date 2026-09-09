@@ -9,7 +9,10 @@ marked.use({
   gfm: true,
 });
 
-const ALLOWED_TAGS = ["b", "strong", "i", "em", "del", "s", "code", "pre", "a", "blockquote", "br", "p", "span"];
+// `ul`/`ol`/`li` are what gfm emits for "- item" and "1. item". They were missing, so the
+// sanitiser stripped the markup and every list a person typed collapsed into one run-on
+// paragraph. They carry no attributes and no script surface beyond what `p` already allows.
+const ALLOWED_TAGS = ["b", "strong", "i", "em", "del", "s", "code", "pre", "a", "blockquote", "br", "p", "span", "ul", "ol", "li"];
 // `tabindex`/`role`/`aria-*` are here for spoilers (see markSpoilers) — a reveal control that only
 // answers to a mouse is not a control. Someone typing these attributes by hand into chat can at
 // worst make a normal word focusable, which is why widening the list this far is safe.

@@ -2,6 +2,7 @@ import type { Server as HTTPServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { redis, createRedisDuplicate } from "../db/redis.js";
+import { resetPresenceCounters } from "./handlers/presence.js";
 import { env } from "../config/env.js";
 import { authenticateSocket } from "./middleware/authenticateSocket.js";
 import { registerMessageHandlers } from "./handlers/message.js";
@@ -55,6 +56,10 @@ export async function initIO(httpServer: HTTPServer): Promise<SocketIOServer> {
       credentials: true,
     },
   });
+
+  // Before a single socket is accepted: anything left in the presence counters belongs to a
+  // process that is no longer running.
+  await resetPresenceCounters();
 
   const pubClient = redis;
   const subClient = createRedisDuplicate();

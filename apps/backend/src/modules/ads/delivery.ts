@@ -225,11 +225,19 @@ async function accrueMillis(campaignId: string, millis: number): Promise<number>
   }
 }
 
-export async function recordClick(campaignId: string): Promise<void> {
+export async function recordClick(campaignId: string, viewerId: string): Promise<void> {
+  // Same gate as an impression. Pricing is CPM so a click costs nothing directly, but click count
+  // and click-through rate are what the advertiser is shown and judges the buy on — and without a
+  // check any signed-in account could post to this endpoint for any campaign id and move those
+  // numbers. Best effort, like the impression path: a Redis outage undercounts, never inflates.
+  try {
+    if ((await redis.get(`ad:served:${campaignId}:${viewerId}`)) !== "1") return;
+  } catch {
+    return;
+  }
+
   const day = new Date();
   day.setUTCHours(0, 0, 0, 0);
-  // Clicks are counted for reporting only — pricing is CPM, so a click costs nothing and there is
-  // no incentive to defraud it.
   await prisma.$transaction([
     prisma.adCampaign.update({ where: { id: campaignId }, data: { clickCount: { increment: 1 } } }),
     prisma.adCampaignDaily.upsert({

@@ -43,6 +43,13 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
     if (!attachment) throw new NotFoundError("Attachment not found");
 
     const message = attachment.message;
+
+    // Deleting a message is a soft delete, and this route never looked at it — so the file stayed
+    // fetchable by anyone who had seen the message and kept the id. "Delete" has to mean the
+    // attachment goes too, since retracting something posted by mistake is the main reason anyone
+    // deletes a message at all.
+    if (message.deletedAt) throw new NotFoundError("Attachment not found");
+
     if (message.channelId && message.channel) {
       const membership = await prisma.membership.findUnique({
         where: { userId_serverId: { userId, serverId: message.channel.serverId } },

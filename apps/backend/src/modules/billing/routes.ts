@@ -96,6 +96,17 @@ export default async function billingRoutes(fastify: FastifyInstance) {
       select: { stripeCustomerId: true },
     });
 
+    // The only thing standing between a customer and two live subscriptions was a hidden button:
+    // a second tab, a retried request, or a webhook still in flight would each start another real
+    // one. Checked server-side against the same statuses the entitlement reads.
+    const active = await prisma.subscription.findFirst({
+      where: { userId: user.id, status: { in: ["ACTIVE", "TRIALING"] } },
+      select: { id: true },
+    });
+    if (active) {
+      throw new BadRequestError("You already have an active subscription. Manage it from billing settings.");
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { primaryAppOrigin } from "../../lib/appOrigin.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError } from "../../lib/errors.js";
+import { requireTurnstile } from "../../plugins/turnstile.js";
 import { getStripe, isBillingConfigured } from "../billing/stripe.js";
 import {
   COIN_BUNDLES,
@@ -68,7 +69,14 @@ export default async function storeRoutes(fastify: FastifyInstance) {
    */
   fastify.post(
     "/top-up",
-    { preHandler: [requireAuth, requireAdult], schema: { body: topUpSchema } },
+    {
+      // Every sibling checkout route — subscription, tips, memberships — carries both of these.
+      // This one creates a real Stripe session and had neither, which is an open invitation to
+      // card-testing against the account.
+      preHandler: [requireAuth, requireAdult, requireTurnstile],
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+      schema: { body: topUpSchema },
+    },
     async (request) => {
       if (!isBillingConfigured()) {
         throw new BadRequestError("Payments aren't configured on this server yet");

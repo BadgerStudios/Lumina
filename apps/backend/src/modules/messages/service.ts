@@ -12,6 +12,7 @@ import { runMessageAutomations } from "../addons/runtime.js";
 import { assertPassesAutoMod } from "../automod/service.js";
 import { assertPassesVerification } from "../servers/verification.js";
 import { scheduleLinkPreviews } from "../../lib/linkPreview.js";
+import { isBlockedEitherWay } from "../friends/service.js";
 import { touchThreadActivity } from "../threads/service.js";
 import { assertNotLockedMinor } from "../parental/service.js";
 import { pushInboxNotification } from "../inbox/service.js";
@@ -380,6 +381,19 @@ export async function createDMMessage(params: {
     where: { conversationId_userId: { conversationId: params.conversationId, userId: params.userId } },
   });
   if (!participant) throw new ForbiddenError("Not a participant in this conversation");
+
+  // Blocking was checked when a 1:1 was CREATED and never again, so the ordinary case — two
+  // people who were already talking, one blocks the other — left the blocked person still able
+  // to send into that same thread. Group DMs stay exempt, matching the create path: blocking
+  // stops direct contact, not being in a group someone else made.
+  const others = await prisma.dMParticipant.findMany({
+    where: { conversationId: params.conversationId, userId: { not: params.userId } },
+    select: { userId: true },
+  });
+  if (others.length === 1 && (await isBlockedEitherWay(params.userId, others[0].userId))) {
+    throw new ForbiddenError("You can't message this person");
+  }
+
   assertHasContent(params.content, params.attachments, params);
   // Stickers are server-scoped, and a DM has no server to scope against — the same reason a
   // `:name:` custom emoji cannot resolve in a DM. Rejected explicitly so the error says why.
@@ -669,11 +683,27 @@ export async function listMyMentions(userId: string, limit = 30): Promise<Mentio
  * concept (no channel, no MANAGE_MESSAGES to check against), so this only applies to channel
  * messages.
  */
+/** The same ceiling Discord uses, enforced when a pin is added rather than when the list is read. */
+const MAX_PINS_PER_CHANNEL = 50;
+
 export async function togglePinMessage(params: { userId: string; messageId: string; pinned: boolean }): Promise<MessageDTO> {
   const message = await loadMessageOrThrow(params.messageId);
   if (!message.channelId || !message.channel) throw new BadRequestError("DM messages cannot be pinned");
 
   await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.MANAGE_MESSAGES);
+
+  // Enforced on the way in, which is the part that was missing: nothing stopped a channel
+  // accumulating thousands of pins, and the pins panel loads up to 100 fully-joined messages.
+  if (params.pinned && !message.pinned) {
+    const pinned = await prisma.message.count({
+      where: { channelId: message.channelId, pinned: true, deletedAt: null },
+    });
+    if (pinned >= MAX_PINS_PER_CHANNEL) {
+      throw new BadRequestError(
+        `This channel already has ${MAX_PINS_PER_CHANNEL} pinned messages. Unpin one to make room.`,
+      );
+    }
+  }
 
   const updated = await prisma.message.update({
     where: { id: message.id },

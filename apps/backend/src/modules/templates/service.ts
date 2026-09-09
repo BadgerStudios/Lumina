@@ -121,7 +121,12 @@ export async function createTemplate(params: {
   if (!name || name.length > 100) throw new BadRequestError("A template needs a name of 100 characters or fewer");
 
   const [channels, roles, server] = await Promise.all([
-    prisma.channel.findMany({ where: { serverId: params.serverId }, orderBy: { position: "asc" } }),
+    // Threads are children of a message, not part of a server's shape. Captured here they
+    // came back as orphan top-level channels in every server made from the template.
+    prisma.channel.findMany({
+      where: { serverId: params.serverId, type: { notIn: ["THREAD"] } },
+      orderBy: { position: "asc" },
+    }),
     prisma.role.findMany({ where: { serverId: params.serverId }, orderBy: { position: "asc" } }),
     prisma.server.findUnique({ where: { id: params.serverId }, select: { systemChannelId: true } }),
   ]);

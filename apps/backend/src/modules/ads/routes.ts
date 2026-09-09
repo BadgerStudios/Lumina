@@ -171,6 +171,10 @@ export default async function adRoutes(fastify: FastifyInstance) {
             currency: "usd",
             unit_amount: campaign.totalBudgetCents,
             product_data: {
+              // This Stripe account runs Stripe Tax, which refuses an ad-hoc product with no tax
+              // code — the same failure that broke tips and memberships in production. Advertiser
+              // checkout was carrying the identical shape without the fix.
+              tax_code: "txcd_10000000",
               name: `Lumina ad campaign — ${campaign.name}`,
               description: `${(campaign.cpmCents / 100).toFixed(2)} USD per 1,000 impressions, up to ${(campaign.totalBudgetCents / 100).toFixed(2)} USD`,
             },
@@ -203,7 +207,7 @@ export default async function adRoutes(fastify: FastifyInstance) {
 
   fastify.post("/campaigns/:id/click", { preHandler: [requireAuth, requireAdult] }, async (request) => {
     const { id } = request.params as { id: string };
-    await recordClick(id);
+    await recordClick(id, request.userId!);
     return { ok: true };
   });
 

@@ -12,7 +12,10 @@ import { ServerEvents } from "@lumina/shared";
 
 const createChannelSchema = z.object({
   name: z.string().min(1).max(100),
-  type: z.enum(["TEXT", "CATEGORY", "VOICE", "ANNOUNCEMENT", "FORUM"]).default("TEXT"),
+  // STAGE was implemented in the realtime voice layer and offered in the create dialog, but
+  // omitted here, so every attempt to make one 400d. THREAD is deliberately absent: threads are
+  // created from a message, not from this dialog.
+  type: z.enum(["TEXT", "CATEGORY", "VOICE", "ANNOUNCEMENT", "FORUM", "STAGE"]).default("TEXT"),
   topic: z.string().max(1024).nullable().optional(),
   parentId: z.string().nullable().optional(),
   position: z.number().int().optional(),
