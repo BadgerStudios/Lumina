@@ -22,7 +22,12 @@ export default async function dmMessagesRoutes(fastify: FastifyInstance) {
     },
   );
 
-  fastify.post("/:conversationId/messages", { preHandler: [requireAuth] }, async (request, reply) => {
+  // A DM has no slowmode to fall back on, so this is the only brake on bursting messages at
+  // someone. Same ceiling as the channel route.
+  fastify.post(
+    "/:conversationId/messages",
+    { config: { rateLimit: { max: 30, timeWindow: "10 seconds" } }, preHandler: [requireAuth] },
+    async (request, reply) => {
     const { conversationId } = request.params as { conversationId: string };
     const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(request);
     // Same ordering as the channel route, for the same reason: a rejected poll fails the send

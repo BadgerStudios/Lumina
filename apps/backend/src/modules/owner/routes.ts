@@ -223,14 +223,26 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     // the pre-launch test fixtures) would sit in "Needs attention" forever. updatedAt is when the
     // row was marked FAILED, which is the moment that matters here, not the upload time.
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const [pendingVideos, openReports, pendingAppeals, failedVideos] = await Promise.all([
+    const [pendingVideos, openReports, pendingAppeals, failedVideos, openUserReports] = await Promise.all([
       prisma.video.count({ where: { status: "PENDING_REVIEW" } }),
       prisma.videoReport.count({ where: { status: "OPEN" } }),
       prisma.platformBan.count({ where: { appealStatus: "PENDING", liftedAt: null } }),
       prisma.video.count({ where: { status: "FAILED", updatedAt: { gte: weekAgo } } }),
+      // Reports about a user or a message. These were written and counted nowhere, so the
+      // dashboard read healthy while this queue could have been filling up unseen.
+      prisma.contentReport.count({ where: { status: { in: ["OPEN", "IN_PROGRESS", "INVESTIGATING"] } } }),
     ]);
 
     const items: Array<{ kind: string; label: string; count: number; href: string; severity: string }> = [];
+    if (openUserReports > 0) {
+      items.push({
+        kind: "user_report",
+        label: `${openUserReports} report${openUserReports === 1 ? "" : "s"} about a user or message`,
+        count: openUserReports,
+        href: "/staff/reports",
+        severity: "urgent",
+      });
+    }
     if (pendingVideos > 0) {
       items.push({
         kind: "video_review",

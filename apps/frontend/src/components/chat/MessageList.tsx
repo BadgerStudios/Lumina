@@ -128,12 +128,20 @@ export function MessageList({
       className={cn("min-h-0 flex-1 overflow-y-auto py-3", density === "compact" && "density-compact")}
     >
       {isLoading ? (
-        <div className="flex h-full items-center justify-center text-sm text-signal-faint">Loading messages…</div>
+        <div role="status" className="flex h-full items-center justify-center text-sm text-signal-faint">
+          Loading messages…
+        </div>
       ) : ordered.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-sm text-signal-faint">No messages yet. Say hello!</div>
+        <div role="status" className="flex h-full items-center justify-center text-sm text-signal-faint">
+          No messages yet. Say hello!
+        </div>
       ) : (
         <>
-          {isFetchingNextPage && <div className="py-2 text-center text-xs text-signal-faint">Loading older messages…</div>}
+          {isFetchingNextPage && (
+            <div role="status" className="py-2 text-center text-xs text-signal-faint">
+              Loading older messages…
+            </div>
+          )}
           {ordered.map((message, i) => {
             const prev = ordered[i - 1];
             const showHeader =

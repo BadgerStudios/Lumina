@@ -92,7 +92,9 @@
   --aurora-dim: #6e3fa3;
   --signal: #f2eefc;
   --signal-dim: #b3a8d4;
-  --signal-faint: #7a6fa0;
+  /* Was #7a6fa0 — about 4.4:1 on --void, just under the 4.5:1 AA minimum for normal text.
+     Lightened to clear it while staying clearly secondary to --signal-dim. */
+  --signal-faint: #8b81ad;
   --pulse: #33d6a6;
   --flare: #ff5c72;
   --amber: #f5b942;

@@ -587,7 +587,13 @@ export async function addReaction(params: { userId: string; messageId: string; e
   return payload;
 }
 
-export async function removeReaction(params: { userId: string; messageId: string; emoji: string }): Promise<ReactionBroadcast> {
+export async function removeReaction(params: {
+  userId: string;
+  messageId: string;
+  emoji: string;
+  /** Whose reaction to clear. Defaults to the caller's own; anyone else needs MANAGE_MESSAGES. */
+  targetUserId?: string;
+}): Promise<ReactionBroadcast> {
   const message = await loadMessageOrThrow(params.messageId);
 
   // Mirrors addReaction's own access check, which this one was missing entirely for channel
@@ -607,9 +613,17 @@ export async function removeReaction(params: { userId: string; messageId: string
     if (!participant) throw new ForbiddenError("Not a participant in this conversation");
   }
 
+  // Clearing someone else's reaction is a moderation action, gated like edit, delete and pin.
+  // Without it the only answer to reaction spam was deleting the whole message.
+  const target = params.targetUserId ?? params.userId;
+  if (target !== params.userId) {
+    if (!message.channelId || !message.channel) throw new BadRequestError("Only your own reaction can be removed here");
+    await checkChannelPermission(params.userId, message.channel.serverId, message.channelId, Permissions.MANAGE_MESSAGES);
+  }
+
   await prisma.reaction
     .delete({
-      where: { messageId_userId_emoji: { messageId: message.id, userId: params.userId, emoji: params.emoji } },
+      where: { messageId_userId_emoji: { messageId: message.id, userId: target, emoji: params.emoji } },
     })
     .catch(() => undefined);
 

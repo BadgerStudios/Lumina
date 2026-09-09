@@ -37,7 +37,12 @@ export default async function channelMessagesRoutes(fastify: FastifyInstance) {
   // Socket.IO message:send handler.
   fastify.post(
     "/:id/messages",
-    { preHandler: [requireAuth, requireMembership(resolveServerId.fromChannelParam("id"))] },
+    {
+      // Sending had no budget of its own — only the global per-IP allowance shared with every
+      // other call. Generous enough that no ordinary conversation notices it.
+      config: { rateLimit: { max: 30, timeWindow: "10 seconds" } },
+      preHandler: [requireAuth, requireMembership(resolveServerId.fromChannelParam("id"))],
+    },
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(request);
