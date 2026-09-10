@@ -1393,6 +1393,10 @@ enum TransactionKind {
 // without paging the Stripe API. It is only ever written from verified webhook events, never from
 // client input — a client claiming it paid is not evidence that it did.
 model Subscription {
+  /// The invoice this subscriber was last warned about, so a redelivered webhook does not send
+  /// the same "your card failed" mail twice. Cleared when an invoice is paid, so the NEXT
+  /// failure is announced rather than swallowed as a duplicate.
+  dunningInvoiceId     String?
   id                   String             @id @default(cuid())
   userId               String
   stripeCustomerId     String

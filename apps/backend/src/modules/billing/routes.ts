@@ -16,6 +16,7 @@ import { getStripe, isBillingConfigured, isWebhookConfigured, getPlan, getPriceI
 import { credit as creditCoins, reverse as reverseCoins } from "../store/service.js";
 import { coinTopUpFromMetadata, type CoinTopUp } from "./coinTopUp.js";
 import { PREMIUM_PLAN_KEY, isEntitlingStatus } from "./premium.js";
+import { notifyPaymentFailed } from "../../lib/billingNotice.js";
 
 const checkoutSchema = z.object({ planKey: z.string().min(1) });
 
@@ -294,6 +295,19 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
 
     case "invoice.paid": {
       const invoice = event.data.object as Stripe.Invoice;
+      // Recovery clears the dunning marker. Without this, a customer who failed once, fixed
+      // their card, and failed again months later would be warned about the first invoice and
+      // silently skipped for the second.
+      const paidSubId =
+        typeof (invoice as unknown as { subscription?: unknown }).subscription === "string"
+          ? ((invoice as unknown as { subscription: string }).subscription)
+          : null;
+      if (paidSubId) {
+        await prisma.subscription.updateMany({
+          where: { stripeSubscriptionId: paidSubId, dunningInvoiceId: { not: null } },
+          data: { dunningInvoiceId: null },
+        });
+      }
       // If this invoice belongs to a creator membership, it ALSO becomes creator revenue through
       // the standard funnel (idempotent on the invoice id). Premium invoices fall through — the
       // membership handler answers only for subscriptions it recognizes.
@@ -306,6 +320,44 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
         currency: invoice.currency ?? "usd",
         description: invoice.number ? `Invoice ${invoice.number}` : "Subscription payment",
         paymentIntentId: null,
+      });
+      break;
+    }
+
+    /**
+     * A subscription payment was declined.
+     *
+     * Stripe retries for about two weeks before giving up, and the subscription sits in
+     * PAST_DUE the whole time — which Premium treats as still entitled, on purpose. So this
+     * is the only thing that makes the grace period visible to the person it is for.
+     */
+    case "invoice.payment_failed": {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionId =
+        typeof (invoice as unknown as { subscription?: unknown }).subscription === "string"
+          ? ((invoice as unknown as { subscription: string }).subscription)
+          : null;
+      if (!subscriptionId || !invoice.id) break;
+
+      // One warning per invoice. Stripe fires this once per retry AND redelivers on any
+      // non-2xx, so without a marker a customer gets the same mail several times over.
+      const claimed = await prisma.subscription.updateMany({
+        where: { stripeSubscriptionId: subscriptionId, dunningInvoiceId: { not: invoice.id } },
+        data: { dunningInvoiceId: invoice.id },
+      });
+      if (claimed.count === 0) break;
+
+      const subscription = await prisma.subscription.findUnique({
+        where: { stripeSubscriptionId: subscriptionId },
+        select: { userId: true },
+      });
+      if (!subscription) break;
+
+      const nextAttemptAt = (invoice as unknown as { next_payment_attempt?: number | null }).next_payment_attempt;
+      await notifyPaymentFailed(subscription.userId, {
+        amountCents: invoice.amount_due ?? 0,
+        currency: invoice.currency ?? "usd",
+        nextAttempt: nextAttemptAt ? new Date(nextAttemptAt * 1000) : null,
       });
       break;
     }
