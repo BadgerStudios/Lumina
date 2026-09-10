@@ -77,6 +77,25 @@ export function useMarkDMRead(conversationId: string) {
   });
 }
 
+/** Silence a conversation's push for yourself. Optimistic: the bell flips immediately, because
+ * the thing you are trying to stop is arriving right now. */
+export function useSetDMMute() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, muted }: { conversationId: string; muted: boolean }) =>
+      api.post<void>(`/dm/${conversationId}/mute`, { muted }),
+    onMutate: ({ conversationId, muted }) => {
+      queryClient.setQueryData<DMConversationDTO[]>(queryKeys.dms(), (old) =>
+        old?.map((c) => (c.id === conversationId ? { ...c, muted } : c)),
+      );
+    },
+    onError: (e) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dms() });
+      reportError(e, "Couldn't change notifications for that conversation");
+    },
+  });
+}
+
 /** Close (hide) a conversation for yourself only. It drops off your DM list until the next message
  * in it (the backend clears the flag for everyone on send). Nothing is deleted; the other side is
  * unaffected — which is why even a 1:1, which can't be "left", can still be closed. */

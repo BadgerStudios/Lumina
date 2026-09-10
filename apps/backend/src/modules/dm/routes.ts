@@ -33,6 +33,10 @@ const addParticipantSchema = z.object({
   userId: z.string().min(1),
 });
 
+const muteDMSchema = z.object({
+  muted: z.boolean(),
+});
+
 const conversationInclude = {
   participants: { include: { user: true } },
 } as const;
@@ -342,6 +346,20 @@ export default async function dmRoutes(fastify: FastifyInstance) {
     const { count } = await prisma.dMParticipant.updateMany({
       where: { conversationId: id, userId: request.userId! },
       data: { hidden: true },
+    });
+    if (count === 0) throw new NotFoundError("You're not in that conversation");
+    reply.code(204).send();
+  });
+
+  // Silence a conversation for yourself. Sits beside /hide because it is the same shape of
+  // decision — my copy of this conversation, nobody else's. Unlike /hide it survives the next
+  // message: a mute you have to renew every time someone speaks is not a mute.
+  fastify.post("/:id/mute", { schema: { body: muteDMSchema }, preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { muted } = request.body as z.infer<typeof muteDMSchema>;
+    const { count } = await prisma.dMParticipant.updateMany({
+      where: { conversationId: id, userId: request.userId! },
+      data: { muted },
     });
     if (count === 0) throw new NotFoundError("You're not in that conversation");
     reply.code(204).send();

@@ -478,6 +478,9 @@ export interface DMConversationDTO {
   // Per-participant read position (DMParticipant.lastReadMessageId) — lets the UI show a "seen"
   // indicator. null means that participant has never marked the conversation read.
   readStates: Array<{ userId: string; lastReadMessageId: string | null }>;
+  /** Whether the CURRENT user has silenced this conversation. Nobody else's mute is exposed:
+   * it is a private setting, and showing it would tell the room who is ignoring it. */
+  muted: boolean;
 }
 
 /** Per-channel unread summary for the current user, backing the Signal panel. Only channels

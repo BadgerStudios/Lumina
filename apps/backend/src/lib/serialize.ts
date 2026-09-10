@@ -532,7 +532,7 @@ type DMConversationLike = {
   id: string;
   isGroup: boolean;
   name: string | null;
-  participants: { userId: string; lastReadMessageId: bigint | null; user: UserLike }[];
+  participants: { userId: string; lastReadMessageId: bigint | null; muted?: boolean; user: UserLike }[];
 };
 
 export function serializeDMConversation(
@@ -550,6 +550,8 @@ export function serializeDMConversation(
       userId: p.userId,
       lastReadMessageId: p.lastReadMessageId?.toString() ?? null,
     })),
+    // Only the caller's own flag. Whether anyone else has muted the room is theirs to know.
+    muted: currentUserId ? (conversation.participants.find((p) => p.userId === currentUserId)?.muted ?? false) : false,
   };
 }
 

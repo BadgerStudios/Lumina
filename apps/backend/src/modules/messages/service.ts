@@ -429,8 +429,11 @@ export async function createDMMessage(params: {
   getIO().to(`dm:${params.conversationId}`).emit(ServerEvents.MESSAGE_CREATE, dto);
   scheduleLinkPreviews({ messageId: message.id, content: params.content, room: `dm:${params.conversationId}` });
 
+  // `muted: false` is applied in the query rather than filtered after it: the only thing this
+  // list is used for is the push, so someone who has silenced the conversation should never be
+  // loaded into it in the first place.
   const otherParticipants = await prisma.dMParticipant.findMany({
-    where: { conversationId: params.conversationId, userId: { not: params.userId } },
+    where: { conversationId: params.conversationId, userId: { not: params.userId }, muted: false },
     select: { userId: true },
   });
   const authorName = dto.author?.displayName ?? dto.author?.username ?? "Someone";

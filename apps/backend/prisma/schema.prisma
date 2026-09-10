@@ -939,6 +939,10 @@ model DMParticipant {
   // A per-participant "closed" flag: hides the conversation from this user's DM list without
   // deleting it or affecting anyone else. Reset to false for everyone when a new message arrives.
   hidden            Boolean        @default(false)
+  // Silences the push for this participant only. The channel path expresses the same idea with a
+  // NotificationOverride, but that model is keyed on serverId and so cannot describe a DM — which
+  // is why this lives here rather than being folded into shouldNotify().
+  muted             Boolean        @default(false)
   conversation      DMConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 

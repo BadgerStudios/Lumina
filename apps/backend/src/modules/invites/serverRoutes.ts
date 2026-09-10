@@ -71,7 +71,9 @@ export default async function serverInvitesRoutes(fastify: FastifyInstance) {
         where: { serverId: request.serverId!, revokedAt: null },
         orderBy: { createdAt: "desc" },
       });
-      return invites.map(serializeInvite);
+      // Called through an arrow, not passed by reference: serializeInvite takes an optional
+      // second argument and .map() supplies the index there.
+      return invites.map((invite) => serializeInvite(invite));
     },
   );
 }
