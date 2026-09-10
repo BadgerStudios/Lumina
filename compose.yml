@@ -348,7 +348,18 @@ services:
     mem_limit: 256m
     security_opt:
       - no-new-privileges:true
+    networks:
+      - default
+      # Shared, internal-only network whose sole other member is the Krawl honeypot. This is how
+      # nginx reaches it for the decoy routes; see the deception block in apps/frontend/nginx.conf.
+      # Declared here rather than attached by hand, or the next deploy recreates this container
+      # without it and decoy routing silently starts 502ing.
+      - krawl_edge
 
 volumes:
   lumina-postgres-data:
   lumina-uploads:
+
+networks:
+  krawl_edge:
+    external: true
