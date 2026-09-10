@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, resolveAssetUrl } from "../lib/apiClient";
 import { APP_VARIANT, CLIENT_TYPE } from "../lib/platform";
+import { useAuthStore } from "../store/authStore";
 
 // Baked in at build time by deploy.sh (sed into .env.mobile before `build:mobile` runs) —
 // undefined on the plain web build, where "is there a newer APK" has no meaning since the web
@@ -161,9 +162,14 @@ export interface UploadLimits {
  * is 100MB" outlives the subscription that justified it.
  */
 export function useUploadLimits() {
+  // Gated on being signed in. This endpoint requires auth, and both callers are
+  // persistent-singleton modals that stay mounted with their route — including the feed, which
+  // logged-out visitors can browse — so without this it fires a 401 for every one of them.
+  const signedIn = useAuthStore((s) => !!s.user);
   return useQuery({
     queryKey: ["meta", "limits", "me"],
     queryFn: () => api.get<UploadLimits>("/meta/limits/me"),
+    enabled: signedIn,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });

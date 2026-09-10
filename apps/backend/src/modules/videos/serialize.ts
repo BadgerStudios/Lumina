@@ -120,6 +120,9 @@ export const VIDEO_AUTHOR_SELECT = {
   pronouns: true,
   presence: true,
   isBot: true,
+  // The Premium badge is derived from this. A select that does not list it reads as "not a
+  // subscriber" rather than failing, so leaving it out hides the perk silently.
+  premiumUntil: true,
 } as const;
 
 /**

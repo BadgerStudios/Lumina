@@ -412,21 +412,37 @@ async function resolveCoinTopUp(paymentIntentId: string): Promise<CoinTopUp | nu
   return coinTopUpFromMetadata(session.metadata);
 }
 
-/** Reverse a refunded or disputed top-up. `refId` keys the reversal, so a redelivery is a no-op. */
-async function reverseCoinTopUp(paymentIntentId: string, refId: string): Promise<void> {
+/**
+ * Reverse a refunded or disputed top-up, at most once per payment.
+ *
+ * The key is the PAYMENT INTENT, not the event that triggered this. A dispute and a refund on
+ * the same charge are two different events for the same money, and both fire in the ordinary
+ * sequence where a customer disputes and the merchant then refunds to settle — keyed per event,
+ * that debited the account twice for one top-up.
+ *
+ * `cause` is recorded on the entry so the ledger still says which event actually did it.
+ */
+async function reverseCoinTopUp(paymentIntentId: string, cause: string): Promise<void> {
   const topUp = await resolveCoinTopUp(paymentIntentId);
   if (!topUp) return;
   const { reversed, balance } = await reverseCoins({
     userId: topUp.userId,
     amount: topUp.coins,
-    refId,
-    note: topUp.bundleKey ? `reversal of ${topUp.bundleKey}` : "top-up reversed",
+    // One top-up, one reversal, whichever event gets here first.
+    refId: `coin-reversal:${paymentIntentId}`,
+    note: `${cause}${topUp.bundleKey ? ` — ${topUp.bundleKey}` : ""}`,
   });
-  if (reversed && balance < 0) {
+  if (!reversed) {
+    // Already reversed by an earlier event on the same payment. Normal for dispute-then-refund;
+    // worth a line so a genuinely odd sequence (won, restored, then refunded) is visible.
+    console.warn(`[refund-reversal] ${cause} on PI ${paymentIntentId}: already reversed, nothing to do`);
+    return;
+  }
+  if (balance < 0) {
     // Not an error to recover from — the debt is correctly on the account and blocks further
     // spending — but it is the signal that someone spent money they then took back.
     console.error(
-      `[refund-reversal] user ${topUp.userId} is ${balance} sparks in debt after ${refId}: the top-up had already been spent`,
+      `[refund-reversal] user ${topUp.userId} is ${balance} sparks in debt after ${cause}: the top-up had already been spent`,
     );
   }
 }

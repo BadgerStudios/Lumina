@@ -29,10 +29,9 @@ export interface ParsedMessageBody {
 export async function parseMessageMultipart(
   request: FastifyRequest,
   /**
-   * The sender's own attachment ceiling. The multipart plugin is registered once at boot at the
-   * PREMIUM ceiling, because it cannot vary per request and a lower value would truncate a
-   * subscriber's upload at the socket — so the free limit has to be applied here, where we know
-   * who is sending.
+   * The sender's own attachment ceiling. Applied to `request.parts()` per request, which is why
+   * the plugin-level default can stay at the free limit and keep protecting every other upload
+   * path. Premium raises it for this sender only.
    */
   maxFileBytes: number,
 ): Promise<ParsedMessageBody> {
@@ -46,9 +45,26 @@ export async function parseMessageMultipart(
     const attachmentsDir = path.join(env.UPLOADS_DIR, "attachments");
     await fs.mkdir(attachmentsDir, { recursive: true });
 
-    for await (const part of request.parts()) {
+    // Per-request limits are supported at runtime but typed only as a registration option, so
+    // the cast is load-bearing rather than cosmetic — same workaround as modules/master/routes.ts.
+    const partOpts = { limits: { fileSize: maxFileBytes } };
+    for await (const part of request.parts(partOpts as Parameters<typeof request.parts>[0])) {
       if (part.type === "file") {
-        const buffer = await part.toBuffer();
+        let buffer: Buffer;
+        try {
+          buffer = await part.toBuffer();
+        } catch (error) {
+          // The plugin aborts the stream at the limit above and throws its own error, whose
+          // message says nothing about whose limit it was or what to do about it.
+          if ((error as { code?: string })?.code === "FST_REQ_FILE_TOO_LARGE") {
+            throw new BadRequestError(
+              `"${part.filename}" is larger than your ${Math.round(maxFileBytes / (1024 * 1024))}MB upload limit`,
+            );
+          }
+          throw error;
+        }
+        // Belt and braces: if a future plugin version ever truncates instead of throwing, an
+        // over-limit file must still not be stored.
         if (buffer.length > maxFileBytes) {
           throw new BadRequestError(
             `"${part.filename}" is larger than your ${Math.round(maxFileBytes / (1024 * 1024))}MB upload limit`,
