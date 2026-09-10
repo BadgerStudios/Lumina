@@ -449,6 +449,13 @@ type MessageLike = {
   embeds?: EmbedLike[];
   componentsJson?: unknown;
   thread?: { id: string; name: string; archived: boolean; _count?: { messages: number } } | null;
+  replyTo?: {
+    id: bigint;
+    content: string;
+    deletedAt: Date | null;
+    author: UserLike | null;
+    attachments?: { id: string }[];
+  } | null;
 };
 
 export function serializeMessage(message: MessageLike, currentUserId: string | null = null): MessageDTO {
@@ -462,6 +469,17 @@ export function serializeMessage(message: MessageLike, currentUserId: string | n
     editedAt: message.editedAt ? message.editedAt.toISOString() : null,
     pinned: message.pinned,
     replyToId: message.replyToId !== null ? message.replyToId.toString() : null,
+    replyTo: message.replyTo
+      ? {
+          id: message.replyTo.id.toString(),
+          author: message.replyTo.author ? serializeUser(message.replyTo.author) : null,
+          // A deleted parent's text is withheld rather than quoted: deleting a message should
+          // not leave its content legible in every reply to it.
+          content: message.replyTo.deletedAt ? "" : message.replyTo.content,
+          deleted: message.replyTo.deletedAt !== null,
+          hasAttachments: (message.replyTo.attachments?.length ?? 0) > 0,
+        }
+      : null,
     createdAt: message.createdAt.toISOString(),
     attachments: message.attachments.map(serializeAttachment),
     reactions: summarizeReactions(message.reactions, currentUserId),

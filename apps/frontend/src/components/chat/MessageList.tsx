@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { InfiniteData } from "@tanstack/react-query";
 import type { DMConversationDTO, MessageDTO } from "@lumina/shared";
 import { MessageItem } from "./MessageItem";
@@ -77,24 +77,23 @@ export function MessageList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ordered.length]);
 
-  // Scroll to and flash the focused message. It may not be in the DOM yet — the parent seeds the
-  // cache first, then bumps focusNonce, so the render lands a tick later; retry across a few frames
+  // Scroll to and flash a message. It may not be in the DOM yet — the parent seeds the cache
+  // first, then bumps focusNonce, so the render lands a tick later; retry across a few frames
   // until the row exists, then centre it and flash it for a couple of seconds.
-  useEffect(() => {
-    if (!focusMessageId) return;
+  //
+  // Returns a cleanup so the effect below can cancel a retry loop mid-flight; the reply quote
+  // calls it directly and ignores the return.
+  const focusMessage = useCallback((messageId: string) => {
     setAutoScroll(false);
     let tries = 0;
     let raf = 0;
     let clearTimer = 0;
     const tick = () => {
-      const el = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${focusMessageId}"]`);
+      const el = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
       if (el) {
         el.scrollIntoView({ block: "center" });
-        setHighlightId(focusMessageId);
-        clearTimer = window.setTimeout(
-          () => setHighlightId((cur) => (cur === focusMessageId ? null : cur)),
-          2200,
-        );
+        setHighlightId(messageId);
+        clearTimer = window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2200);
         return;
       }
       if (tries++ < 40) raf = requestAnimationFrame(tick);
@@ -104,6 +103,11 @@ export function MessageList({
       cancelAnimationFrame(raf);
       window.clearTimeout(clearTimer);
     };
+  }, []);
+
+  useEffect(() => {
+    if (!focusMessageId) return;
+    return focusMessage(focusMessageId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusMessageId, focusNonce]);
 
@@ -164,6 +168,7 @@ export function MessageList({
                 onTogglePin={onTogglePin}
                 onOpenThread={onOpenThread}
                 onStartThread={onStartThread}
+                onJumpToMessage={focusMessage}
               />
             );
           })}

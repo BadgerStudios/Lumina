@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Link as LinkIcon } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Link as LinkIcon, CornerUpLeft } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
 import { useMarkChannelUnread } from "../../queries/readState";
 import { BotBadge } from "../common/BotBadge";
@@ -64,6 +64,7 @@ export function MessageItem({
   onTogglePin,
   onOpenThread,
   onStartThread,
+  onJumpToMessage,
 }: {
   message: MessageDTO;
   showHeader: boolean;
@@ -80,6 +81,9 @@ export function MessageItem({
   /** Both absent in DMs — threads only exist inside server channels. */
   onOpenThread?: (threadId: string) => void;
   onStartThread?: (message: MessageDTO) => void;
+  /** Scroll to and flash another message in this list. Absent where there is no list to
+   * scroll — the thread panel renders items without one. */
+  onJumpToMessage?: (messageId: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -182,6 +186,29 @@ export function MessageItem({
       </div>
 
       <div className="min-w-0">
+        {/* The line a reply is answering. Above the header, so it reads top to bottom: this
+            is what was said, and this is the answer. Truncated to one line on purpose — it is
+            a pointer to the parent, not a copy of it. */}
+        {message.replyTo ? (
+          <button
+            type="button"
+            onClick={() => onJumpToMessage?.(message.replyTo!.id)}
+            disabled={!onJumpToMessage}
+            className="mb-0.5 flex w-full min-w-0 items-center gap-1.5 text-left text-xs text-signal-dim enabled:hover:text-signal"
+          >
+            <CornerUpLeft size={11} className="shrink-0 text-signal-faint" aria-hidden="true" />
+            <span className="shrink-0 font-medium text-signal-faint">
+              {message.replyTo.author?.displayName ?? message.replyTo.author?.username ?? "Unknown"}
+            </span>
+            <span className="min-w-0 truncate">
+              {message.replyTo.deleted
+                ? "message deleted"
+                : message.replyTo.content ||
+                  (message.replyTo.hasAttachments ? "sent an attachment" : "sent a message")}
+            </span>
+          </button>
+        ) : null}
+
         {showHeader && (
           <div className="mb-0.5 flex items-baseline gap-1.5">
             {author ? (

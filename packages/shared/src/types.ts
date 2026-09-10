@@ -276,6 +276,18 @@ export interface ReactionSummaryDTO {
   reactedByMe: boolean;
 }
 
+/** A reply's parent, reduced to what a one-line quote needs. Deliberately not a MessageDTO:
+ * rendering a quote must never recurse into the parent's own reply, its reactions or its poll. */
+export interface MessageReplyPreviewDTO {
+  id: string;
+  author: UserDTO | null;
+  /** Empty when the parent was deleted, or was a bare attachment or sticker with no text. */
+  content: string;
+  /** The parent is soft-deleted. The quote says so instead of showing an empty line. */
+  deleted: boolean;
+  hasAttachments: boolean;
+}
+
 export interface MessageDTO {
   id: string; // bigint as string
   channelId: string | null;
@@ -286,6 +298,10 @@ export interface MessageDTO {
   editedAt: string | null;
   pinned: boolean;
   replyToId: string | null;
+  /** The parent itself, so a reply can show what it is answering without a second request.
+   * Null when this is not a reply, and also when the parent row is gone entirely — `deleted`
+   * on the preview distinguishes "soft-deleted, still there" from that. */
+  replyTo: MessageReplyPreviewDTO | null;
   createdAt: string;
   attachments: AttachmentDTO[];
   reactions: ReactionSummaryDTO[];

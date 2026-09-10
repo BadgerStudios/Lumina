@@ -44,6 +44,19 @@ export const messageInclude = {
   // 1:1 optional relation, so this is a cheap join rather than a per-message query — and without
   // it the origin message cannot show that a thread exists at all.
   thread: { select: { id: true, name: true, archived: true, _count: { select: { messages: true } } } },
+  // Just enough of the parent to draw the quote line above a reply. Selected, not included:
+  // a reply must not drag the parent's own parent, reactions, poll or embeds along with it.
+  // `deletedAt` travels so a reply to a deleted message can say so rather than quote nothing,
+  // and one attachment id is enough to know whether to write "sent an attachment".
+  replyTo: {
+    select: {
+      id: true,
+      content: true,
+      deletedAt: true,
+      author: true,
+      attachments: { select: { id: true }, take: 1 },
+    },
+  },
 } as const;
 
 export interface CreateMessageAttachmentInput {
