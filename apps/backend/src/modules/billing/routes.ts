@@ -13,7 +13,8 @@ import { env } from "../../config/env.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { getStripe, isBillingConfigured, isWebhookConfigured, getPlan, getPriceId, PLANS } from "./stripe.js";
-import { credit as creditCoins } from "../store/service.js";
+import { credit as creditCoins, reverse as reverseCoins } from "../store/service.js";
+import { coinTopUpFromMetadata, type CoinTopUp } from "./coinTopUp.js";
 
 const checkoutSchema = z.object({ planKey: z.string().min(1) });
 
@@ -226,18 +227,18 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
       }
 
       // Subscription checkouts come through here too; those are handled by the subscription events
-      // below, and have no coin metadata.
-      const userId = session.metadata?.userId;
-      const coins = Number(session.metadata?.coins);
-      if (!userId || !Number.isFinite(coins) || coins <= 0) return;
+      // below, and have no coin metadata. Same reader the reversal path uses — one definition of
+      // what a top-up is, so a credit can never stand while its refund quietly matches nothing.
+      const topUp = coinTopUpFromMetadata(session.metadata);
+      if (!topUp) return;
       if (session.payment_status !== "paid") return;
 
       await creditCoins({
-        userId,
-        amount: coins,
+        userId: topUp.userId,
+        amount: topUp.coins,
         reason: "PURCHASE_BUNDLE",
         refId: session.id,
-        note: session.metadata?.bundleKey,
+        note: topUp.bundleKey,
       });
       return;
     }
@@ -316,9 +317,12 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
       const fullyRefunded = chargeAmount > 0 && (charge.amount_refunded ?? 0) >= chargeAmount;
       if (paymentIntentId && fullyRefunded) {
         await reverseCreatorEarnings(paymentIntentId, `refund:${charge.id}`, "refund");
+        // And the sparks. Leaving them behind is how refunded money becomes real cash owed:
+        // they can still be gifted to a creator, whose earning the platform then pays out.
+        await reverseCoinTopUp(paymentIntentId, `refund:${charge.id}`);
       } else if (paymentIntentId) {
         console.error(
-          `[refund-reversal] PARTIAL refund on PI ${paymentIntentId} (charge ${charge.id}) — creator earning NOT auto-reversed; manual review`,
+          `[refund-reversal] PARTIAL refund on PI ${paymentIntentId} (charge ${charge.id}) — creator earning and coin top-up NOT auto-reversed; manual review`,
         );
       }
       break;
@@ -333,7 +337,30 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
         typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id ?? null;
       if (paymentIntentId) {
         await reverseCreatorEarnings(paymentIntentId, `dispute:${dispute.id}`, "dispute");
+        // Sparks are held back the same way, and for the same reason: a dispute runs for weeks,
+        // and they are spendable for every day of it. Restored below if the dispute is won.
+        await reverseCoinTopUp(paymentIntentId, `dispute:${dispute.id}`);
       }
+      break;
+    }
+
+    case "charge.dispute.closed": {
+      // The other half of the hold above. Without this, protectively clawing back a top-up
+      // would permanently punish anyone who disputed a charge and was proved right.
+      const dispute = event.data.object as Stripe.Dispute;
+      if (dispute.status !== "won") break;
+      const paymentIntentId =
+        typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id ?? null;
+      if (!paymentIntentId) break;
+      const topUp = await resolveCoinTopUp(paymentIntentId);
+      if (!topUp) break;
+      await creditCoins({
+        userId: topUp.userId,
+        amount: topUp.coins,
+        reason: "ADMIN_ADJUST",
+        refId: `dispute-won:${dispute.id}`,
+        note: `dispute won — top-up restored${topUp.bundleKey ? ` (${topUp.bundleKey})` : ""}`,
+      });
       break;
     }
 
@@ -341,6 +368,53 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
       // Unhandled event types are acknowledged rather than erroring — Stripe sends many, and
       // 500ing on an event we simply don't care about would make it retry forever.
       break;
+  }
+}
+
+/**
+ * Find the coin top-up behind a payment intent, if that is what it was.
+ *
+ * The credit is keyed on the CHECKOUT SESSION id, and a refund or dispute only carries the
+ * payment intent, so the two have to be joined through Stripe. Asking Stripe rather than
+ * storing the intent at credit time is deliberate: it also covers every top-up that happened
+ * before this code existed, which is the whole population currently at risk.
+ *
+ * Returns null for anything that is not a coin top-up — subscriptions, tips and ad campaigns
+ * all refund through the same event.
+ */
+async function resolveCoinTopUp(paymentIntentId: string): Promise<CoinTopUp | null> {
+  const stripe = getStripe();
+  if (!stripe) return null;
+  let session: Stripe.Checkout.Session | undefined;
+  try {
+    const found = await stripe.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 1 });
+    session = found.data[0];
+  } catch (error) {
+    // Swallowed on purpose: throwing here would 500 the webhook and make Stripe redeliver the
+    // refund forever. Loud in the log, and the money movement itself is already recorded.
+    console.error(`[refund-reversal] could not resolve a checkout session for PI ${paymentIntentId}:`, error);
+    return null;
+  }
+  if (!session) return null;
+  return coinTopUpFromMetadata(session.metadata);
+}
+
+/** Reverse a refunded or disputed top-up. `refId` keys the reversal, so a redelivery is a no-op. */
+async function reverseCoinTopUp(paymentIntentId: string, refId: string): Promise<void> {
+  const topUp = await resolveCoinTopUp(paymentIntentId);
+  if (!topUp) return;
+  const { reversed, balance } = await reverseCoins({
+    userId: topUp.userId,
+    amount: topUp.coins,
+    refId,
+    note: topUp.bundleKey ? `reversal of ${topUp.bundleKey}` : "top-up reversed",
+  });
+  if (reversed && balance < 0) {
+    // Not an error to recover from — the debt is correctly on the account and blocks further
+    // spending — but it is the signal that someone spent money they then took back.
+    console.error(
+      `[refund-reversal] user ${topUp.userId} is ${balance} sparks in debt after ${refId}: the top-up had already been spent`,
+    );
   }
 }
 

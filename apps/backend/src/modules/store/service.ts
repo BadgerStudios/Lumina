@@ -79,6 +79,47 @@ export async function credit(params: {
 }
 
 /**
+ * Take back a credit whose money went back.
+ *
+ * A negative entry, not an edit or a delete of the original: the ledger is append-only and a
+ * balance is the sum of it, so a reversal that erased history would leave the balance
+ * unexplainable. The original credit and its reversal both stay visible.
+ *
+ * The balance is allowed to go negative. If the sparks were already spent then the debt is
+ * real and belongs on the account — `purchase` refuses when `balance < price`, so it simply
+ * cannot be spent again until it is settled, which is exactly the right outcome for someone
+ * who charged back after spending. Clamping at zero would forgive it silently.
+ */
+export async function reverse(params: {
+  userId: string;
+  amount: number;
+  refId: string;
+  note?: string;
+}): Promise<{ reversed: boolean; balance: number }> {
+  if (params.amount <= 0) throw new BadRequestError("Reversal amount must be positive");
+
+  try {
+    await prisma.coinLedgerEntry.create({
+      data: {
+        userId: params.userId,
+        delta: -params.amount,
+        reason: "REFUND",
+        refId: params.refId,
+        note: params.note ?? null,
+      },
+    });
+  } catch (error) {
+    // Same idempotency contract as credit(): Stripe redelivers, and the unique refId means the
+    // second delivery finds the reversal already posted rather than debiting twice.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { reversed: false, balance: await getBalance(params.userId) };
+    }
+    throw error;
+  }
+  return { reversed: true, balance: await getBalance(params.userId) };
+}
+
+/**
  * Buys an item.
  *
  * The balance check and the debit are in one transaction, and the `@@unique([userId, itemId])` on
