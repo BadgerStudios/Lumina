@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
 import { isStaff } from "../../lib/platformRole.js";
 import { env } from "../../config/env.js";
+import { uploadLimitsFor } from "../billing/premium.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { requireAdult } from "../age/guard.js";
 import { requireTurnstileForRisky } from "../../plugins/turnstile.js";
@@ -55,8 +56,16 @@ export default async function videoRoutes(fastify: FastifyInstance) {
 
       await assertDailyQuota(userId);
 
+      // "Larger video uploads" is one of the three things the Premium plan is sold on, and
+      // this route is where that either happens or does not. Per-request, so it reflects the
+      // uploader rather than a boot-time constant.
+      const uploader = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { premiumUntil: true },
+      });
+      const { videoBytes } = uploadLimitsFor(uploader?.premiumUntil ?? null);
       const part = await request.file({
-        limits: { fileSize: env.MAX_VIDEO_UPLOAD_MB * 1024 * 1024, files: 1 },
+        limits: { fileSize: videoBytes, files: 1 },
       });
       if (!part) throw new BadRequestError("No file provided");
       if (!ACCEPTED_VIDEO_MIME.test(part.mimetype)) {

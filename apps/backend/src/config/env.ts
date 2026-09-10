@@ -9,6 +9,10 @@ const envSchema = z.object({
   REFRESH_TOKEN_TTL: z.string().default("30d"),
   UPLOADS_DIR: z.string().default("./uploads"),
   MAX_UPLOAD_MB: z.coerce.number().default(25),
+  // What "higher upload limits" on the Premium plan actually buys. The multipart plugin is
+  // registered once at boot and cannot vary per request, so it is registered at THIS ceiling
+  // and the free limit is enforced per request against the sender — see modules/messages/multipart.ts.
+  PREMIUM_MAX_UPLOAD_MB: z.coerce.number().default(100),
   PORT: z.coerce.number().default(4000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
@@ -53,6 +57,7 @@ const envSchema = z.object({
   // Video feed caps. Deliberately separate from MAX_UPLOAD_MB (25) — the global multipart limit
   // stays small for chat attachments; only the video upload route raises it, per-request.
   MAX_VIDEO_UPLOAD_MB: z.coerce.number().default(100),
+  PREMIUM_MAX_VIDEO_UPLOAD_MB: z.coerce.number().default(500),
   MAX_VIDEO_DURATION_SEC: z.coerce.number().default(180),
   MAX_VIDEO_UPLOADS_PER_DAY: z.coerce.number().default(10),
   // Stripe. All optional — with none of them set, billing degrades to a working no-op (the same

@@ -5,6 +5,9 @@ import { timingSafeEqual } from "node:crypto";
 import { ServerEvents } from "@lumina/shared";
 import { getIO } from "../../realtime/io.js";
 import { ForbiddenError } from "../../lib/errors.js";
+import { uploadLimitsFor, isPremiumActive } from "../billing/premium.js";
+import { requireAuth } from "../../plugins/authenticate.js";
+import { prisma } from "../../db/prisma.js";
 
 // Public, unauthenticated — the installed Android app needs to check this before the user is
 // necessarily logged in, and it carries no sensitive information.
@@ -42,10 +45,34 @@ export default async function metaRoutes(fastify: FastifyInstance) {
    * it is turns a clear "that's too big" into a long upload ending in a rejection.
    */
   fastify.get("/limits", async () => ({
-    maxVideoUploadMb: env.MAX_VIDEO_UPLOAD_MB,
+    // The baseline, for a caller we do not know. Derived from the same function the upload
+    // routes enforce with, so the number quoted here cannot drift from the number applied.
+    maxVideoUploadMb: Math.round(uploadLimitsFor(null).videoBytes / (1024 * 1024)),
     maxVideoDurationSec: env.MAX_VIDEO_DURATION_SEC,
     maxVideoUploadsPerDay: env.MAX_VIDEO_UPLOADS_PER_DAY,
   }));
+
+  /**
+   * The caller's OWN limits.
+   *
+   * Premium buys a larger upload, and without this the subscriber's own client would still
+   * size its "that's too big" check off the free ceiling and refuse the file before trying —
+   * the perk paid for, enforced on the server, and invisible in the app.
+   */
+  fastify.get("/limits/me", { preHandler: [requireAuth] }, async (request) => {
+    const me = await prisma.user.findUnique({
+      where: { id: request.userId! },
+      select: { premiumUntil: true },
+    });
+    const limits = uploadLimitsFor(me?.premiumUntil ?? null);
+    return {
+      isPremium: isPremiumActive(me?.premiumUntil ?? null),
+      maxUploadMb: Math.round(limits.attachmentBytes / (1024 * 1024)),
+      maxVideoUploadMb: Math.round(limits.videoBytes / (1024 * 1024)),
+      maxVideoDurationSec: env.MAX_VIDEO_DURATION_SEC,
+      maxVideoUploadsPerDay: env.MAX_VIDEO_UPLOADS_PER_DAY,
+    };
+  });
 
   /**
    * Tells every connected client to re-check for an update, now.

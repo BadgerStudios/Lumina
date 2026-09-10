@@ -3,6 +3,7 @@ import type { UserDTO } from "@lumina/shared";
 import { UserAvatar } from "./UserAvatar";
 import { BotBadge } from "./BotBadge";
 import { OfficialBadge } from "./OfficialBadge";
+import { PremiumBadge } from "./PremiumBadge";
 import { FriendActionButton } from "./FriendActionButton";
 import { resolveAssetUrl } from "../../lib/apiClient";
 import {
@@ -84,6 +85,7 @@ export function UserProfileCard({
         <div className="flex items-center gap-1.5">
           <span className="truncate text-base font-bold text-signal">{displayName}</span>
           {user.isOfficial ? <OfficialBadge /> : null}
+          {user.isPremium ? <PremiumBadge /> : null}
           {user.isBot ? <BotBadge /> : null}
         </div>
         <div className="truncate text-sm text-signal-dim">@{user.username}</div>

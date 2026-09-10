@@ -3,7 +3,9 @@ import { z } from "zod";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { createDMMessage, listDMMessages } from "./service.js";
 import { parseMessageMultipart } from "./multipart.js";
+import { uploadLimitsFor } from "../billing/premium.js";
 import { createPoll } from "../polls/service.js";
+import { prisma } from "../../db/prisma.js";
 
 const listQuerySchema = z.object({
   before: z.string().optional(),
@@ -29,7 +31,15 @@ export default async function dmMessagesRoutes(fastify: FastifyInstance) {
     { config: { rateLimit: { max: 30, timeWindow: "10 seconds" } }, preHandler: [requireAuth] },
     async (request, reply) => {
     const { conversationId } = request.params as { conversationId: string };
-    const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(request);
+    const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(
+        request,
+        // The sender's own ceiling: Premium buys a bigger one, and the plugin-level limit is
+        // set to the premium value precisely so this check is the one that decides.
+        uploadLimitsFor(
+          (await prisma.user.findUnique({ where: { id: request.userId! }, select: { premiumUntil: true } }))
+            ?.premiumUntil ?? null,
+        ).attachmentBytes,
+      );
     // Same ordering as the channel route, for the same reason: a rejected poll fails the send
     // rather than leaving a message with no poll next to a poll with no message.
     const pollId = poll ? await createPoll(poll) : null;

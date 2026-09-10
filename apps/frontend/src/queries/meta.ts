@@ -140,18 +140,31 @@ export function useWebUpdateAvailable(): boolean {
 }
 
 export interface UploadLimits {
+  /** Whether these are the Premium ceilings. Lets a form say WHY the cap is what it is. */
+  isPremium: boolean;
+  maxUploadMb: number;
   maxVideoUploadMb: number;
   maxVideoDurationSec: number;
   maxVideoUploadsPerDay: number;
 }
 
-/** Server-declared upload caps, so the upload form can't disagree with what the server will
- * actually accept. Cached hard — these change only on a redeploy. */
+/**
+ * The signed-in caller's own upload caps, so a form can't disagree with what the server will
+ * actually accept.
+ *
+ * `/meta/limits/me`, not the public `/meta/limits`: Premium buys a larger upload, and sizing
+ * the check off the anonymous baseline would have a subscriber's own app refuse the file
+ * before it was ever attempted. Both endpoints derive from the same function the upload routes
+ * enforce with, so neither can drift from the other.
+ *
+ * No longer cached for an hour — an entitlement can change mid-session, and a stale "your limit
+ * is 100MB" outlives the subscription that justified it.
+ */
 export function useUploadLimits() {
   return useQuery({
-    queryKey: ["meta", "limits"],
-    queryFn: () => api.get<UploadLimits>("/meta/limits"),
-    staleTime: 60 * 60 * 1000,
+    queryKey: ["meta", "limits", "me"],
+    queryFn: () => api.get<UploadLimits>("/meta/limits/me"),
+    staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 }

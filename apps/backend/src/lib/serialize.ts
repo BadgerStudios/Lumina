@@ -21,6 +21,7 @@ import type {
   SoundboardSoundDTO,
   StickerDTO,
 } from "@lumina/shared";
+import { isPremiumActive } from "../modules/billing/premium.js";
 
 type UserLike = {
   id: string;
@@ -35,6 +36,7 @@ type UserLike = {
   presence: string;
   isBot: boolean;
   isOfficial?: boolean;
+  premiumUntil?: Date | null;
 };
 
 export function serializeUser(user: UserLike): UserDTO {
@@ -53,6 +55,9 @@ export function serializeUser(user: UserLike): UserDTO {
     presence: (user.presence === "INVISIBLE" ? "OFFLINE" : user.presence) as UserDTO["presence"],
     isBot: user.isBot,
     isOfficial: user.isOfficial ?? false,
+    // Present only when true, like isOfficial. The Premium plan sells a profile badge;
+    // this is the field that renders it, read off the denormalised date so no join is needed.
+    ...(isPremiumActive(user.premiumUntil) ? { isPremium: true } : {}),
   };
 }
 

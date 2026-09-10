@@ -3,7 +3,9 @@ import { z } from "zod";
 import { requireAuth, requireMembership, resolveServerId } from "../../plugins/authenticate.js";
 import { createChannelMessage, listChannelMessages, listPinnedMessages } from "./service.js";
 import { parseMessageMultipart } from "./multipart.js";
+import { uploadLimitsFor } from "../billing/premium.js";
 import { createPoll } from "../polls/service.js";
+import { prisma } from "../../db/prisma.js";
 
 const listQuerySchema = z.object({
   before: z.string().optional(),
@@ -45,7 +47,15 @@ export default async function channelMessagesRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(request);
+      const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(
+        request,
+        // The sender's own ceiling: Premium buys a bigger one, and the plugin-level limit is
+        // set to the premium value precisely so this check is the one that decides.
+        uploadLimitsFor(
+          (await prisma.user.findUnique({ where: { id: request.userId! }, select: { premiumUntil: true } }))
+            ?.premiumUntil ?? null,
+        ).attachmentBytes,
+      );
 
       // The poll is created before the message, so a rejected poll (too few options, duplicate
       // labels) fails the send outright instead of posting an empty message next to a poll that

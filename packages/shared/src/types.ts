@@ -49,6 +49,9 @@ export interface UserDTO {
    * than anything a user can put in their own profile, since the whole point is that it cannot be
    * copied by someone claiming to be staff. */
   isOfficial?: boolean;
+  /** A current Lumina Premium subscriber. Present only when true, like isOfficial — the plan
+   * sells a profile badge and this is what renders it. */
+  isPremium?: boolean;
 }
 
 /** A dev-portal app a user owns, with exactly one bot User (see backend schema.prisma

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import type { FastifyRequest } from "fastify";
 import { env } from "../../config/env.js";
 import type { CreateMessageAttachmentInput } from "./service.js";
+import { BadRequestError } from "../../lib/errors.js";
 
 /**
  * Shared by both channelMessagesRoutes.ts and dmMessagesRoutes.ts's POST /messages — a message
@@ -25,7 +26,16 @@ export interface ParsedMessageBody {
   poll: { question: string; options: string[]; allowMultiple?: boolean; durationHours?: number | null } | null;
 }
 
-export async function parseMessageMultipart(request: FastifyRequest): Promise<ParsedMessageBody> {
+export async function parseMessageMultipart(
+  request: FastifyRequest,
+  /**
+   * The sender's own attachment ceiling. The multipart plugin is registered once at boot at the
+   * PREMIUM ceiling, because it cannot vary per request and a lower value would truncate a
+   * subscriber's upload at the socket — so the free limit has to be applied here, where we know
+   * who is sending.
+   */
+  maxFileBytes: number,
+): Promise<ParsedMessageBody> {
   let content = "";
   let replyToId: string | null = null;
   let stickerId: string | null = null;
@@ -39,6 +49,11 @@ export async function parseMessageMultipart(request: FastifyRequest): Promise<Pa
     for await (const part of request.parts()) {
       if (part.type === "file") {
         const buffer = await part.toBuffer();
+        if (buffer.length > maxFileBytes) {
+          throw new BadRequestError(
+            `"${part.filename}" is larger than your ${Math.round(maxFileBytes / (1024 * 1024))}MB upload limit`,
+          );
+        }
         // Attachment DB id is generated up front and used as the on-disk filename (no
         // extension — mimeType drives Content-Type when streaming), so `url` can point
         // straight at the id that GET /api/files/:attachmentId will look up.

@@ -15,6 +15,7 @@ import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { getStripe, isBillingConfigured, isWebhookConfigured, getPlan, getPriceId, PLANS } from "./stripe.js";
 import { credit as creditCoins, reverse as reverseCoins } from "../store/service.js";
 import { coinTopUpFromMetadata, type CoinTopUp } from "./coinTopUp.js";
+import { PREMIUM_PLAN_KEY, isEntitlingStatus } from "./premium.js";
 
 const checkoutSchema = z.object({ planKey: z.string().min(1) });
 
@@ -276,6 +277,18 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
           cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
         },
       });
+
+      // Mirror the entitlement onto the user so that reading it costs nothing. Only ever
+      // EXTENDED here, never cleared: a cancellation still runs to the end of the period that
+      // was paid for, and the date lapses by itself when it gets there.
+      const status = STATUS_MAP[sub.status] ?? "INCOMPLETE";
+      const planKey = sub.metadata?.planKey ?? "unknown";
+      if (planKey === PREMIUM_PLAN_KEY && isEntitlingStatus(status) && periodEnd) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { premiumUntil: new Date(periodEnd * 1000) },
+        });
+      }
       break;
     }
 

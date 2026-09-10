@@ -148,6 +148,10 @@ enum VideoStatus {
 }
 
 model User {
+  /// Premium entitlement, denormalised off Subscription so serializing a user does not join
+  /// billing on every message in a channel. A DATE rather than a flag deliberately: it expires
+  /// on its own, so a webhook that never arrives cannot leave someone entitled forever.
+  premiumUntil           DateTime?
   id                     String         @id @default(cuid())
   username               String         @unique
   displayName            String?
