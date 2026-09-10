@@ -168,6 +168,10 @@ export function ServerSettingsModal() {
 
   const [name, setName] = useState(server?.name ?? "");
   const [accentColor, setAccentColor] = useState<string>(colorToHex(server?.accentColor ?? null));
+  // Deleting is a two-step: reveal the panel, then type the name into it. confirm() put an
+  // OK button directly under the cursor of someone who had just clicked "Delete Server".
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   // ServerSettingsModal is a persistent singleton (mounted once for the whole app, gated by
   // `open` — see ModalRoot.tsx), so `useState(server?.name ?? "")` above only ever runs on the
@@ -361,21 +365,56 @@ export function ServerSettingsModal() {
 
               <div className="mt-4 border-t border-base-900/60 pt-4">
                 {isOwner ? (
-                  <button
-                    onClick={() => {
-                      if (confirm(`Delete "${server?.name}"? This cannot be undone.`)) {
-                        deleteServer.mutate(undefined, {
-                          onSuccess: () => {
-                            closeModal();
-                            navigate(APP_HOME);
-                          },
-                        });
-                      }
-                    }}
-                    className="text-sm font-medium text-dnd hover:underline"
-                  >
-                    Delete Server
-                  </button>
+                  deleteOpen ? (
+                    <div className="flex flex-col gap-2 rounded-xl border border-dnd/40 bg-dnd/5 p-3">
+                      <p className="text-sm text-signal">
+                        Deleting <span className="font-semibold">{server?.name}</span> removes every channel,
+                        role, message, membership, ban and invite in it. There is no undo and no backup.
+                      </p>
+                      <label className="text-xs text-signal-faint" htmlFor="confirm-server-delete">
+                        Type <span className="font-mono text-signal">{server?.name}</span> to confirm
+                      </label>
+                      <input
+                        id="confirm-server-delete"
+                        value={deleteConfirm}
+                        onChange={(e) => setDeleteConfirm(e.target.value)}
+                        autoComplete="off"
+                        className="w-full rounded border border-hairline bg-base-900 px-3 py-2 text-sm text-signal"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            deleteServer.mutate(deleteConfirm.trim(), {
+                              onSuccess: () => {
+                                closeModal();
+                                navigate(APP_HOME);
+                              },
+                            })
+                          }
+                          disabled={deleteServer.isPending || deleteConfirm.trim() !== (server?.name ?? "").trim()}
+                          className="rounded bg-dnd px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+                        >
+                          Delete this server
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeleteOpen(false);
+                            setDeleteConfirm("");
+                          }}
+                          className="rounded px-3 py-1.5 text-sm text-signal-faint hover:text-signal"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteOpen(true)}
+                      className="text-sm font-medium text-dnd hover:underline"
+                    >
+                      Delete Server
+                    </button>
+                  )
                 ) : (
                   <button
                     onClick={() => {

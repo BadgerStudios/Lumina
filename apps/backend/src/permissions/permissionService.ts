@@ -232,6 +232,19 @@ export async function deleteOverwritesForTarget(targetId: string): Promise<void>
   await prisma.channelPermissionOverwrite.deleteMany({ where: { targetId } });
 }
 
+/**
+ * Drop a member's per-channel overwrites when they stop being a member of that server.
+ *
+ * Scoped to one server, unlike the role version above. A role id belongs to exactly one
+ * server, so deleting by id alone is safe there; a user id is global, and the unscoped
+ * delete would strip that person's overwrites in every other server they are still in.
+ */
+export async function deleteMemberOverwrites(serverId: string, userId: string): Promise<void> {
+  await prisma.channelPermissionOverwrite.deleteMany({
+    where: { targetType: "USER", targetId: userId, channel: { serverId } },
+  });
+}
+
 export async function hasAdminOrOwner(userId: string, serverId: string): Promise<boolean> {
   const server = await prisma.server.findUnique({ where: { id: serverId }, select: { ownerId: true } });
   if (!server) throw new NotFoundError("Server not found");

@@ -8,7 +8,7 @@ import { serializeMember, serializeServer } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
-import { checkRoleHierarchy, getHighestRolePosition } from "../../permissions/permissionService.js";
+import { checkRoleHierarchy, deleteMemberOverwrites, getHighestRolePosition } from "../../permissions/permissionService.js";
 import { saveProfileImage, deleteProfileImage } from "../../lib/profileImage.js";
 import { getIO, evictUserFromServer } from "../../realtime/io.js";
 import { ServerEvents } from "@lumina/shared";
@@ -279,6 +279,14 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       if (server.ownerId !== request.userId) {
         throw new ForbiddenError("Only the server owner can delete the server");
       }
+      // Typing the name is checked here rather than only in the dialog. This one statement
+      // cascades through every channel, role, message, membership, ban and invite with no soft
+      // delete and no way back, so the confirmation has to be part of the request itself — a
+      // guard that lives in the UI protects the person using the app and nobody using the API.
+      const confirmation = (request.body as { name?: unknown } | undefined)?.name;
+      if (typeof confirmation !== "string" || confirmation.trim() !== server.name.trim()) {
+        throw new BadRequestError(`Type the server's name exactly ("${server.name}") to confirm deletion`);
+      }
       // Notify BEFORE the row goes: members' clients drop the server from their list live
       // instead of 404ing on their next interaction with it.
       getIO().to(`server:${server.id}`).emit(ServerEvents.SERVER_DELETE, { id: server.id });
@@ -360,6 +368,9 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       await prisma.membership.delete({
         where: { userId_serverId: { userId: request.userId!, serverId: request.serverId! } },
       });
+      // Their per-channel overwrites are meaningless once they are not a member, and would
+      // apply again unannounced if they ever rejoined.
+      await deleteMemberOverwrites(request.serverId!, request.userId!);
       getIO()
         .to(`server:${request.serverId!}`)
         .emit(ServerEvents.MEMBER_LEAVE, { userId: request.userId!, serverId: request.serverId! });
@@ -467,6 +478,7 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       await checkRoleHierarchy(request.userId!, request.serverId!, targetHighest);
 
       await prisma.membership.delete({ where: { id: membership.id } });
+      await deleteMemberOverwrites(request.serverId!, targetUserId);
 
       await recordAuditLog({
         serverId: request.serverId!,

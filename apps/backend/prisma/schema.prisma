@@ -800,6 +800,9 @@ model ChannelPermissionOverwrite {
 
   @@unique([channelId, targetType, targetId])
   @@index([channelId])
+  // Cleanup looks overwrites up by target, and the unique above leads with channelId, so it
+  // could not serve that query — every role deletion scanned the table.
+  @@index([targetId])
 }
 
 model Message {

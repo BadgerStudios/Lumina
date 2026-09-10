@@ -99,7 +99,9 @@ export function useUploadServerBanner(serverId: string) {
 export function useDeleteServer(serverId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.delete<void>(`/servers/${serverId}`),
+    // The typed name travels with the request: the route requires it, so this cannot be
+    // called meaningfully without one.
+    mutationFn: (name: string) => api.delete<void>(`/servers/${serverId}`, { name }),
     onSuccess: () => {
       queryClient.setQueryData<ServerDTO[]>(queryKeys.servers(), (old) => old?.filter((s) => s.id !== serverId));
     },

@@ -101,6 +101,9 @@ export function ChatPane({
   // In a 1:1 DM the header had no handle on the other person — no profile, no block, no report. Give
   // it the same profile card the member list uses. Only for 1:1: a group DM has no single "other".
   const dmOthers = !serverId ? dmParticipants?.filter((p) => p.id !== currentUserId) : undefined;
+  // A DM conversation is a realtime room in exactly the way a channel is, so it can carry a
+  // typing indicator too. It never had one only because this id stopped at channels.
+  const typingRoomId = typingChannelId ?? target.dmConversationId;
   const dmUser = dmOthers?.length === 1 ? dmOthers[0] : undefined;
 
   return (
@@ -149,7 +152,11 @@ export function ChatPane({
         focusMessageId={focusMessageId}
         focusNonce={focusNonce}
       />
-      {typingChannelId ? <TypingIndicator channelId={typingChannelId} serverId={serverId} /> : <div className="h-5" />}
+      {typingRoomId ? (
+        <TypingIndicator channelId={typingRoomId} serverId={serverId} participants={dmParticipants} />
+      ) : (
+        <div className="h-5" />
+      )}
       {composerDisabledReason ? (
         <div className="mx-3 mb-3 rounded-xl border border-hairline bg-base-900/50 px-4 py-3 text-center text-sm text-signal-faint">
           {composerDisabledReason}
@@ -159,12 +166,12 @@ export function ChatPane({
           // Keyed on the conversation so switching rooms remounts it. Without this the component
           // persisted across navigation, so text typed in one place was still sitting in the box
           // in the next — easy to send to the wrong room, and lost on the way back.
-          key={typingChannelId ?? target.dmConversationId ?? "composer"}
+          key={typingRoomId ?? "composer"}
           placeholder={`Message ${title}`}
           onSend={onSend}
           onSendWithAttachments={onSendWithAttachments}
           onSendRich={onSendRich}
-          typingChannelId={typingChannelId}
+          typingChannelId={typingRoomId}
           serverId={serverId}
           dmConversationId={target.dmConversationId}
           replyTo={replyTo}

@@ -1,8 +1,19 @@
 import { useEffect, useState } from "react";
 import { useTypingStore } from "../../store/typingStore";
 import { useMembers } from "../../queries/members";
+import type { UserDTO } from "@lumina/shared";
 
-export function TypingIndicator({ channelId, serverId }: { channelId: string; serverId?: string }) {
+export function TypingIndicator({
+  channelId,
+  serverId,
+  // A DM has no member list to look a nickname up in, and without this every DM would have
+  // read "Someone is typing…" — in a two-person conversation, the least useful sentence there is.
+  participants,
+}: {
+  channelId: string;
+  serverId?: string;
+  participants?: UserDTO[];
+}) {
   const typingByChannel = useTypingStore((s) => s.typingByChannel);
   const pruneExpired = useTypingStore((s) => s.pruneExpired);
   const { data: members } = useMembers(serverId);
@@ -23,7 +34,9 @@ export function TypingIndicator({ channelId, serverId }: { channelId: string; se
 
   const names = entries.map((userId) => {
     const member = members?.find((m) => m.userId === userId);
-    return member?.nickname ?? member?.user.displayName ?? member?.user.username ?? "Someone";
+    if (member) return member.nickname ?? member.user.displayName ?? member.user.username;
+    const participant = participants?.find((p) => p.id === userId);
+    return participant?.displayName ?? participant?.username ?? "Someone";
   });
 
   let text: string;

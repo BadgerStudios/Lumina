@@ -7,7 +7,7 @@ import { serializeAuditLogEntry, serializeMember } from "../../lib/serialize.js"
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
 import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
-import { checkRoleHierarchy, getHighestRolePosition } from "../../permissions/permissionService.js";
+import { checkRoleHierarchy, deleteMemberOverwrites, getHighestRolePosition } from "../../permissions/permissionService.js";
 
 const banSchema = z.object({
   userId: z.string().min(1),
@@ -59,6 +59,10 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
           .catch(() => undefined);
         return created;
       });
+
+      // After the transaction rather than inside it: the membership is already gone, and a
+      // stale overwrite for a few milliseconds is harmless next to rolling the ban back.
+      await deleteMemberOverwrites(request.serverId!, body.userId);
 
       await recordAuditLog({
         serverId: request.serverId!,
