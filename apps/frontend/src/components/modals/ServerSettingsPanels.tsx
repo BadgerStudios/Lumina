@@ -95,12 +95,13 @@ export function ModerationPanel({ server, serverId }: PanelProps) {
 
       <Field
         label="Explicit media filter"
-        hint="Which members' attachments are scanned. Members with a role are usually the ones you trust, which is why the middle option exists."
+        hint="Not active yet. Attachment scanning is not built, so this setting is recorded and nothing acts on it. It is shown rather than hidden so nobody assumes their members are being protected."
       >
         <select
           className={SELECT_CLASS}
           value={server.explicitContentFilter}
           onChange={(e) => save({ explicitContentFilter: e.target.value })}
+          disabled
         >
           <option value="DISABLED">Don't scan anything</option>
           <option value="MEMBERS_WITHOUT_ROLES">Scan members without a role</option>
