@@ -188,6 +188,13 @@ async function main() {
 
   registerMetricsHooks(fastify);
 
+  // Generic 404, registered during setup (before ready()/listen — setNotFoundHandler throws
+  // once the instance is started). Fastify's default body echoes the method+route and
+  // fingerprints the stack; this returns a plain, stack-agnostic shape. Status stays 404.
+  fastify.setNotFoundHandler((_request, reply) => {
+    reply.code(404).send({ error: "Not Found", statusCode: 404 });
+  });
+
   await fastify.register(sensiblePlugin);
   await fastify.register(helmetPlugin);
   await fastify.register(corsPlugin);
@@ -445,13 +452,6 @@ async function main() {
   // After initIO so socket.io's own upgrade listener is already in place — ours only claims
   // /discord/gateway and leaves every other upgrade untouched.
   attachDiscordGateway(fastify.server);
-
-  // Generic 404. Fastify's default body echoes the method+route ("Route GET:/x not found")
-  // and unmistakably fingerprints the stack as Fastify; this returns a plain, stack-agnostic
-  // shape. Status stays 404 (clients key on the code, not this body).
-  fastify.setNotFoundHandler((_request, reply) => {
-    reply.code(404).send({ error: "Not Found", statusCode: 404 });
-  });
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
   fastify.log.info(`Lumina backend listening on :${env.PORT}`);
