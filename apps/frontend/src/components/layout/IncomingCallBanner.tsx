@@ -1,16 +1,51 @@
+import { useEffect } from "react";
 import { Phone, PhoneOff } from "lucide-react";
 import { useVoiceStore } from "../../store/voiceStore";
 import { UserAvatar } from "../common/UserAvatar";
+import { startRingtone, stopRingtone } from "../../lib/ringtone";
 
 /**
  * A floating banner for an incoming DM call, mounted once at the shell level (like VoiceDock) so it
  * shows wherever you are in the app. Accepting joins the call; declining tells the caller. Backed by
  * voiceStore.incomingCall, set from the CALL_INCOMING socket event in useSocketEvents.
+ *
+ * A call is easy to miss as a silent visual banner, so while one is ringing this also plays a
+ * looping ringtone and — if the tab is hidden and notifications are granted — raises an OS
+ * notification. All of it stops the moment the call is answered, declined, or ends.
  */
 export function IncomingCallBanner() {
   const incomingCall = useVoiceStore((s) => s.incomingCall);
   const acceptCall = useVoiceStore((s) => s.acceptCall);
   const declineCall = useVoiceStore((s) => s.declineCall);
+
+  const conversationId = incomingCall?.conversationId;
+  const callerName = incomingCall ? (incomingCall.from.displayName ?? incomingCall.from.username) : null;
+
+  useEffect(() => {
+    if (!conversationId) return;
+    startRingtone();
+    let notif: Notification | null = null;
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
+        notif = new Notification(`${callerName} is calling…`, {
+          body: "Tap to answer",
+          tag: `call-${conversationId}`,
+        });
+        notif.onclick = () => window.focus();
+      }
+    } catch {
+      // Notification construction can throw in some embedded WebViews — the banner still shows.
+    }
+    return () => {
+      stopRingtone();
+      try {
+        notif?.close();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [conversationId, callerName]);
+
   if (!incomingCall) return null;
 
   const { from } = incomingCall;

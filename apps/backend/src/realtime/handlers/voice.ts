@@ -4,6 +4,7 @@ import type { VoiceParticipantDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeUser } from "../../lib/serialize.js";
 import { checkChannelPermission } from "../../permissions/permissionService.js";
+import { sendPushToUser } from "../../lib/push.js";
 
 /**
  * Mesh WebRTC signaling relay — the server never touches media (no SFU, no recording, no
@@ -242,11 +243,25 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
       });
       const caller = await prisma.user.findUnique({ where: { id: userId } });
       if (!caller) return;
+      const callerName = caller.displayName ?? caller.username;
       for (const o of others) {
         io.to(`user:${o.userId}`).emit(ServerEvents.CALL_INCOMING, {
           conversationId: payload.conversationId,
           from: serializeUser(caller),
         });
+        // A call is time-sensitive: if the callee has no live socket to show the ring banner (app
+        // closed, or backgrounded on mobile), push-notify them instead. Gated on "no live socket"
+        // so an active session isn't double-notified by both the in-app banner and an OS push.
+        void (async () => {
+          const live = await io.in(`user:${o.userId}`).fetchSockets();
+          if (live.length > 0) return;
+          await sendPushToUser(o.userId, {
+            title: `${callerName} is calling…`,
+            body: "Tap to answer",
+            url: `/dm/${payload.conversationId}`,
+            tag: `call-${payload.conversationId}`,
+          });
+        })().catch(() => undefined);
       }
     })();
   });
