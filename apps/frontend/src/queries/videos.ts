@@ -243,6 +243,25 @@ function patchFeedVideo(
   );
 }
 
+export interface VideoDerivativesPage {
+  videos: VideoDTO[];
+}
+
+/**
+ * Everything made from this video — the stitches/duets a viewer can open from the remix count on
+ * a card. `videoId` is null until the sheet showing this list is actually opened (the remix count
+ * itself comes from the video object already in the feed cache), so this never fires on every
+ * card render the way it would if the feed eagerly fetched derivatives for videos nobody asked
+ * about.
+ */
+export function useVideoDerivatives(videoId: string | null) {
+  return useQuery({
+    queryKey: ["videoDerivatives", videoId],
+    queryFn: () => api.get<VideoDerivativesPage>(`/videos/${videoId}/derivatives`),
+    enabled: Boolean(videoId),
+  });
+}
+
 /**
  * Turn stitching/duetting of one of your own videos on or off.
  *

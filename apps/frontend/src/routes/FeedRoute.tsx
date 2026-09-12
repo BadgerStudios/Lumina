@@ -9,6 +9,7 @@ import { CommentSheet } from "../components/feed/CommentSheet";
 import { ReportModal } from "../components/feed/ReportModal";
 import { RemixChooser } from "../components/feed/RemixChooser";
 import { RemixModal } from "../components/feed/RemixModal";
+import { DerivativesSheet } from "../components/feed/DerivativesSheet";
 import { cn } from "../lib/cn";
 import { useAuthStore } from "../store/authStore";
 
@@ -150,6 +151,7 @@ function ScrollFeed({
 }) {
   const [commentsFor, setCommentsFor] = useState<VideoDTO | null>(null);
   const [reportFor, setReportFor] = useState<VideoDTO | null>(null);
+  const [derivativesFor, setDerivativesFor] = useState<VideoDTO | null>(null);
   // Two steps, two pieces of state: pick which kind of remix, then record it. Kept separate so
   // backing out of the recorder returns to the chooser rather than all the way to the feed.
   const [remixChoiceFor, setRemixChoiceFor] = useState<VideoDTO | null>(null);
@@ -232,11 +234,19 @@ function ScrollFeed({
             video={video}
             // Opening a sheet over the feed pauses playback: audio continuing behind a modal the
             // user is reading is disorienting, and it keeps only one video ever playing.
-            active={activeId === video.id && !commentsFor && !reportFor && !remixChoiceFor && !remixFor}
+            active={
+              activeId === video.id &&
+              !commentsFor &&
+              !reportFor &&
+              !remixChoiceFor &&
+              !remixFor &&
+              !derivativesFor
+            }
             onOpenComments={setCommentsFor}
             onReport={setReportFor}
             onSelectTag={onSelectTag}
             onRemix={setRemixChoiceFor}
+            onOpenDerivatives={setDerivativesFor}
           />
         </div>
       ))}
@@ -247,6 +257,7 @@ function ScrollFeed({
       )}
       <CommentSheet video={commentsFor} onClose={() => setCommentsFor(null)} onSelectTag={onSelectTag} />
       <ReportModal video={reportFor} onClose={() => setReportFor(null)} />
+      <DerivativesSheet video={derivativesFor} onClose={() => setDerivativesFor(null)} />
       {!remixFor && (
         <RemixChooser
           video={remixChoiceFor}

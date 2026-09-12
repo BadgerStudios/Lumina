@@ -31,6 +31,10 @@ interface VideoCardProps {
   /** Opens the stitch/duet recorder. Omitted where remixing isn't offered (e.g. a staff preview),
    * which removes the button rather than showing a dead one. */
   onRemix?: (video: VideoDTO) => void;
+  /** Opens the list of stitches/duets made from this video. Only rendered once
+   * `derivativeCount > 0` — a viewer can't open a list of zero remixes, so the affordance for it
+   * doesn't exist yet either. */
+  onOpenDerivatives?: (video: VideoDTO) => void;
 }
 
 /**
@@ -47,6 +51,7 @@ export function VideoCard({
   onReport,
   onSelectTag,
   onRemix,
+  onOpenDerivatives,
 }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const muted = useFeedStore((s) => s.muted);
@@ -288,12 +293,35 @@ export function VideoCard({
             />
           )}
           {onRemix && (video.allowStitch || video.allowDuet) && (
-            <ActionButton
-              icon={<Shuffle className="h-7 w-7 text-white" />}
-              label={video.derivativeCount > 0 ? formatCount(video.derivativeCount) : ""}
-              onClick={() => onRemix(video)}
-              ariaLabel="Stitch or duet this video"
-            />
+            // The icon and the count are two different actions, not one control with a label:
+            // tapping the icon starts a NEW stitch/duet, tapping the count opens the list of
+            // existing ones — so they can't share a single onClick the way the other action-rail
+            // buttons do.
+            <div className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onRemix(video)}
+                aria-label="Stitch or duet this video"
+                className="group/action rounded-full bg-black/40 p-2 backdrop-blur-sm transition hover:bg-black/60"
+              >
+                <Shuffle className="h-7 w-7 text-white" />
+              </button>
+              {video.derivativeCount > 0 &&
+                (onOpenDerivatives ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenDerivatives(video)}
+                    aria-label={`View ${video.derivativeCount} ${video.derivativeCount === 1 ? "remix" : "remixes"} made from this video`}
+                    className="rounded-full bg-black/40 px-1.5 text-xs font-medium text-white backdrop-blur-sm hover:bg-black/60"
+                  >
+                    {formatCount(video.derivativeCount)}
+                  </button>
+                ) : (
+                  <span className="rounded-full bg-black/40 px-1.5 text-xs font-medium text-white backdrop-blur-sm">
+                    {formatCount(video.derivativeCount)}
+                  </span>
+                ))}
+            </div>
           )}
           <ActionButton
             icon={<Flag className="h-6 w-6 text-white/80" />}
