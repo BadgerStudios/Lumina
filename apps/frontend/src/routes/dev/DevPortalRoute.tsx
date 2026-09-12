@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Code2, Bot, RefreshCw, Trash2, Copy, Check, ExternalLink, Plus, KeyRound, Puzzle } from "lucide-react";
+import { Code2, Bot, RefreshCw, Trash2, Copy, Check, ExternalLink, Plus, KeyRound, Puzzle, Pencil, X } from "lucide-react";
 import { Permissions } from "@lumina/shared";
 import { cn } from "../../lib/cn";
 import { api } from "../../lib/apiClient";
@@ -9,6 +9,7 @@ import { useAuthStore } from "../../store/authStore";
 import {
   useMyApplications,
   useCreateApplication,
+  useUpdateApplication,
   useRegenerateBotToken,
   useDeleteApplication,
   useUpdateRedirectUris,
@@ -356,6 +357,10 @@ function AppCard({ app }: { app: NonNullable<ReturnType<typeof useMyApplications
   const [uris, setUris] = useState(app.redirectUris.join("\n"));
   const [activityName, setActivityName] = useState("");
   const [activityUrl, setActivityUrl] = useState("");
+  const updateApp = useUpdateApplication();
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(app.name);
+  const [editDescription, setEditDescription] = useState(app.description ?? "");
 
   const { data: activities } = useQuery({
     queryKey: ["activities", "all"],
@@ -377,14 +382,69 @@ function AppCard({ app }: { app: NonNullable<ReturnType<typeof useMyApplications
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["activities"] }),
   });
 
+  const cancelEdit = () => {
+    setEditing(false);
+    setEditName(app.name);
+    setEditDescription(app.description ?? "");
+  };
+
   return (
     <div className="rounded-xl bg-base-900 p-4 ring-1 ring-base-600">
       <div className="flex items-center gap-2">
         <Bot size={18} className="shrink-0 text-signal-faint" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-signal">{app.name}</p>
-          <p className="truncate text-xs text-signal-faint">bot @{app.botUsername}</p>
+          {editing ? (
+            <div className="flex flex-col gap-1.5">
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                aria-label="Application name"
+                maxLength={32}
+                className="w-full rounded-lg bg-base-800 px-2.5 py-1.5 text-sm font-bold text-signal ring-1 ring-base-600 focus:ring-2 focus:ring-accent"
+              />
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                aria-label="Application description"
+                placeholder="Description (optional)"
+                maxLength={256}
+                rows={2}
+                className="w-full rounded-lg bg-base-800 px-2.5 py-1.5 text-xs text-signal ring-1 ring-base-600 focus:ring-2 focus:ring-accent"
+              />
+            </div>
+          ) : (
+            <>
+              <p className="truncate text-sm font-bold text-signal">{app.name}</p>
+              <p className="truncate text-xs text-signal-faint">bot @{app.botUsername}</p>
+              {app.description ? <p className="mt-0.5 line-clamp-2 text-xs text-signal-faint">{app.description}</p> : null}
+            </>
+          )}
         </div>
+        {editing ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={async () => {
+                const trimmed = editName.trim();
+                if (trimmed.length < 2) return;
+                await updateApp.mutateAsync({ applicationId: app.id, name: trimmed, description: editDescription.trim() || null });
+                setEditing(false);
+              }}
+              disabled={editName.trim().length < 2 || updateApp.isPending}
+              className="rounded p-1.5 text-signal-faint hover:text-accent disabled:opacity-50"
+              title="Save changes"
+              aria-label="Save application"
+            >
+              <Check size={15} />
+            </button>
+            <button onClick={cancelEdit} className="rounded p-1.5 text-signal-faint hover:text-signal" title="Cancel" aria-label="Cancel editing">
+              <X size={15} />
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setEditing(true)} className="rounded p-1.5 text-signal-faint hover:text-signal" title="Edit application" aria-label="Edit application">
+            <Pencil size={15} />
+          </button>
+        )}
         <button
           onClick={() => {
             if (confirm(`Delete "${app.name}"? Its bot leaves every server; OAuth grants stop working.`)) deleteApp.mutate(app.id);

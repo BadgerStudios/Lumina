@@ -9,11 +9,18 @@ import {
   listMyApplications,
   regenerateBotToken,
   regenerateClientSecret,
+  updateApplication,
   updateRedirectUris,
 } from "./service.js";
 
 const createSchema = z.object({
   name: z.string().min(2).max(32),
+  description: z.string().max(256).nullable().optional(),
+});
+
+// Same constraints as createSchema, but every field optional — PATCH may touch just one of them.
+const updateSchema = z.object({
+  name: z.string().min(2).max(32).optional(),
   description: z.string().max(256).nullable().optional(),
 });
 
@@ -54,6 +61,12 @@ export default async function applicationRoutes(fastify: FastifyInstance) {
   fastify.post("/:id/regenerate-token", { preHandler: [requireAuth] }, async (request) => {
     const { id } = request.params as { id: string };
     return regenerateBotToken({ ownerId: request.userId!, applicationId: id });
+  });
+
+  fastify.patch("/:id", { schema: { body: updateSchema }, preHandler: [requireAuth] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as z.infer<typeof updateSchema>;
+    return updateApplication({ ownerId: request.userId!, applicationId: id, name: body.name, description: body.description });
   });
 
   fastify.patch("/:id/oauth/redirect-uris", { schema: { body: redirectUrisSchema }, preHandler: [requireAuth] }, async (request) => {

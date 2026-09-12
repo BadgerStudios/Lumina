@@ -25,6 +25,18 @@ export function useCreateApplication() {
   });
 }
 
+export function useUpdateApplication() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ applicationId, ...body }: { applicationId: string; name?: string; description?: string | null }) =>
+      api.patch<ApplicationDTO>(`/applications/${applicationId}`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.myApplications() });
+    },
+    onError: (e) => reportError(e, "Couldn't save those changes"),
+  });
+}
+
 export function useRegenerateBotToken() {
   const queryClient = useQueryClient();
   return useMutation({

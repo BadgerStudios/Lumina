@@ -97,6 +97,29 @@ export async function regenerateBotToken(params: { ownerId: string; applicationI
   return { ...serializeApplication(updated, botUser.id, botUser.username), botToken };
 }
 
+/** Renames an application and/or edits its description. Icon upload is a separate concern (out
+ * of scope here) — this only ever touches the two plain-text fields. Deliberately does NOT touch
+ * the bot User row (displayName/username): those are set once at creation time and a rename here
+ * shouldn't silently relabel the bot everyone already knows, same reasoning as why usernames don't
+ * follow a human's changed display name elsewhere in this app. */
+export async function updateApplication(params: {
+  ownerId: string;
+  applicationId: string;
+  name?: string;
+  description?: string | null;
+}): Promise<ApplicationDTO> {
+  const app = await requireOwnedApplication(params.ownerId, params.applicationId);
+  const updated = await prisma.application.update({
+    where: { id: app.id },
+    data: {
+      ...(params.name !== undefined ? { name: params.name.trim() } : {}),
+      ...(params.description !== undefined ? { description: params.description?.trim() || null } : {}),
+    },
+  });
+  const botUser = await prisma.user.findUniqueOrThrow({ where: { applicationId: app.id }, select: { id: true, username: true } });
+  return serializeApplication(updated, botUser.id, botUser.username);
+}
+
 /** OAuth2 (modules/oauth2/) redirect URI allowlist — plain http(s) URL validation only; the
  * actual "does this exact string match what /oauth2/authorize was called with" check happens
  * at authorize/token time, not here. */
