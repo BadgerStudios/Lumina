@@ -1,6 +1,7 @@
 import type { Socket } from "socket.io";
 import { verifyAccessToken, hashRefreshToken } from "../../lib/jwt.js";
 import { prisma } from "../../db/prisma.js";
+import { isUserBanned } from "../../modules/bans/service.js";
 
 type ExtendedError = Error & { data?: unknown };
 
@@ -37,6 +38,10 @@ export function authenticateSocket(socket: Socket, next: (err?: ExtendedError) =
           next(new Error("Invalid bot token"));
           return;
         }
+        if (await isUserBanned(application.botUser.id)) {
+          next(new Error("Account banned"));
+          return;
+        }
         socket.data.userId = application.botUser.id;
         // Recorded so interaction responses can be checked against the application that owns the
         // interaction — a bot must not be able to answer another bot's interaction.
@@ -56,11 +61,19 @@ export function authenticateSocket(socket: Socket, next: (err?: ExtendedError) =
     return;
   }
 
-  try {
-    const payload = verifyAccessToken(token);
-    socket.data.userId = payload.sub;
+  void (async () => {
+    let userId: string;
+    try {
+      userId = verifyAccessToken(token).sub;
+    } catch {
+      next(new Error("Invalid or expired access token"));
+      return;
+    }
+    if (await isUserBanned(userId)) {
+      next(new Error("Account banned"));
+      return;
+    }
+    socket.data.userId = userId;
     next();
-  } catch {
-    next(new Error("Invalid or expired access token"));
-  }
+  })();
 }

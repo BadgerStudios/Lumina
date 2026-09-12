@@ -47,6 +47,16 @@ export async function evictUserFromServer(userId: string, serverId: string): Pro
   }
 }
 
+export function disconnectUser(userId: string): void {
+  if (!io) return;
+  try {
+    io.in(`user:${userId}`).disconnectSockets(true);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[realtime] failed to disconnect user ${userId} after ban:`, err);
+  }
+}
+
 export async function initIO(httpServer: HTTPServer): Promise<SocketIOServer> {
   const origins = env.CORS_ORIGIN.split(",").map((s) => s.trim());
 

@@ -213,6 +213,7 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
      * `credit()` keys on the session id, so Stripe's retries (it redelivers on any non-2xx, which
      * is normal operation rather than an edge case) cannot credit the same payment twice.
      */
+    case "checkout.session.async_payment_succeeded":
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
 
@@ -244,6 +245,9 @@ async function handleStripeEvent(event: Stripe.Event): Promise<void> {
       });
       return;
     }
+
+    case "checkout.session.async_payment_failed":
+      return;
 
     case "customer.subscription.created":
     case "customer.subscription.updated":

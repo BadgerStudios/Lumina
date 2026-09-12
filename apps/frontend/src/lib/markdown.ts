@@ -17,6 +17,17 @@ const ALLOWED_TAGS = ["b", "strong", "i", "em", "del", "s", "code", "pre", "a", 
 // answers to a mouse is not a control. Someone typing these attributes by hand into chat can at
 // worst make a normal word focusable, which is why widening the list this far is safe.
 const ALLOWED_ATTR = ["href", "target", "rel", "class", "tabindex", "role", "aria-label", "aria-expanded"];
+// `class` is allowed (spoilers/mentions need it) but its VALUE is not — DOMPurify only checks the
+// attribute NAME. Without this a raw `<p class="fixed inset-0 z-[100] ...">` renders a full-screen
+// phishing overlay from shipped Tailwind classes (no script, so CSP doesn't stop it). Keep only the
+// class tokens this module itself emits.
+const ALLOWED_CLASSES = new Set(["spoiler", "mention", "mention-everyone", "custom-emoji"]);
+DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (data.attrName !== "class") return;
+  const kept = data.attrValue.split(/\s+/).filter((c) => ALLOWED_CLASSES.has(c));
+  if (kept.length === 0) data.keepAttr = false;
+  else data.attrValue = kept.join(" ");
+});
 
 // The backend independently parses/persists real mentions (modules/messages/mentions.ts) for
 // notification/@everyone-permission purposes, but doesn't annotate MessageDTO.content with

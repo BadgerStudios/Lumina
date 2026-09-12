@@ -55,6 +55,15 @@ async function requireApplication(clientId: string) {
 function requireRegisteredRedirect(app: { redirectUris: string[] }, redirectUri: string): void {
   // Exact string match only — no prefix/wildcard matching. Standard OAuth2 hardening against
   // code/token redirection to an attacker-controlled URI that merely starts with a registered one.
+  let protocol: string;
+  try {
+    protocol = new URL(redirectUri).protocol;
+  } catch {
+    throw new BadRequestError("Invalid redirect_uri");
+  }
+  if (protocol !== "http:" && protocol !== "https:") {
+    throw new BadRequestError("redirect_uri must be an http(s) URL");
+  }
   if (!app.redirectUris.includes(redirectUri)) {
     throw new BadRequestError("redirect_uri is not registered for this application");
   }

@@ -18,7 +18,24 @@ const createSchema = z.object({
 });
 
 const redirectUrisSchema = z.object({
-  redirectUris: z.array(z.string().url()).max(10),
+  redirectUris: z
+    .array(
+      z
+        .string()
+        .url()
+        .refine(
+          (u) => {
+            try {
+              const p = new URL(u).protocol;
+              return p === "http:" || p === "https:";
+            } catch {
+              return false;
+            }
+          },
+          { message: "redirect_uri must be an http(s) URL" },
+        ),
+    )
+    .max(10),
 });
 
 /** Mounted under /api/applications — the dev-portal "manage my bots" surface. */

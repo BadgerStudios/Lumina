@@ -59,6 +59,9 @@ export async function seedGifts(): Promise<void> {
 export async function handleTipCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const { tipperId, creatorId, contentRef } = (session.metadata ?? {}) as Record<string, string>;
   if (!tipperId || !creatorId || !session.amount_total) return;
+  // Only credit on real settlement. checkout.session.completed fires before a delayed (ACH) payment
+  // clears (payment_status "unpaid"); the async_payment_succeeded event re-invokes this as "paid".
+  if (session.payment_status !== "paid") return;
   const event = await recordRevenueEvent({
     eventType: "tip.payment_succeeded",
     idempotencyKey: `tip:${session.id}`,

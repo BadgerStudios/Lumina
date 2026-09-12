@@ -223,6 +223,8 @@ export async function banUser(params: BanUserParams): Promise<{ groupId: string;
   ]);
 
   await invalidateBanCache(userId);
+  const { disconnectUser } = await import("../../realtime/io.js");
+  disconnectUser(userId);
   return { groupId, rows: rows.length };
 }
 
