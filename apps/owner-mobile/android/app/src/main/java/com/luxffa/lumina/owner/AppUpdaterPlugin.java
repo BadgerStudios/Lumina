@@ -2,12 +2,14 @@ package com.luxffa.lumina.owner;
 
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 
 import androidx.core.content.FileProvider;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -60,6 +62,114 @@ public class AppUpdaterPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("value", hasInstallPermission());
         call.resolve(result);
+    }
+
+    /**
+     * The installed app's real version, read from the package at runtime. This is the source of
+     * truth for the About screen (and could back the update check) so it is ALWAYS current — unlike
+     * a value baked into the web bundle at build time, which goes stale the moment the build number
+     * and the bundle env drift apart.
+     */
+    @PluginMethod
+    public void getVersion(PluginCall call) {
+        JSObject result = new JSObject();
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            android.content.pm.PackageInfo info = pm.getPackageInfo(getContext().getPackageName(), 0);
+            long code = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? info.getLongVersionCode()
+                : info.versionCode;
+            result.put("versionName", info.versionName);
+            result.put("versionCode", code);
+        } catch (Exception e) {
+            result.put("versionName", null);
+            result.put("versionCode", 0);
+        }
+        call.resolve(result);
+    }
+
+    /**
+     * The certificate THIS install is signed with, and where it was installed from.
+     *
+     * Android refuses to replace an installed app with a package signed by a different certificate.
+     * Nothing in the update flow could previously see that coming: the app compared version codes,
+     * downloaded ~8MB, handed the package to the system installer, and the installer refused it with
+     * "App not installed" — a message the app never receives and cannot explain. Two populations hit
+     * that on every single update and can never get out of it by updating:
+     *
+     *   - installs from before the signing key was fixed, whose certificate belongs to a debug
+     *     keystore that no longer exists anywhere, and
+     *   - installs from Google Play, which Play re-signs with its own key.
+     *
+     * Handing the web layer this digest lets it compare against the certificate the published APK
+     * actually carries (see the backend's apkSigner.ts) and say which of those it is, before
+     * spending the download. `installer` separates the second case from the first: only Play can
+     * update a Play install, so there the honest answer is to not offer a sideload update at all.
+     *
+     * Returns nulls rather than throwing — an unreadable signature must leave the updater exactly
+     * as it was, not block it.
+     */
+    @PluginMethod
+    public void getSigningInfo(PluginCall call) {
+        JSObject result = new JSObject();
+        JSArray signatures = new JSArray();
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            String pkg = getContext().getPackageName();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                android.content.pm.PackageInfo info =
+                        pm.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES);
+                android.content.pm.SigningInfo signingInfo = info.signingInfo;
+                if (signingInfo != null) {
+                    // The signers of the APK as installed. Not getSigningCertificateHistory(): the
+                    // question here is "what is on this install right now", which is what the new
+                    // package has to match.
+                    Signature[] signers = signingInfo.hasMultipleSigners()
+                            ? signingInfo.getApkContentsSigners()
+                            : signingInfo.getSigningCertificateHistory();
+                    addDigests(signatures, signers);
+                }
+            } else {
+                @SuppressWarnings("deprecation")
+                android.content.pm.PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_SIGNATURES);
+                @SuppressWarnings("deprecation")
+                Signature[] signers = info.signatures;
+                addDigests(signatures, signers);
+            }
+
+            String installer = null;
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    installer = pm.getInstallSourceInfo(pkg).getInstallingPackageName();
+                } else {
+                    @SuppressWarnings("deprecation")
+                    String legacy = pm.getInstallerPackageName(pkg);
+                    installer = legacy;
+                }
+            } catch (Exception ignored) {
+                // Some OEM builds throw here for a sideloaded package rather than returning null.
+            }
+            result.put("installer", installer);
+        } catch (Exception e) {
+            result.put("installer", null);
+        }
+        // The first signer is what a single-signer app (ours) is identified by; the full list is
+        // there so a multi-signer or rotated install can still find a match.
+        result.put("sha256", signatures.length() > 0 ? signatures.optString(0) : null);
+        result.put("sha256List", signatures);
+        call.resolve(result);
+    }
+
+    /** SHA-256 of each signer's DER certificate — the digest apksigner prints and Android compares. */
+    private static void addDigests(JSArray out, Signature[] signers) throws Exception {
+        if (signers == null) return;
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        for (Signature signature : signers) {
+            if (signature == null) continue;
+            digest.reset();
+            out.put(toHex(digest.digest(signature.toByteArray())));
+        }
     }
 
     /** Opens the OS screen where that permission is granted, scoped to this app. */
