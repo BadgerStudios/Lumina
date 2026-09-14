@@ -34,6 +34,11 @@ export type DiditOutcome = {
   pending: boolean;
   /** Proven date of birth, when the workflow extracted one. Null is normal and not a failure. */
   dateOfBirth: Date | null;
+  /**
+   * Estimated age in years from an age-estimation workflow. Null when the workflow does not
+   * produce one, which includes every document workflow — absence is normal, never a failure.
+   */
+  estimatedAge: number | null;
 };
 
 export function isDiditConfigured(): boolean {
@@ -41,6 +46,11 @@ export function isDiditConfigured(): boolean {
 }
 
 /** Whether inbound webhooks can be signature-verified. Without it we refuse to process any webhook. */
+/** Whether a dedicated age-estimation workflow is configured, as opposed to falling back. */
+export function isDiditAgeConfigured(): boolean {
+  return Boolean(env.DIDIT_ENABLED && env.DIDIT_API_KEY && env.DIDIT_AGE_WORKFLOW_ID);
+}
+
 export function isDiditWebhookConfigured(): boolean {
   return Boolean(env.DIDIT_WEBHOOK_SECRET);
 }
@@ -78,12 +88,17 @@ export interface CreatedSession {
  * how a result is attributed without storing anything about the person on their side. Returns null
  * when unconfigured so the caller can fall through to another provider.
  */
-export async function createSession(vendorData: string, callbackUrl?: string): Promise<CreatedSession | null> {
+export async function createSession(
+  vendorData: string,
+  callbackUrl?: string,
+  /** Overrides the default workflow — used for the age-estimation one. */
+  workflowId?: string,
+): Promise<CreatedSession | null> {
   if (!isDiditConfigured()) return null;
   const created = await diditFetch("/v2/session/", {
     method: "POST",
     body: JSON.stringify({
-      workflow_id: env.DIDIT_WORKFLOW_ID,
+      workflow_id: workflowId ?? env.DIDIT_WORKFLOW_ID,
       vendor_data: vendorData,
       ...(callbackUrl ? { callback: callbackUrl } : {}),
     }),
@@ -121,7 +136,38 @@ export function readOutcome(decision: any): DiditOutcome {
     declined,
     pending: !approved && !declined,
     dateOfBirth: extractDateOfBirth(decision),
+    estimatedAge: extractEstimatedAge(decision),
   };
+}
+
+/**
+ * Pull an estimated age out of an age-estimation result.
+ *
+ * Written the same way extractDateOfBirth is, and for the same reason: the exact key is not pinned
+ * by anything observable from an unstarted session, so several plausible spellings are tried and
+ * absence is tolerated. Nothing auto-approves on a shape this does not recognise — a missing
+ * estimate leaves the account exactly as it was, which is the direction that cannot do harm.
+ *
+ * The value is a POINT ESTIMATE from a model and should never be read as a fact about someone's
+ * age. How it is allowed to be used is decided in the service, not here.
+ */
+function extractEstimatedAge(decision: any): number | null {
+  const blocks = [decision?.age_estimation, decision?.ageEstimation, decision?.age, decision];
+  const keys = ["age", "estimated_age", "estimatedAge", "predicted_age", "value"];
+  for (const block of blocks) {
+    if (block == null) continue;
+    if (typeof block === "number" && Number.isFinite(block)) {
+      if (block > 0 && block < 120) return block;
+      continue;
+    }
+    if (typeof block !== "object") continue;
+    for (const key of keys) {
+      const value = (block as Record<string, unknown>)[key];
+      const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+      if (Number.isFinite(n) && n > 0 && n < 120) return n;
+    }
+  }
+  return null;
 }
 
 /**

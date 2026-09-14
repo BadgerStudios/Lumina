@@ -7,11 +7,13 @@ import { createInquiry, isPersonaConfigured } from "./persona.js";
 import {
   createSession as createDiditSession,
   fetchDecision as fetchDiditDecision,
+  isDiditAgeConfigured,
   isDiditConfigured,
   readOutcome as readDiditOutcome,
 } from "./didit.js";
 import { verifyDeviceAttestation, type AttestationPlatform } from "./attestation.js";
 import { banUser } from "../bans/service.js";
+import { recordFlag } from "../flags/service.js";
 
 /**
  * Age-assurance service — the one place that records signals and reconciles them into the account's
@@ -149,6 +151,127 @@ export type StartOutcome =
  * cap is hit (or Persona is unconfigured) it falls back to the admin selfie-review path. If a Persona
  * inquiry can't actually be created, the budget unit is refunded and we fall back rather than block.
  */
+/**
+ * How far above 18 an estimate has to sit before it is allowed to settle the question on its own.
+ *
+ * Facial age estimation is a model producing a point estimate, and published error for these sits
+ * around three to five years either way. Clearing someone the moment it reads "18" would be
+ * treating a number with that much give in it as a fact. The margin means a pass is a pass because
+ * the model was not close to the line, and anyone nearer it goes to a person instead.
+ */
+const AGE_ESTIMATE_ADULT_MARGIN = 5;
+
+/**
+ * Start an age check: a selfie the provider estimates an age from, not an identity document.
+ *
+ * Separate from startVerification, which proves WHO someone is and asks for a government document
+ * to do it. When the only open question is whether an account holder is over 18, asking for a
+ * passport is a bigger intrusion than the question warrants — and one many people will simply
+ * refuse, which turns "verify to continue" into "leave".
+ *
+ * Falls back to the document workflow when no age workflow is configured, so the route works before
+ * anyone has set DIDIT_AGE_WORKFLOW_ID — just more heavily than it should.
+ */
+export async function startAgeCheck(userId: string): Promise<StartOutcome> {
+  if (!isDiditConfigured()) return { mode: "manual_review" };
+  try {
+    const session = await createDiditSession(userId, undefined, env.DIDIT_AGE_WORKFLOW_ID);
+    if (session) {
+      await prisma.ageVerification.create({
+        data: {
+          userId,
+          // Not DOCUMENT_VERIFIED: nothing here proves identity, and recording it as though it did
+          // would overstate what the account has actually cleared.
+          level: "SELF_DECLARED",
+          source: isDiditAgeConfigured() ? "didit_age_estimation" : "didit",
+          inquiryId: session.sessionId,
+          rawStatus: session.rawStatus,
+        },
+      });
+      return { mode: "didit", sessionId: session.sessionId, link: session.url };
+    }
+  } catch {
+    /* nothing to fall back to for an age check — the caller reports it as unavailable */
+  }
+  return { mode: "manual_review" };
+}
+
+/**
+ * Apply an age-estimation result.
+ *
+ * Deliberately asymmetric, because the two directions carry very different costs when wrong.
+ *
+ * Comfortably over 18 → recorded as assurance, and any open age suspicion on the account is
+ * resolved, which is the entire point of offering the check to someone under suspicion.
+ *
+ * Anywhere near or below 18 → flagged for a person to look at. Never an automatic block: acting on
+ * a model's point estimate would mean throwing people off the platform because of how old they
+ * look, with no way to argue. The flag says what the estimate was and leaves the decision with the
+ * owner.
+ */
+export async function applyAgeEstimate(userId: string, estimatedAge: number | null): Promise<void> {
+  if (estimatedAge === null) return;
+  const clearlyAdult = estimatedAge >= 18 + AGE_ESTIMATE_ADULT_MARGIN;
+
+  await prisma.ageVerification.create({
+    data: {
+      userId,
+      level: "SELF_DECLARED",
+      source: "didit_age_estimation",
+      band: clearlyAdult ? "18+" : `~${Math.round(estimatedAge)}`,
+      isMinorSignal: clearlyAdult ? false : null,
+      rawStatus: `estimated_age=${Math.round(estimatedAge)}`,
+    },
+  });
+
+  if (clearlyAdult) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { ageAssuredBand: "18+", ageAssuredAt: new Date(), ageAssuranceSource: "didit_age_estimation" },
+    });
+    // The check was offered to settle a doubt; passing it settles it.
+    await prisma.accountFlag.updateMany({
+      where: { userId, reasonCode: { in: ["AGE_MISMATCH", "AGE_SUSPECTED_MINOR"] }, resolvedAt: null },
+      data: { active: false, resolvedAt: new Date() },
+    });
+    return;
+  }
+
+  await recordFlag({
+    userId,
+    reasonCode: "AGE_SUSPECTED_MINOR",
+    detail: `age estimation returned ~${Math.round(estimatedAge)}; below the ${18 + AGE_ESTIMATE_ADULT_MARGIN} threshold for an automatic pass`,
+  });
+}
+
+/**
+ * Poll the provider for an age check this account started, and apply whatever came back.
+ *
+ * Separate from pollDiditForUser because the two look at different sessions and mean different
+ * things: that one reads an identity decision, this one reads an age estimate. Sharing a poller
+ * would mean an age session could be mistaken for proof of identity.
+ */
+export async function pollAgeCheckForUser(
+  userId: string,
+): Promise<{ status: string; estimatedAge: number | null } | null> {
+  if (!isDiditConfigured()) return null;
+  const latest = await prisma.ageVerification.findFirst({
+    where: { userId, source: "didit_age_estimation", inquiryId: { not: null } },
+    select: { inquiryId: true },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!latest?.inquiryId) return null;
+
+  const decision = await fetchDiditDecision(latest.inquiryId);
+  if (!decision) return null;
+
+  const outcome = readDiditOutcome(decision);
+  // Only once it has settled. Applying a mid-flight estimate would act on a number the provider has
+  // not finished producing.
+  if (!outcome.pending) await applyAgeEstimate(userId, outcome.estimatedAge);
+  return { status: outcome.rawStatus, estimatedAge: outcome.estimatedAge };
+}
+
 export async function startVerification(userId: string): Promise<StartOutcome> {
   // Didit is tried FIRST when configured. Its workflow clears someone automatically, while Persona's
   // fallback is an admin selfie queue that a human has to work — and on this instance that queue has

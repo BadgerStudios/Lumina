@@ -14,6 +14,8 @@ import {
 } from "./didit.js";
 import {
   recordDeviceSignal,
+  startAgeCheck,
+  pollAgeCheckForUser,
   startVerification,
   applyPersonaResult,
   applyDiditResult,
@@ -177,6 +179,23 @@ export default async function verificationRoutes(fastify: FastifyInstance) {
    * still works identically — both call startVerification, which picks Didit, then Persona, then the
    * manual queue. New clients should call this one; the name is the only difference.
    */
+  /**
+   * Start an age check — a selfie the provider estimates an age from, not an identity document.
+   *
+   * Offered rather than demanded: someone under suspicion can clear it, and anyone who simply wants
+   * to can take it. Asking for a passport when the only question is whether someone is over 18 is a
+   * bigger intrusion than the question warrants, and one many people would rightly refuse.
+   */
+  fastify.post("/age/start", { preHandler: [requireAuth] }, async (request) => {
+    return startAgeCheck(request.userId!);
+  });
+
+  /** Read back whatever the age check concluded. */
+  fastify.post("/age/poll", { preHandler: [requireAuth] }, async (request) => {
+    const result = await pollAgeCheckForUser(request.userId!);
+    return result ?? { status: "none", estimatedAge: null };
+  });
+
   fastify.post("/identity/start", { preHandler: [requireAuth] }, async (request) => {
     return await startVerification(request.userId!);
   });

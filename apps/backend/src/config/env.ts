@@ -120,6 +120,17 @@ const envSchema = z.object({
     .transform((v) => v === "true" || v === "1"),
   DIDIT_API_KEY: z.string().optional(),
   DIDIT_WORKFLOW_ID: z.string().optional(),
+  /**
+   * A SECOND Didit workflow, configured for age estimation from a selfie rather than document
+   * verification. Separate because they answer different questions and carry different costs to the
+   * person: proving who you are means handing over an identity document, while estimating whether
+   * you look over 18 does not. Asking for the document when the age is the only question is a
+   * bigger intrusion than the question warrants.
+   *
+   * Optional. Unset, the age check falls back to the document workflow, which still answers the
+   * question — just more heavily.
+   */
+  DIDIT_AGE_WORKFLOW_ID: z.string().optional(),
   DIDIT_WEBHOOK_SECRET: z.string().optional(),
   DIDIT_BASE_URL: z.string().default("https://verification.didit.me"),
 

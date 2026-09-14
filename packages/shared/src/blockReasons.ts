@@ -40,6 +40,20 @@ export const BLOCK_REASONS: BlockReason[] = [
     selfResolvable: false,
   },
   {
+    code: "AGE_SUSPECTED_MINOR",
+    title: "Age check came back inconclusive",
+    category: "age",
+    // Nothing is blocked on this alone. A facial age estimate is a model's point estimate with
+    // years of give in it either way, and throwing someone off the platform over how old they look,
+    // with no way to argue, is not a decision software should be making by itself.
+    severity: "INFO",
+    userMessage:
+      "Thanks — we couldn't confirm your age from that check. Nothing has changed on your account. Someone will take a look, and you can email support if you'd rather sort it out directly.",
+    staffNote:
+      "An age-estimation check returned a figure close to or below 18 — see the flag detail for the number. NOT proof of anything: published error for these models runs several years either way, which is exactly why it did not act on its own. Treat it as a prompt to look, alongside the account's other signals, not as a finding.",
+    selfResolvable: false,
+  },
+  {
     code: "DEVICE_MULTI_ACCOUNT",
     title: "Another account already signs in on this device",
     category: "device",
