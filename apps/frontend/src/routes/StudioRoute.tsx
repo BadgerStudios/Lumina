@@ -2,8 +2,19 @@ import { useEffect, useState } from "react";
 import { Wallet, Clock, Lock, CheckCircle2, Circle, BadgeDollarSign, Landmark, Users } from "lucide-react";
 import { cn } from "../lib/cn";
 import { UserAvatar } from "../components/common/UserAvatar";
-import { useCreatorStatus, useCreatorWallet, useCreatorEarnings, useMyTier, useSaveTier, useSupporters } from "../queries/economy";
+import {
+  useCreatorStatus,
+  useCreatorWallet,
+  useCreatorEarnings,
+  useMyTier,
+  useSaveTier,
+  useSupporters,
+  useMyMemberships,
+  useCancelMembership,
+} from "../queries/economy";
 import { VerifyIdentityPanel } from "../components/VerifyIdentityPanel";
+import { useConfirm } from "../components/common/ConfirmDialog";
+import { shortDate } from "../lib/relativeTime";
 
 /** The supporter-tier editor + supporter roll. Form state resyncs when the server answer
  * arrives — same stale-form lesson every entity-editing modal in this app has learned. */
@@ -101,6 +112,59 @@ function MembershipSection() {
   );
 }
 
+/** The creators the current user pays to support. Subscribing (from a creator's videos) and
+ * cancelling both existed as endpoints, but nothing ever listed what you are actually subscribed
+ * to — so the only way to see or stop a membership was to find the page you started it on. */
+function MySubscriptionsSection() {
+  const { data: subs } = useMyMemberships();
+  const cancel = useCancelMembership();
+  const { confirm } = useConfirm();
+  if (!subs || subs.length === 0) return null;
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold uppercase text-signal-dim">
+        <BadgeDollarSign size={13} /> Your subscriptions
+      </h2>
+      <div className="flex flex-col gap-1.5 rounded-xl bg-base-800 p-4 ring-1 ring-base-600">
+        {subs.map((s) => {
+          const name = s.creator.displayName ?? s.creator.username;
+          return (
+            <div key={s.creator.id} className="flex items-center gap-2 text-sm text-signal">
+              <UserAvatar avatarUrl={s.creator.avatarUrl} name={name} size={26} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{name}</span>
+                <span className="block truncate text-xs text-signal-faint">
+                  ${(s.priceMinor / 100).toFixed(2)}/mo
+                  {s.status === "PAST_DUE" ? " · payment past due" : ""}
+                  {s.currentPeriodEnd ? ` · renews ${shortDate(s.currentPeriodEnd)}` : ""}
+                </span>
+              </span>
+              <button
+                onClick={async () => {
+                  if (
+                    !(await confirm({
+                      title: `Cancel your subscription to ${name}?`,
+                      description: "You keep access until the end of the current period, then it stops renewing.",
+                      confirmText: "Cancel subscription",
+                      danger: true,
+                    }))
+                  )
+                    return;
+                  cancel.mutate(s.creator.id);
+                }}
+                disabled={cancel.isPending}
+                className="shrink-0 rounded-md px-2 py-1 text-xs text-signal-dim transition hover:bg-dnd/15 hover:text-dnd disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 /**
  * Creator Studio — every number on this page is ledger-backed, read straight off the wallet read
  * model that reconciliation re-proves against entries every few minutes. Estimated (pending) and
@@ -171,6 +235,8 @@ export function StudioRoute() {
         </section>
 
         <MembershipSection />
+
+        <MySubscriptionsSection />
 
         <section>
           <h2 className="mb-2 text-sm font-bold uppercase text-signal-dim">Eligibility</h2>

@@ -5,7 +5,7 @@ import { prisma } from "../../db/prisma.js";
 import { serializeMember, serializeRole } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
 import { assertPermissionSubset, checkRoleHierarchy, getHighestRolePosition, hasAdminOrOwner } from "../../permissions/permissionService.js";
-import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { getIO } from "../../realtime/io.js";
 
@@ -113,23 +113,27 @@ export default async function serverRolesRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("Cannot move a role to or above your own highest role");
       }
 
-      // The check above only guards the DESTINATION position — it never looked at where a role
-      // currently sits. That let a MANAGE_ROLES holder (not admin/owner) submit a reorder that
-      // pulls a role currently ranked ABOVE them down to a position below their own rank in one
-      // request: every other role-mutating route (PATCH/DELETE role, grant/revoke, channel
-      // overwrites) checks the role's CURRENT position via checkRoleHierarchy, so once this had
-      // lowered it, those routes would treat it as fair game. Fetching current positions here also
-      // closes a second gap for free: the update below keyed purely on role id with no serverId
-      // scope, so an id belonging to a DIFFERENT server would have silently been accepted too.
-      if (!bypass) {
-        const current = await prisma.role.findMany({
-          where: { id: { in: body.order.map((e) => e.id) }, serverId: request.serverId! },
-          select: { id: true, position: true },
-        });
-        if (current.length !== body.order.length) throw new NotFoundError("A role in this list was not found");
-        if (current.some((r) => r.position >= actorHighest)) {
-          throw new ForbiddenError("Cannot move a role at or above your own highest role");
-        }
+      // Validate the whole target set against THIS server before any write, on BOTH paths —
+      // the transaction below keys each update on role id ALONE, with no serverId scope. Three
+      // things ride on this fetch:
+      //   1. Cross-server safety. Without it the admin/owner bypass path does no scoped lookup at
+      //      all, so knowing a role id from a different server was enough to reposition it. A count
+      //      mismatch means an id in the list is not a role of this server.
+      //   2. @everyone stays put. It is pinned at position 0 and the single-role PATCH route
+      //      already refuses to move it; matching that here keeps the batch route from being the
+      //      way around it.
+      //   3. The SOURCE-position hierarchy guard. The destination check above never looked at where
+      //      a role currently sits, so a MANAGE_ROLES holder could pull a role ranked above them
+      //      down below their own rank in one request — after which every other role route, which
+      //      checks the CURRENT position via checkRoleHierarchy, would treat it as fair game.
+      const targeted = await prisma.role.findMany({
+        where: { id: { in: body.order.map((e) => e.id) }, serverId: request.serverId! },
+        select: { id: true, position: true, isDefault: true },
+      });
+      if (targeted.length !== body.order.length) throw new NotFoundError("A role in this list was not found");
+      if (targeted.some((r) => r.isDefault)) throw new BadRequestError("The default role can't be reordered");
+      if (!bypass && targeted.some((r) => r.position >= actorHighest)) {
+        throw new ForbiddenError("Cannot move a role at or above your own highest role");
       }
 
       await prisma.$transaction(

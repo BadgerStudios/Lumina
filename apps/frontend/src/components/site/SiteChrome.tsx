@@ -110,9 +110,9 @@ const FOOTER_COLS: Array<{ heading: string; links: Array<{ label: string; to: st
   {
     heading: "Apps",
     links: [
-      { label: "Android", to: "/downloads/lumina.apk", external: true },
+      { label: "Android", to: "/api/download/android", external: true },
       { label: "Windows", to: "/downloads/lumina-windows.zip", external: true },
-      { label: "Linux desktop", to: "/downloads/lumina-desktop.AppImage", external: true },
+      { label: "Linux desktop", to: "/api/download/desktop", external: true },
       { label: "Install guide", to: "/install" },
     ],
   },

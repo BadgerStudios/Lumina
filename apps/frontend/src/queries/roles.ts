@@ -43,6 +43,18 @@ export function useUpdateRole(serverId: string) {
   });
 }
 
+export function useReorderRoles(serverId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (order: Array<{ id: string; position: number }>) =>
+      api.patch<RoleDTO[]>(`/servers/${serverId}/roles/reorder`, { order }),
+    onSuccess: (roles) => {
+      queryClient.setQueryData(queryKeys.roles(serverId), roles);
+    },
+    onError: (e) => reportError(e, "Couldn't save that role order"),
+  });
+}
+
 export function useDeleteRole(serverId: string) {
   const queryClient = useQueryClient();
   return useMutation({

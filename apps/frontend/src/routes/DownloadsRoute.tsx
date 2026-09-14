@@ -99,8 +99,8 @@ export function DownloadsRoute() {
           blurb="The chat and community platform. Sign in with the same account everywhere."
           notice={PROPRIETARY}
           items={[
-            { name: "Lumina for Android", detail: "APK · install from unknown sources", href: "/downloads/lumina.apk", size: "~9 MB", icon: Smartphone },
-            { name: "Lumina for Linux", detail: "AppImage · chmod +x and run", href: "/downloads/lumina-desktop.AppImage", size: "158 MB", icon: Monitor },
+            { name: "Lumina for Android", detail: "APK · install from unknown sources", href: "/api/download/android", size: "~9 MB", icon: Smartphone },
+            { name: "Lumina for Linux", detail: "AppImage · chmod +x and run", href: "/api/download/desktop", size: "158 MB", icon: Monitor },
             { name: "Lumina for Windows", detail: "Installer · run it and follow the prompts", href: "/downloads/Lumina-Setup-1.0.45.exe", size: "130 MB", icon: Monitor },
             { name: "Lumina for Windows (portable)", detail: "Zip · extract and run Lumina.exe, no install", href: "/downloads/lumina-windows.zip", size: "169 MB", icon: Monitor },
           ]}

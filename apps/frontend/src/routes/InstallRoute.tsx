@@ -25,7 +25,7 @@ export function InstallRoute() {
     <Card icon={Smartphone} title="Android">
       <Step n={1}>
         Open{" "}
-        <a href="/downloads/lumina.apk" className="text-accent hover:underline">
+        <a href="/api/download/android" className="text-accent hover:underline">
           lumina.apk
         </a>{" "}
         <strong>in Chrome</strong> and tap Download.
@@ -112,7 +112,7 @@ export function InstallRoute() {
           <Card icon={Monitor} title="Desktop (Linux)">
             <Step n={1}>
               Download the{" "}
-              <a href="/downloads/lumina-desktop.AppImage" className="text-accent hover:underline">
+              <a href="/api/download/desktop" className="text-accent hover:underline">
                 AppImage
               </a>
               .
@@ -147,7 +147,7 @@ export function InstallRoute() {
 
         <div className="mt-10 flex flex-wrap gap-3">
           <a
-            href="/downloads/lumina.apk"
+            href="/api/download/android"
             className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover"
           >
             <Download size={16} />

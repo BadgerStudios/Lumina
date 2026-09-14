@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, MapPin, Volume2, Trash2, Plus } from "lucide-react";
+import { CalendarDays, MapPin, Volume2, Trash2, Pencil, Plus } from "lucide-react";
 import { Modal } from "./Modal";
 import { cn } from "../../lib/cn";
 import { useUIStore } from "../../store/uiStore";
@@ -9,7 +9,22 @@ import { useMembers } from "../../queries/members";
 import { useRoles } from "../../queries/roles";
 import { useChannels } from "../../queries/channels";
 import { can } from "../../lib/permissions";
-import { useServerEvents, useCreateEvent, useCancelEvent, useRsvp, type ServerEventDTO } from "../../queries/events";
+import {
+  useServerEvents,
+  useCreateEvent,
+  useUpdateEvent,
+  useCancelEvent,
+  useRsvp,
+  type ServerEventDTO,
+} from "../../queries/events";
+import { useConfirm } from "../common/ConfirmDialog";
+
+/** `startsAt` as an ISO string -> the local-time value a `datetime-local` input expects. */
+function toDateTimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -22,14 +37,16 @@ function formatWhen(iso: string): string {
   return `${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at ${time}`;
 }
 
-function EventCard({ event, serverId, canManage, viewerId }: {
+function EventCard({ event, serverId, canManage, viewerId, onEdit }: {
   event: ServerEventDTO;
   serverId: string;
   canManage: boolean;
   viewerId: string | undefined;
+  onEdit: (event: ServerEventDTO) => void;
 }) {
   const rsvp = useRsvp(serverId);
   const cancel = useCancelEvent(serverId);
+  const { confirm } = useConfirm();
   const { data: channels } = useChannels(serverId);
   const channelName = event.channelId ? channels?.find((c) => c.id === event.channelId)?.name : null;
   const started = new Date(event.startsAt).getTime() <= Date.now();
@@ -55,13 +72,35 @@ function EventCard({ event, serverId, canManage, viewerId }: {
           </div>
         </div>
         {(canManage || event.creator?.id === viewerId) && !cancelled ? (
-          <button
-            onClick={() => { if (confirm("Cancel this event? This can't be undone.")) cancel.mutate(event.id); }}
-            title="Cancel event"
-            className="shrink-0 text-signal-faint hover:text-dnd"
-          >
-            <Trash2 size={14} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={() => onEdit(event)}
+              title="Edit event"
+              aria-label="Edit event"
+              className="text-signal-faint hover:text-accent"
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              onClick={async () => {
+                if (
+                  !(await confirm({
+                    title: "Cancel event",
+                    description: "Cancel this event? This can't be undone.",
+                    confirmText: "Cancel event",
+                    danger: true,
+                  }))
+                )
+                  return;
+                cancel.mutate(event.id);
+              }}
+              title="Cancel event"
+              aria-label="Cancel event"
+              className="text-signal-faint hover:text-dnd"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         ) : null}
       </div>
       {!cancelled && (
@@ -111,8 +150,10 @@ export function EventsModal() {
 
   const { data: events } = useServerEvents(open ? serverId : undefined);
   const createEvent = useCreateEvent(serverId);
+  const updateEvent = useUpdateEvent(serverId);
 
   const [creating, setCreating] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [startsAt, setStartsAt] = useState("");
@@ -124,27 +165,48 @@ export function EventsModal() {
   const upcoming = (events ?? []).filter((e) => !e.canceledAt);
   const cancelledRecent = (events ?? []).filter((e) => e.canceledAt);
 
+  const closeForm = () => {
+    setCreating(false);
+    setEditingEventId(null);
+    setName(""); setDescription(""); setStartsAt(""); setChannelId(""); setLocation("");
+  };
+
+  const startEdit = (event: ServerEventDTO) => {
+    setCreating(false);
+    setEditingEventId(event.id);
+    setName(event.name);
+    setDescription(event.description ?? "");
+    setStartsAt(toDateTimeLocalValue(event.startsAt));
+    setChannelId(event.channelId ?? "");
+    setLocation(event.location ?? "");
+    setError(null);
+  };
+
   const submit = async () => {
     setError(null);
     try {
-      await createEvent.mutateAsync({
+      const body = {
         name,
         description: description || null,
         channelId: channelId || null,
         location: channelId ? null : location || null,
         startsAt: new Date(startsAt).toISOString(),
-      });
-      setCreating(false);
-      setName(""); setDescription(""); setStartsAt(""); setChannelId(""); setLocation("");
+      };
+      if (editingEventId) {
+        await updateEvent.mutateAsync({ eventId: editingEventId, ...body });
+      } else {
+        await createEvent.mutateAsync(body);
+      }
+      closeForm();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create the event.");
+      setError(e instanceof Error ? e.message : `Could not ${editingEventId ? "update" : "create"} the event.`);
     }
   };
 
   return (
     <Modal open={open} onOpenChange={(o) => !o && closeModal()} title="Events" width="max-w-lg">
       <div className="flex flex-col gap-3">
-        {canManage && !creating && (
+        {canManage && !creating && !editingEventId && (
           <button
             onClick={() => setCreating(true)}
             className="flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover"
@@ -153,8 +215,11 @@ export function EventsModal() {
           </button>
         )}
 
-        {creating && (
+        {(creating || editingEventId) && (
           <div className="flex flex-col gap-2 rounded-xl bg-base-900 p-3 ring-1 ring-base-600">
+            <p className="text-xs font-semibold uppercase tracking-wide text-signal-faint">
+              {editingEventId ? "Edit event" : "New event"}
+            </p>
             <input
               value={name} onChange={(e) => setName(e.target.value)} placeholder="Event name" maxLength={100}
               className="rounded bg-base-800 px-2.5 py-1.5 text-sm text-signal ring-1 ring-base-600"
@@ -186,12 +251,12 @@ export function EventsModal() {
             <div className="flex gap-2">
               <button
                 onClick={() => void submit()}
-                disabled={!name.trim() || !startsAt || createEvent.isPending}
+                disabled={!name.trim() || !startsAt || createEvent.isPending || updateEvent.isPending}
                 className="flex-1 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
               >
-                Create
+                {editingEventId ? "Save changes" : "Create"}
               </button>
-              <button onClick={() => setCreating(false)} className="rounded-lg bg-base-600 px-3 py-1.5 text-sm text-signal">
+              <button onClick={closeForm} className="rounded-lg bg-base-600 px-3 py-1.5 text-sm text-signal">
                 Cancel
               </button>
             </div>
@@ -200,12 +265,12 @@ export function EventsModal() {
 
         <div className="flex max-h-96 flex-col gap-2 overflow-y-auto">
           {upcoming.map((e) => (
-            <EventCard key={e.id} event={e} serverId={serverId} canManage={canManage} viewerId={user?.id} />
+            <EventCard key={e.id} event={e} serverId={serverId} canManage={canManage} viewerId={user?.id} onEdit={startEdit} />
           ))}
           {cancelledRecent.map((e) => (
-            <EventCard key={e.id} event={e} serverId={serverId} canManage={canManage} viewerId={user?.id} />
+            <EventCard key={e.id} event={e} serverId={serverId} canManage={canManage} viewerId={user?.id} onEdit={startEdit} />
           ))}
-          {events && events.length === 0 && !creating && (
+          {events && events.length === 0 && !creating && !editingEventId && (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <CalendarDays size={28} className="text-signal-faint" />
               <p className="text-sm text-signal-faint">Nothing scheduled yet.</p>

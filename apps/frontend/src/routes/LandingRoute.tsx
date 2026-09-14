@@ -669,9 +669,9 @@ function EverythingChapter() {
 
 const PLATFORMS = [
   { icon: Globe, name: "Web", detail: "Any modern browser. Nothing to install.", href: "/register", cta: "Open in browser", internal: true },
-  { icon: Smartphone, name: "Android", detail: "Native app with push notifications.", href: "/downloads/lumina.apk", cta: "Download APK", internal: false },
+  { icon: Smartphone, name: "Android", detail: "Native app with push notifications.", href: "/api/download/android", cta: "Download APK", internal: false },
   { icon: Monitor, name: "Windows", detail: "Portable build — unzip and run.", href: "/downloads/lumina-windows.zip", cta: "Download for Windows", internal: false },
-  { icon: Monitor, name: "Linux desktop", detail: "Portable AppImage, no installer.", href: "/downloads/lumina-desktop.AppImage", cta: "Download AppImage", internal: false },
+  { icon: Monitor, name: "Linux desktop", detail: "Portable AppImage, no installer.", href: "/api/download/desktop", cta: "Download AppImage", internal: false },
 ];
 
 function AppsChapter() {

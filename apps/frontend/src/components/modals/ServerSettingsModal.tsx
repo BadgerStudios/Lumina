@@ -7,16 +7,19 @@ import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Copy, Check, Trash2, X, Settings as SettingsIcon, ShieldCheck, Users, Smile,
-  Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle, Bot,
+  Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle, Bot, ChevronUp, ChevronDown,
 } from "lucide-react";
+import type { RoleDTO } from "@lumina/shared";
 import { useUIStore } from "../../store/uiStore";
 import { useServer, useUpdateServer, useDeleteServer, useLeaveServer, useUploadServerIcon, useUploadServerBanner } from "../../queries/servers";
 import { resolveAssetUrl } from "../../lib/apiClient";
-import { useRoles } from "../../queries/roles";
+import { useRoles, useReorderRoles } from "../../queries/roles";
 import { useChannels } from "../../queries/channels";
+import { useMembers } from "../../queries/members";
 import { useBans, useUnbanMember, useAuditLog } from "../../queries/moderation";
 import { useServerWebhooks, useCreateWebhook, useDeleteWebhook } from "../../queries/webhooks";
 import { useAuthStore } from "../../store/authStore";
+import { can } from "../../lib/permissions";
 import { cn } from "../../lib/cn";
 import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
 import { ExpressionsSettingsPanel } from "./ExpressionsSettingsPanel";
@@ -155,6 +158,7 @@ export function ServerSettingsModal() {
   const navigate = useNavigate();
   const { data: server } = useServer(open ? serverId : undefined);
   const { data: roles } = useRoles(open && tab === "roles" ? serverId : undefined);
+  const { data: roleTabMembers } = useMembers(open && tab === "roles" ? serverId : undefined);
   const { data: bans } = useBans(open && tab === "bans" ? serverId : undefined);
   const { data: auditLog } = useAuditLog(open && tab === "auditLog" ? serverId : undefined);
   const updateServer = useUpdateServer(serverId);
@@ -162,6 +166,7 @@ export function ServerSettingsModal() {
   const uploadServerBanner = useUploadServerBanner(serverId);
   const deleteServer = useDeleteServer(serverId);
   const leaveServer = useLeaveServer(serverId);
+  const reorderRoles = useReorderRoles(serverId);
   const unbanMember = useUnbanMember(serverId);
   const iconInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
@@ -189,6 +194,27 @@ export function ServerSettingsModal() {
   }, [open, serverId, server?.name, server?.accentColor]);
 
   const isOwner = server?.ownerId === currentUserId;
+  const roleTabMe = roleTabMembers?.find((m) => m.userId === currentUserId);
+  const canManageRoles = can("MANAGE_ROLES", { userId: currentUserId, server, member: roleTabMe, roles });
+
+  /**
+   * Moves a role one place in the list. Up/down buttons rather than drag-and-drop, the same
+   * approach (and for the same reasons — no extra dependency, works with a thumb) as reordering
+   * rooms. @everyone is excluded: it is pinned at position 0 and the server refuses to move it, so
+   * it is left out of the movable set rather than offered and then rejected. The whole movable list
+   * is renumbered and sent on every move, so the server never has to infer intent from a partial
+   * ordering.
+   */
+  function moveRole(role: RoleDTO, direction: -1 | 1) {
+    const movable = [...(roles ?? [])].filter((r) => !r.isDefault).sort((a, b) => b.position - a.position);
+    const index = movable.findIndex((r) => r.id === role.id);
+    const target = index + direction;
+    if (index === -1 || target < 0 || target >= movable.length) return;
+
+    const reordered = [...movable];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    reorderRoles.mutate(reordered.map((r, i) => ({ id: r.id, position: reordered.length - i })));
+  }
 
   // Icons are not decoration here — they are the entire label on a phone, where the rail
   // collapses to 64px. A tab without one would be a blank button.
@@ -450,16 +476,45 @@ export function ServerSettingsModal() {
               >
                 + New role
               </button>
-              {[...(roles ?? [])].sort((a, b) => b.position - a.position).map((role) => (
-                <button
-                  key={role.id}
-                  onClick={() => openModalWith("roleEditor", { serverId, roleId: role.id })}
-                  className="flex items-center justify-between rounded bg-base-900 px-3 py-2 text-left text-sm hover:bg-base-700"
-                >
-                  <span style={{ color: role.color !== null ? `#${role.color.toString(16).padStart(6, "0")}` : undefined }}>{role.name}</span>
-                  <span className="text-xs text-signal-faint">pos {role.position}</span>
-                </button>
-              ))}
+              {[...(roles ?? [])].sort((a, b) => b.position - a.position).map((role, _index, list) => {
+                const movable = list.filter((r) => !r.isDefault);
+                const movableIndex = movable.findIndex((r) => r.id === role.id);
+                const canMoveUp = !role.isDefault && movableIndex > 0;
+                const canMoveDown = !role.isDefault && movableIndex < movable.length - 1;
+                return (
+                  <div key={role.id} className="flex items-center gap-1 rounded bg-base-900 hover:bg-base-700">
+                    <button
+                      onClick={() => openModalWith("roleEditor", { serverId, roleId: role.id })}
+                      className="flex flex-1 items-center justify-between px-3 py-2 text-left text-sm"
+                    >
+                      <span style={{ color: role.color !== null ? `#${role.color.toString(16).padStart(6, "0")}` : undefined }}>{role.name}</span>
+                      <span className="text-xs text-signal-faint">pos {role.position}</span>
+                    </button>
+                    {canManageRoles && !role.isDefault && (
+                      <span className="flex flex-col pr-2">
+                        <button
+                          onClick={() => moveRole(role, -1)}
+                          disabled={!canMoveUp}
+                          aria-label={`Move ${role.name} up`}
+                          title="Move up"
+                          className="rounded px-0.5 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
+                        >
+                          <ChevronUp size={10} />
+                        </button>
+                        <button
+                          onClick={() => moveRole(role, 1)}
+                          disabled={!canMoveDown}
+                          aria-label={`Move ${role.name} down`}
+                          title="Move down"
+                          className="rounded px-0.5 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
+                        >
+                          <ChevronDown size={10} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

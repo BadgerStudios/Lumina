@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ShieldAlert, Loader2 } from "lucide-react";
 import { useBanStore } from "../store/banStore";
+import { useBanStatus } from "../queries/bans";
 
 /**
  * Full-screen block shown to a banned user, rendered at the app root above everything else.
@@ -12,12 +14,24 @@ import { useBanStore } from "../store/banStore";
  */
 export function BanScreen() {
   const ban = useBanStore((s) => s.ban);
+  const queryClient = useQueryClient();
+  // Live status. The store only ever holds the payload from the original 403, which goes stale the
+  // moment an appeal is reviewed — this falls back to that snapshot while it loads, or if it fails,
+  // rather than showing nothing.
+  const { data: liveBan } = useBanStatus(ban?.banId);
   const [appeal, setAppeal] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!ban) return null;
+
+  const reason = liveBan?.reason ?? ban.reason;
+  // `expiresAt` is meaningful when null ("does not expire"), so it cannot fall back with ?? —
+  // that would read a live "no expiry" as "no live data yet".
+  const expiresAt = liveBan ? liveBan.expiresAt : ban.expiresAt;
+  const appealStatus = liveBan?.appealStatus ?? ban.appealStatus;
+  const appealResponse = liveBan?.appealResponse ?? null;
 
   const scopeExplanation =
     ban.scope === "DEVICE"
@@ -48,6 +62,9 @@ export function BanScreen() {
         throw new Error((data as { error?: string }).error ?? "Could not submit your appeal");
       }
       setSubmitted(true);
+      // Otherwise the live status keeps showing the pre-appeal snapshot until some arbitrary
+      // refetch happens to fire.
+      void queryClient.invalidateQueries({ queryKey: ["banStatus", ban.banId] });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -55,7 +72,7 @@ export function BanScreen() {
     }
   };
 
-  const alreadyAppealed = ban.appealStatus === "PENDING";
+  const alreadyAppealed = appealStatus === "PENDING";
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-base-900 p-4">
@@ -69,10 +86,10 @@ export function BanScreen() {
 
         <div className="mb-4 rounded-lg border border-hairline bg-base-900 p-3">
           <p className="text-xs uppercase tracking-wide text-signal-faint">Reason given</p>
-          <p className="mt-1 text-signal">{ban.reason}</p>
+          <p className="mt-1 text-signal">{reason}</p>
           <p className="mt-2 text-xs text-signal-faint">
-            {ban.expiresAt
-              ? `Expires ${new Date(ban.expiresAt).toLocaleString()}`
+            {expiresAt
+              ? `Expires ${new Date(expiresAt).toLocaleString()}`
               : "This ban does not expire automatically."}
           </p>
         </div>
@@ -91,8 +108,11 @@ export function BanScreen() {
               You'll regain access here if it's approved. There's nothing else to do for now.
             </p>
           </div>
-        ) : ban.appealStatus === "DENIED" ? (
-          <p className="text-sm text-signal-dim">This ban has already been appealed and upheld.</p>
+        ) : appealStatus === "DENIED" ? (
+          <div className="rounded-lg border border-hairline bg-base-900 p-3">
+            <p className="text-sm text-signal-dim">This ban has already been appealed and upheld.</p>
+            {appealResponse && <p className="mt-1 text-xs text-signal-faint">{appealResponse}</p>}
+          </div>
         ) : ban.banId ? (
           <div className="space-y-3">
             <label className="block">

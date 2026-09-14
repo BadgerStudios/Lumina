@@ -81,6 +81,24 @@ export function useCreatorTier(creatorId: string | undefined, enabled = true) {
   });
 }
 
+/** One membership the current user pays for — backs the "Your subscriptions" list. */
+export interface MyMembershipDTO {
+  creator: { id: string; username: string; displayName: string | null; avatarUrl: string | null };
+  status: "INCOMPLETE" | "ACTIVE" | "PAST_DUE";
+  priceMinor: number;
+  currentPeriodEnd: string | null;
+}
+
+/** The creators the current user subscribes to (GET /economy/memberships/mine). Shares the
+ * "membership" key prefix, so useCancelMembership's invalidation refreshes this too. */
+export function useMyMemberships(enabled = true) {
+  return useQuery({
+    queryKey: ["membership", "mine"],
+    queryFn: () => api.get<MyMembershipDTO[]>("/economy/memberships/mine"),
+    enabled,
+  });
+}
+
 export function useSubscribeMembership() {
   return useMutation({
     mutationFn: (body: { creatorId: string }) =>

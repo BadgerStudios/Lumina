@@ -41,6 +41,26 @@ export function useCreateEvent(serverId: string) {
   });
 }
 
+export function useUpdateEvent(serverId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      eventId,
+      ...body
+    }: {
+      eventId: string;
+      name?: string;
+      description?: string | null;
+      channelId?: string | null;
+      location?: string | null;
+      startsAt?: string;
+      endsAt?: string | null;
+    }) => api.patch<{ ok: boolean }>(`/servers/${serverId}/events/${eventId}`, body),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["events", serverId] }),
+    onError: (e) => reportError(e, "Couldn't update that event"),
+  });
+}
+
 export function useCancelEvent(serverId: string) {
   const queryClient = useQueryClient();
   return useMutation({

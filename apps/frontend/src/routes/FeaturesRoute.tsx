@@ -199,7 +199,7 @@ export function FeaturesRoute() {
               Create an account
             </Link>
             <a
-              href="/downloads/lumina.apk"
+              href="/api/download/android"
               className="rounded-lg border border-base-500 px-5 py-2.5 text-sm font-semibold text-signal hover:bg-base-700"
             >
               Download for Android
