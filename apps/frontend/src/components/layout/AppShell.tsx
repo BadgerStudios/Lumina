@@ -11,6 +11,7 @@ import { CommandPalette } from "./CommandPalette";
 import { UpdateBanner } from "./UpdateBanner";
 import { ModalRoot } from "../modals/ModalRoot";
 import { ToastHost } from "../common/ToastHost";
+import { ConnectionBanner } from "../common/ConnectionBanner";
 import { IOSInstallHint } from "../common/IOSInstallHint";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 import { BiometricGate } from "../common/BiometricGate";
@@ -225,6 +226,8 @@ export function AppShell() {
       <IncomingCallBanner />
       <CommandPalette />
       {mobileDrawer === "activity" && <ActivityFeed />}
+      {/* Makes the socket's own silent reconnection backoff visible once a live session drops. */}
+      <ConnectionBanner />
       <ToastHost />
       <MobileBottomNav />
     </div>

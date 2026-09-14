@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
   Bell,
   CalendarDays,
@@ -9,6 +10,8 @@ import {
   ChevronUp,
   FolderPlus,
   Gamepad2,
+  BellOff,
+  Link as LinkIcon,
   LogOut,
   Megaphone,
   MessagesSquare,
@@ -29,7 +32,10 @@ import { useThreads } from "../../../queries/threads";
 import { useServerFolders, useSetServerFolder, useCreateFolder } from "../../../queries/serverFolders";
 import { useMinecraftStatus } from "../../../queries/game";
 import { useVoiceRoster } from "../../../queries/voice";
-import { useUnread, useMarkServerRead } from "../../../queries/readState";
+import { useUnread, useMarkServerRead, useMarkChannelRead } from "../../../queries/readState";
+import { useSignalStore } from "../../../store/signalStore";
+import { toast } from "../../../store/toastStore";
+import { ICON } from "../../common/Icon";
 import { useUIStore } from "../../../store/uiStore";
 import { useAuthStore } from "../../../store/authStore";
 import { useVoiceStore } from "../../../store/voiceStore";
@@ -92,6 +98,11 @@ function MinecraftStatusChip({ serverId, configured }: { serverId: string; confi
   );
 }
 
+/** Shared item style for the room right-click menu — mirrors SpaceMenu's, plus the disabled
+ * treatment ContextMenu needs for "Mark as read" on a room that is already read. */
+const channelMenuItem =
+  "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-signal outline-none data-[highlighted]:bg-base-600 data-[disabled]:pointer-events-none data-[disabled]:opacity-40";
+
 function TextRoomRow({
   channel,
   active,
@@ -120,84 +131,117 @@ function TextRoomRow({
   const navigate = useNavigate();
   const closeMobileDrawer = useUIStore((s) => s.closeMobileDrawer);
   const openModalWith = useUIStore((s) => s.openModalWith);
+  const markRead = useMarkChannelRead(serverId);
+  // The only honest "mute" the app has: a client-side hide from the Signal panel until there is
+  // activity beyond now. There is no per-room notification preference on the backend, so this
+  // reuses that rather than faking a durable setting.
+  const muteChannel = useSignalStore((s) => s.muteChannel);
   const unread = unreadCount > 0;
+
+  async function copyLink() {
+    const url = `${window.location.origin}/channels/${serverId}/${channel.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Room link copied");
+    } catch {
+      toast.error("Couldn't copy the link");
+    }
+  }
+
   return (
-    <div className="group relative flex items-center">
-      <button
-        onClick={() => {
-          navigate(`/channels/${serverId}/${channel.id}`);
-          closeMobileDrawer();
-        }}
-        data-active={active}
-        data-unread={unread}
-        className="lx-row lx-focus text-sm"
-      >
-        {icon ? (
-          <span className="grid size-4 shrink-0 place-items-center text-signal-faint" aria-hidden="true">
-            {icon}
-          </span>
-        ) : (
-          <span className="lx-mark" aria-hidden="true" />
-        )}
-        <span className="min-w-0 flex-1 truncate">{channel.name}</span>
-        {unread && (
-          <>
-            <span className="sr-only">
-              {unreadCount} unread
-              {mentionCount > 0 ? `, ${mentionCount} mention${mentionCount === 1 ? "" : "s"}` : ""}
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
+      <div className="group relative flex items-center">
+        <button
+          onClick={() => {
+            navigate(`/channels/${serverId}/${channel.id}`);
+            closeMobileDrawer();
+          }}
+          data-active={active}
+          data-unread={unread}
+          className="lx-row lx-focus text-sm"
+        >
+          {icon ? (
+            <span className="grid size-4 shrink-0 place-items-center text-signal-faint" aria-hidden="true">
+              {icon}
             </span>
-            <span
-              aria-hidden="true"
-              className={cn(
-                "shrink-0 rounded-full px-1.5 font-mono text-micro font-semibold tabular-nums",
-                mentionCount > 0 ? "bg-dnd text-white" : "bg-base-500 text-signal",
-              )}
-            >
-              {mentionCount > 0
-                ? mentionCount > 99
-                  ? "99+"
-                  : mentionCount
-                : unreadCount > 99
-                  ? "99+"
-                  : unreadCount}
-            </span>
-          </>
-        )}
-      </button>
-      {canManageChannels && (
-        <span className="absolute right-1 hidden items-center gap-0.5 group-hover:flex max-md:flex">
-          {(onMoveUp || onMoveDown) && (
-            <span className="flex flex-col">
-              <button
-                onClick={onMoveUp}
-                disabled={!onMoveUp}
-                title="Move up"
-                aria-label={`Move ${channel.name} up`}
-                className="rounded px-0.5 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
-              >
-                <ChevronUp size={10} />
-              </button>
-              <button
-                onClick={onMoveDown}
-                disabled={!onMoveDown}
-                title="Move down"
-                aria-label={`Move ${channel.name} down`}
-                className="rounded px-0.5 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
-              >
-                <ChevronDown size={10} />
-              </button>
-            </span>
+          ) : (
+            <span className="lx-mark" aria-hidden="true" />
           )}
-          <button
-            onClick={() => openModalWith("channelSettings", { serverId, channelId: channel.id })}
-            title={`${channel.name} settings`}
-            className="rounded p-1 text-signal-faint hover:text-signal"
-          >
-            <Settings size={12} />
-          </button>
-        </span>
-      )}
-    </div>
+          <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+          {unread && (
+            <>
+              <span className="sr-only">
+                {unreadCount} unread
+                {mentionCount > 0 ? `, ${mentionCount} mention${mentionCount === 1 ? "" : "s"}` : ""}
+              </span>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "shrink-0 rounded-full px-1.5 font-mono text-micro font-semibold tabular-nums",
+                  mentionCount > 0 ? "bg-dnd text-white" : "bg-base-500 text-signal",
+                )}
+              >
+                {mentionCount > 0
+                  ? mentionCount > 99
+                    ? "99+"
+                    : mentionCount
+                  : unreadCount > 99
+                    ? "99+"
+                    : unreadCount}
+              </span>
+            </>
+          )}
+        </button>
+        {canManageChannels && (
+          <span className="absolute right-1 hidden items-center gap-0.5 group-hover:flex max-md:flex">
+            {(onMoveUp || onMoveDown) && (
+              <span className="flex flex-col">
+                <button
+                  onClick={onMoveUp}
+                  disabled={!onMoveUp}
+                  title="Move up"
+                  aria-label={`Move ${channel.name} up`}
+                  className="rounded px-0.5 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
+                >
+                  <ChevronUp size={10} />
+                </button>
+                <button
+                  onClick={onMoveDown}
+                  disabled={!onMoveDown}
+                  title="Move down"
+                  aria-label={`Move ${channel.name} down`}
+                  className="rounded px-0.5 leading-none text-signal-faint hover:text-signal disabled:opacity-30"
+                >
+                  <ChevronDown size={10} />
+                </button>
+              </span>
+            )}
+            <button
+              onClick={() => openModalWith("channelSettings", { serverId, channelId: channel.id })}
+              title={`${channel.name} settings`}
+              className="rounded p-1 text-signal-faint hover:text-signal"
+            >
+              <Settings size={12} />
+            </button>
+          </span>
+        )}
+      </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content className="lx-raised z-50 w-52 p-1.5">
+          <ContextMenu.Item disabled={!unread} onSelect={() => markRead.mutate(channel.id)} className={channelMenuItem}>
+            <Check size={ICON.xs} /> Mark as read
+          </ContextMenu.Item>
+          <ContextMenu.Item onSelect={() => muteChannel(channel.id, unreadCount)} className={channelMenuItem}>
+            <BellOff size={ICON.xs} /> Mute
+          </ContextMenu.Item>
+          <ContextMenu.Item onSelect={() => void copyLink()} className={channelMenuItem}>
+            <LinkIcon size={ICON.xs} /> Copy link
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }
 
