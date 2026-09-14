@@ -269,11 +269,26 @@ export async function createPost(params: {
 }
 
 export async function deletePost(id: bigint, userId: string): Promise<void> {
-  const post = await prisma.post.findUnique({ where: { id }, select: { authorId: true, deletedAt: true } });
+  const post = await prisma.post.findUnique({
+    where: { id },
+    select: { authorId: true, deletedAt: true, sharedPostId: true },
+  });
   if (!post || post.deletedAt) throw new NotFoundError("Post not found");
   if (post.authorId !== userId) throw new ForbiddenError("That isn't your post");
-  // Soft: shares of it still exist, and hard-deleting would take their cards with them.
-  await prisma.post.update({ where: { id }, data: { deletedAt: new Date() } });
+
+  await prisma.$transaction(async (tx) => {
+    // Soft: shares of it still exist, and hard-deleting would take their cards with them.
+    await tx.post.update({ where: { id }, data: { deletedAt: new Date() } });
+    // Deleting a SHARE has to give the original its count back. Without this the number only ever
+    // went up: share, delete, share again, and a post claims three shares it does not have — and a
+    // denormalised counter that can drift is one nobody trusts afterwards.
+    if (post.sharedPostId) {
+      await tx.post.update({
+        where: { id: post.sharedPostId },
+        data: { shareCount: { decrement: 1 } },
+      });
+    }
+  });
 }
 
 /** Returns the resulting state, so the caller does not have to guess which way it went. */
@@ -281,7 +296,7 @@ export async function toggleLike(postId: bigint, userId: string): Promise<{ like
   const post = await prisma.post.findUnique({ where: { id: postId }, select: { deletedAt: true } });
   if (!post || post.deletedAt) throw new NotFoundError("Post not found");
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // deleteMany rather than delete: it reports how many rows it removed instead of throwing when
     // there were none, which is exactly the "was it liked" question being asked.
     const removed = await tx.postLike.deleteMany({ where: { postId, userId } });
@@ -303,6 +318,15 @@ export async function toggleLike(postId: bigint, userId: string): Promise<{ like
     });
     return { liked: true, likeCount: updated.likeCount };
   });
+
+  // After the transaction, matching the comment and share paths. Only on the way UP: unliking is
+  // not an event anyone wants told about, and re-liking bumps the existing bundle rather than
+  // producing a second one.
+  if (result.liked) {
+    void notifyPostAuthor({ postId, actorId: userId, kind: "POST_LIKE", verb: "liked your post" })
+      .catch(() => undefined);
+  }
+  return result;
 }
 
 export interface CommentDTO {
@@ -397,14 +421,34 @@ export async function addComment(params: {
 export async function deleteComment(id: bigint, userId: string): Promise<void> {
   const comment = await prisma.postComment.findUnique({
     where: { id },
-    select: { authorId: true, postId: true, deletedAt: true },
+    select: { authorId: true, postId: true, deletedAt: true, parentId: true },
   });
   if (!comment || comment.deletedAt) throw new NotFoundError("Comment not found");
   if (comment.authorId !== userId) throw new ForbiddenError("That isn't your comment");
 
+  // Replies go with it. listComments assembles a thread by looking each reply's parent up in the
+  // map of visible comments, so a soft-deleted parent left its replies pointing at nothing: they
+  // disappeared from the thread while their rows stayed undeleted, and the count only fell by one.
+  // Removing the whole branch is also what the platforms this is modelled on do.
+  const replies = comment.parentId
+    ? []
+    : await prisma.postComment.findMany({
+        where: { parentId: id, deletedAt: null },
+        select: { id: true },
+      });
+
+  const now = new Date();
   await prisma.$transaction(async (tx) => {
-    await tx.postComment.update({ where: { id }, data: { deletedAt: new Date() } });
-    await tx.post.update({ where: { id: comment.postId }, data: { commentCount: { decrement: 1 } } });
+    await tx.postComment.updateMany({
+      where: { id: { in: [id, ...replies.map((r) => r.id)] }, deletedAt: null },
+      data: { deletedAt: now },
+    });
+    await tx.post.update({
+      where: { id: comment.postId },
+      // Floored by the caller's own read: the count must fall by exactly what stopped being
+      // visible, which is the comment plus every reply under it.
+      data: { commentCount: { decrement: 1 + replies.length } },
+    });
   });
 }
 
