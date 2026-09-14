@@ -131,6 +131,20 @@ const envSchema = z.object({
    * question — just more heavily.
    */
   DIDIT_AGE_WORKFLOW_ID: z.string().optional(),
+  /**
+   * Whether anyone can actually start an age check. OFF by default, and off deliberately rather
+   * than by omission: the workflow exists and the plumbing works, but the decision to put a face
+   * scan in front of people is a product decision, not a consequence of having configured a
+   * provider. Turning it on is one variable; nothing else has to change.
+   *
+   * Off does NOT weaken anything. Age is still recorded at signup, under-18 signups are still
+   * refused, the contact and visibility separation still applies, and 18+ spaces still refuse
+   * joins — the check was only ever a way to settle a doubt about an existing account.
+   */
+  AGE_CHECK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
   DIDIT_WEBHOOK_SECRET: z.string().optional(),
   DIDIT_BASE_URL: z.string().default("https://verification.didit.me"),
 

@@ -173,6 +173,9 @@ const AGE_ESTIMATE_ADULT_MARGIN = 5;
  * anyone has set DIDIT_AGE_WORKFLOW_ID — just more heavily than it should.
  */
 export async function startAgeCheck(userId: string): Promise<StartOutcome> {
+  // The switch is read here rather than at the route, so every future caller inherits it: an age
+  // check that can be started from somewhere that forgot to check a flag is not switched off.
+  if (!env.AGE_CHECK_ENABLED) return { mode: "manual_review" };
   if (!isDiditConfigured()) return { mode: "manual_review" };
   try {
     const session = await createDiditSession(userId, undefined, env.DIDIT_AGE_WORKFLOW_ID);
@@ -254,6 +257,7 @@ export async function applyAgeEstimate(userId: string, estimatedAge: number | nu
 export async function pollAgeCheckForUser(
   userId: string,
 ): Promise<{ status: string; estimatedAge: number | null } | null> {
+  if (!env.AGE_CHECK_ENABLED) return null;
   if (!isDiditConfigured()) return null;
   const latest = await prisma.ageVerification.findFirst({
     where: { userId, source: "didit_age_estimation", inquiryId: { not: null } },
