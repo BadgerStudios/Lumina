@@ -19,6 +19,7 @@ import { useCustomEmojis } from "../../queries/emoji";
 import { ReactionPicker } from "./ReactionPicker";
 import { cn } from "../../lib/cn";
 import { useConfirm } from "../common/ConfirmDialog";
+import { Tooltip } from "../common/Tooltip";
 import { useCreateDM } from "../../queries/dms";
 import { reportError, toast } from "../../store/toastStore";
 import { PUBLIC_ORIGIN } from "../../lib/platform";
@@ -407,95 +408,101 @@ export function MessageItem({
       {!editing && (
         <div className="lx-msg-actions">
           <ReactionPicker onPick={(emoji) => onReact(message.id, emoji)} />
-          <button onClick={() => onReply(message)} className={iconBtn} title="Reply" aria-label="Reply">
-            <Reply size={15} />
-          </button>
-          <button
-            onClick={() =>
-              openReport("forward", {
-                content: message.content,
-                authorLabel: displayName,
-                attachmentCount: message.attachments.length,
-              })
-            }
-            className={iconBtn}
-            title="Forward"
-            aria-label="Forward message"
-          >
-            <Forward size={15} />
-          </button>
-          {message.channelId && (
-            <button
-              onClick={() => markUnread.mutate({ channelId: message.channelId!, messageId: message.id })}
-              className={iconBtn}
-              title="Mark unread"
-              aria-label="Mark unread from here"
-            >
-              <Mail size={15} />
+          <Tooltip content="Reply">
+            <button onClick={() => onReply(message)} className={iconBtn} aria-label="Reply">
+              <Reply size={15} />
             </button>
+          </Tooltip>
+          <Tooltip content="Forward">
+            <button
+              onClick={() =>
+                openReport("forward", {
+                  content: message.content,
+                  authorLabel: displayName,
+                  attachmentCount: message.attachments.length,
+                })
+              }
+              className={iconBtn}
+              aria-label="Forward message"
+            >
+              <Forward size={15} />
+            </button>
+          </Tooltip>
+          {message.channelId && (
+            <Tooltip content="Mark unread">
+              <button
+                onClick={() => markUnread.mutate({ channelId: message.channelId!, messageId: message.id })}
+                className={iconBtn}
+                aria-label="Mark unread from here"
+              >
+                <Mail size={15} />
+              </button>
+            </Tooltip>
           )}
           {linkPath && (
-            <button
-              onClick={() => void copyMessageLink()}
-              className={iconBtn}
-              title="Copy message link"
-              aria-label="Copy message link"
-            >
-              <LinkIcon size={15} />
-            </button>
+            <Tooltip content="Copy message link">
+              <button onClick={() => void copyMessageLink()} className={iconBtn} aria-label="Copy message link">
+                <LinkIcon size={15} />
+              </button>
+            </Tooltip>
           )}
           {onStartThread && message.channelId && (
-            <button
-              onClick={() => (message.thread ? onOpenThread?.(message.thread.id) : onStartThread(message))}
-              className={iconBtn}
-              title={message.thread ? "Open thread" : "Start a thread"}
-              aria-label={message.thread ? "Open thread" : "Start a thread"}
-            >
-              <MessagesSquare size={15} />
-            </button>
+            <Tooltip content={message.thread ? "Open thread" : "Start a thread"}>
+              <button
+                onClick={() => (message.thread ? onOpenThread?.(message.thread.id) : onStartThread(message))}
+                className={iconBtn}
+                aria-label={message.thread ? "Open thread" : "Start a thread"}
+              >
+                <MessagesSquare size={15} />
+              </button>
+            </Tooltip>
           )}
           {onTogglePin && canManage && message.channelId && (
-            <button
-              onClick={() => onTogglePin(message.id, !message.pinned)}
-              className={iconBtn}
-              title={message.pinned ? "Unpin" : "Pin"}
-              aria-label={message.pinned ? "Unpin" : "Pin"}
-            >
-              {message.pinned ? <PinOff size={15} /> : <Pin size={15} />}
-            </button>
+            <Tooltip content={message.pinned ? "Unpin" : "Pin"}>
+              <button
+                onClick={() => onTogglePin(message.id, !message.pinned)}
+                className={iconBtn}
+                aria-label={message.pinned ? "Unpin" : "Pin"}
+              >
+                {message.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+              </button>
+            </Tooltip>
           )}
           {!isOwn && (
-            <button
-              onClick={() => openReport("report", { targetType: "MESSAGE", targetId: message.id, label: displayName })}
-              className={iconBtn}
-              title="Report message"
-              aria-label="Report message"
-            >
-              <Flag size={15} />
-            </button>
+            <Tooltip content="Report message">
+              <button
+                onClick={() => openReport("report", { targetType: "MESSAGE", targetId: message.id, label: displayName })}
+                className={iconBtn}
+                aria-label="Report message"
+              >
+                <Flag size={15} />
+              </button>
+            </Tooltip>
           )}
           {canEdit && (
-            <button
-              onClick={() => {
-                setDraft(message.content);
-                setEditing(true);
-              }}
-              className={iconBtn}
-              title="Edit"
-              aria-label="Edit"
-            >
-              <Pencil size={15} />
-            </button>
+            <Tooltip content="Edit">
+              <button
+                onClick={() => {
+                  setDraft(message.content);
+                  setEditing(true);
+                }}
+                className={iconBtn}
+                aria-label="Edit"
+              >
+                <Pencil size={15} />
+              </button>
+            </Tooltip>
           )}
           {canDelete && (
-            <button
-              onClick={(e) => void confirmDelete(e)}
-              className="rounded-md p-1 text-signal-dim transition hover:bg-base-600 hover:text-flare"
-              title="Delete (shift-click to skip confirm)"
-              aria-label="Delete"
-            >
-              <Trash2 size={15} />
-            </button>
+            <Tooltip content="Delete (shift-click to skip the confirm)">
+              <button
+                onClick={(e) => void confirmDelete(e)}
+                className="rounded-md p-1 text-signal-dim transition hover:bg-base-600 hover:text-flare"
+                aria-label="Delete"
+              >
+                <Trash2 size={15} />
+              </button>
+            </Tooltip>
           )}
         </div>
       )}
