@@ -13,6 +13,7 @@ import { assertPassesAutoMod } from "../automod/service.js";
 import { assertPassesVerification } from "../servers/verification.js";
 import { scheduleLinkPreviews } from "../../lib/linkPreview.js";
 import { isBlockedEitherWay } from "../friends/service.js";
+import { auditContact } from "../age/barrierAudit.js";
 import { touchThreadActivity } from "../threads/service.js";
 import { assertNotLockedMinor } from "../parental/service.js";
 import { pushInboxNotification } from "../inbox/service.js";
@@ -462,6 +463,15 @@ export async function createDMMessage(params: {
   });
   if (others.length === 1 && (await isBlockedEitherWay(params.userId, others[0].userId))) {
     throw new ForbiddenError("You can't message this person");
+  }
+
+  // The age separation is enforced when a DM is STARTED and never when one is written in. A pair
+  // who already have a conversation — opened before the rule, or through a path nobody gated — can
+  // keep messaging indefinitely, and no gate will ever report it because none is crossed. This does
+  // not block them: it records that it happened, so the gap can be found and closed deliberately.
+  // Fire-and-forget, because a detector must never be able to fail the send it is observing.
+  if (others.length === 1) {
+    void auditContact("dm_message", params.userId, others[0].userId, `conversation=${params.conversationId}`);
   }
 
   assertHasContent(params.content, params.attachments, params);

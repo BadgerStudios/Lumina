@@ -20,6 +20,7 @@ import { fetchPreview, broadcastEmbeds } from "./lib/linkPreview.js";
 import { sweepArchivableThreads } from "./modules/threads/service.js";
 import { releaseMaturedEarnings } from "./modules/economy/service.js";
 import { purgeExpiredReviewDocuments } from "./modules/verification/service.js";
+import { sweepBarrierLeaks } from "./modules/age/barrierAudit.js";
 import { sweepAdPools } from "./modules/economy/pools.js";
 import { sweepEventReminders } from "./modules/events/service.js";
 import { rotatePqKeys } from "./modules/pq/service.js";
@@ -320,6 +321,25 @@ async function main() {
       console.error("[worker] identity-document purge failed:", err);
     }
   };
+  // Contact across the age line that no gate ever saw — a conversation opened before the rule, a
+  // pair whose ages changed after they met. The per-message detector only notices pairs who write
+  // to each other again; this finds the ones sitting there silently. Hourly and bounded: it is
+  // looking for a handful of findings, not racing anything.
+  const barrierSweepTick = async () => {
+    try {
+      const found = await sweepBarrierLeaks();
+      if (found > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[worker] age barrier: ${found} standing leak(s) flagged for review`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] age barrier sweep failed", err);
+    }
+  };
+  void barrierSweepTick();
+  const barrierSweepTimer = setInterval(() => void barrierSweepTick(), 60 * 60 * 1000);
+
   void identityDocTick();
   const identityDocTimer = setInterval(() => void identityDocTick(), 15 * 60 * 1000);
   identityDocTimer.unref();
