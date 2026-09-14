@@ -307,6 +307,40 @@ export default async function authRoutes(fastify: FastifyInstance) {
         }
       }
 
+      // Has this device signed in as somebody else before? RefreshToken is where a device
+      // fingerprint gets recorded against an account, so it is the only table that can answer it.
+      //
+      // Recorded, never enforced. A shared device is the ordinary case and refusing the second
+      // account would take out households and shared machines to catch the few that are alts —
+      // the owner gets told and makes the call. Fire-and-forget for the same reason as the flags
+      // around it: a signup must not get slower, or fail, because of a lookup that only produces
+      // context.
+      if (fingerprint) {
+        void (async () => {
+          try {
+            const priorSessions = await prisma.refreshToken.findMany({
+              where: { deviceFingerprint: fingerprint, userId: { not: user.id } },
+              select: { userId: true },
+              distinct: ["userId"],
+              take: 10,
+            });
+            if (priorSessions.length === 0) return;
+            await recordFlag({
+              userId: user.id,
+              email: user.email,
+              ipAddress: request.ip,
+              deviceFingerprint: fingerprint,
+              reasonCode: "DEVICE_MULTI_ACCOUNT",
+              detail: `shares a device with ${priorSessions.length} existing account(s): ${priorSessions
+                .map((s) => s.userId)
+                .join(", ")}`,
+            });
+          } catch {
+            /* context only — never worth failing or delaying a signup for */
+          }
+        })();
+      }
+
       // Fire-and-forget, severity INFO: using a VPN is not misconduct, and this is only ever
       // context for a later decision. Never awaited — a signup must not get slower, or fail,
       // because a reputation lookup was slow.

@@ -40,6 +40,22 @@ export const BLOCK_REASONS: BlockReason[] = [
     selfResolvable: false,
   },
   {
+    code: "DEVICE_MULTI_ACCOUNT",
+    title: "Another account already signs in on this device",
+    category: "device",
+    // INFO on purpose, which means the flag records the event and blocks nothing. A shared device
+    // is the normal case, not the suspicious one — a household, a flatmate, a library machine, a
+    // phone handed over to set something up. Refusing the second account would take out every one
+    // of those to catch the small share that are alts, and the person refused would have no way to
+    // prove otherwise. The owner is told instead, and decides.
+    severity: "INFO",
+    userMessage:
+      "This device has been used for another account. That's usually fine — nothing is blocked, and there's nothing you need to do.",
+    staffNote:
+      "A new account was created on a device that already held a session for at least one other account. Signup was ALLOWED. Ordinary causes far outnumber abuse here: shared computers, families, a second account someone made on purpose. Treat it as context for a later decision, not as evidence on its own — check whether the accounts behave like one person evading something before acting.",
+    selfResolvable: false,
+  },
+  {
     code: "AGE_UNDER_MINIMUM",
     title: "Under 18 — not eligible",
     category: "age",
