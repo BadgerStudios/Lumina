@@ -7,6 +7,7 @@ import { requireAuth, requireMembership, requirePermission, resolveServerId } fr
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { getIO } from "../../realtime/io.js";
+import { assertAgeEligibleToJoin } from "../servers/verification.js";
 
 const memberInclude = { user: true, roles: { select: { roleId: true } } } as const;
 
@@ -99,6 +100,10 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
     if (existing) {
       return serializeMember(existing);
     }
+
+    // Before the transaction: an age-ineligible join should not consume one of a limited-use
+    // invite's uses on its way to being refused.
+    await assertAgeEligibleToJoin(request.userId!, invite.serverId);
 
     const membership = await prisma.$transaction(async (tx) => {
       // A vanity code has no Invite row; incrementing would throw on a record that does not exist.

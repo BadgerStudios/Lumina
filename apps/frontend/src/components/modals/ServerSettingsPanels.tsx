@@ -237,6 +237,12 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
           checked={server.sysLeaveMessages}
           onChange={(v) => save({ sysLeaveMessages: v })}
         />
+        <Toggle
+          label="18+ only"
+          hint="People under 18 can't join. Anyone already in the space stays — remove them yourself if you mean to."
+          checked={server.adultOnly}
+          onChange={(v) => save({ adultOnly: v })}
+        />
         {/* No "Celebrate server boosts" toggle: boosting is not a feature, so nothing can ever
             post a boost message and the switch promised something that could never happen. The
             sysBoostMessages field stays in the schema for whenever boosting is actually built. */}

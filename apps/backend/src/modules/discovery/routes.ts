@@ -8,6 +8,7 @@ import { serializeMember } from "../../lib/serialize.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { getIO } from "../../realtime/io.js";
 import { getDiscovery } from "./service.js";
+import { assertAgeEligibleToJoin } from "../servers/verification.js";
 
 // Same include inviteRoutes uses — serializeMember needs user + role ids.
 const memberInclude = { user: true, roles: { select: { roleId: true } } } as const;
@@ -43,6 +44,8 @@ export default async function discoveryRoutes(fastify: FastifyInstance) {
       include: memberInclude,
     });
     if (existing) return serializeMember(existing);
+
+    await assertAgeEligibleToJoin(request.userId!, id);
 
     const membership = await prisma.membership.create({
       data: { userId: request.userId!, serverId: id },

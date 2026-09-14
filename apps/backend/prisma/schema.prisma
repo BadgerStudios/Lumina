@@ -498,6 +498,14 @@ model Server {
   /// property: every server on this instance predates discovery, and none of them chose to be
   /// listed. An unscoped directory would leak the name and existence of every private community —
   /// the same concern lookup/routes.ts documents for server search.
+  /// 18+ only. An account known to be under 18 cannot JOIN — existing members are untouched,
+  /// because removing people from a space they are already in is a heavier decision than declining
+  /// a new join, and one an owner should make deliberately rather than as a side effect of a toggle.
+  ///
+  /// Defaults to false so enabling it is always a choice. Defaulting to true would lock every
+  /// account whose age predates age collection out of every new space, which is a regression
+  /// dressed up as a safety default.
+  adultOnly             Boolean                @default(false)
   discoverable          Boolean                @default(false)
   /// THE first-party Lumina community, shown with a badge that cannot be faked.
   ///

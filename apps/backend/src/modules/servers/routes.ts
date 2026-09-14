@@ -47,6 +47,7 @@ const updateServerSchema = z.object({
   sysBoostMessages: z.boolean().optional(),
   rulesChannelId: z.string().nullable().optional(),
   /// Opt in to the public Discover surface. MANAGE_SERVER-gated like everything else here.
+  adultOnly: z.boolean().optional(),
   discoverable: z.boolean().optional(),
   /// host or host:port of the community's Minecraft server. Validated for SHAPE here; whether the
   /// address is safe to dial is decided at ping time against the resolved IP, where it can't rot.
@@ -189,6 +190,7 @@ export default async function serversRoutes(fastify: FastifyInstance) {
           ...(body.sysLeaveMessages !== undefined ? { sysLeaveMessages: body.sysLeaveMessages } : {}),
           ...(body.sysBoostMessages !== undefined ? { sysBoostMessages: body.sysBoostMessages } : {}),
           ...(body.rulesChannelId !== undefined ? { rulesChannelId: body.rulesChannelId } : {}),
+          ...(body.adultOnly !== undefined ? { adultOnly: body.adultOnly } : {}),
           ...(body.discoverable !== undefined ? { discoverable: body.discoverable } : {}),
           ...(body.minecraftHost !== undefined ? { minecraftHost: body.minecraftHost } : {}),
         },

@@ -35,6 +35,34 @@ import { computeEffectivePermissions } from "../../permissions/permissionService
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const TEN_MINUTES_MS = 10 * 60 * 1000;
 
+/**
+ * Refuses a join into an 18+ space by an account known to be under 18.
+ *
+ * Join-time only, deliberately. Turning the setting on does not eject anyone already inside: that
+ * is a heavier decision than declining a new join and belongs to the owner rather than to a flag
+ * flip. The contact and visibility rules (modules/age, modules/parental) keep applying to whoever
+ * is already there either way.
+ *
+ * "Known to be under 18" means the age was actually recorded. An account with no recorded age is
+ * let through, which is the same call modules/parental/visibility.ts makes about an unclassified
+ * viewer and for the same reason: signups have been refused under 18 for a long time, so an
+ * unrecorded age is a legacy account rather than a hidden minor — and treating it as a minor would
+ * lock those accounts out of spaces over a suspicion the signup gate has already answered.
+ */
+export async function assertAgeEligibleToJoin(userId: string, serverId: string): Promise<void> {
+  const server = await prisma.server.findUnique({ where: { id: serverId }, select: { adultOnly: true } });
+  // The common case, and why this is cheap enough to sit in every join path.
+  if (!server?.adultOnly) return;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isMinor: true, ageRecordedAt: true },
+  });
+  if (user?.isMinor && user.ageRecordedAt !== null) {
+    throw new ForbiddenError("This space is for people aged 18 and over.");
+  }
+}
+
 export async function assertPassesVerification(userId: string, serverId: string): Promise<void> {
   const server = await prisma.server.findUnique({
     where: { id: serverId },

@@ -248,6 +248,8 @@ export interface ServerDTO {
   sysLeaveMessages: boolean;
   sysBoostMessages: boolean;
   rulesChannelId: string | null;
+  /** 18+ only: an account known to be under 18 cannot join. Existing members are unaffected. */
+  adultOnly: boolean;
   discoverable: boolean;
   minecraftHost: string | null;
   /// True only for the first-party Lumina community. MASTER-only; see Server.isOfficial.

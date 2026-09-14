@@ -194,6 +194,7 @@ type ServerLike = {
   sysLeaveMessages?: boolean;
   sysBoostMessages?: boolean;
   rulesChannelId?: string | null;
+  adultOnly?: boolean;
   discoverable?: boolean;
   minecraftHost?: string | null;
   isOfficial?: boolean;
@@ -223,6 +224,7 @@ export function serializeServer(server: ServerLike): ServerDTO {
     sysLeaveMessages: server.sysLeaveMessages ?? false,
     sysBoostMessages: server.sysBoostMessages ?? true,
     rulesChannelId: server.rulesChannelId ?? null,
+    adultOnly: server.adultOnly ?? false,
     discoverable: server.discoverable ?? false,
     minecraftHost: server.minecraftHost ?? null,
     isOfficial: server.isOfficial ?? false,
