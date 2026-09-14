@@ -9,17 +9,80 @@ import { useStickers } from "../../queries/expressions";
 import { resolveAssetUrl } from "../../lib/apiClient";
 
 /**
- * Sticker picker.
+ * The searchable grid, without a trigger of its own.
+ *
+ * Separated from the picker below so the composer can put it inside its overflow menu as a
+ * submenu, rather than nesting one DropdownMenu.Root inside another — which Radix has
+ * `DropdownMenu.Sub` for, and which needs the content on its own.
+ *
+ * `active` gates the fetch: stickers are only worth loading once something is actually showing
+ * them, and both callers know when that is.
+ */
+export function StickerGrid({
+  serverId,
+  onPick,
+  active,
+}: {
+  serverId: string;
+  onPick: (stickerId: string) => void;
+  active: boolean;
+}) {
+  const [filter, setFilter] = useState("");
+  const { data: stickers, isLoading } = useStickers(active ? serverId : undefined);
+
+  const visible = (stickers ?? []).filter((s) =>
+    s.name.toLowerCase().includes(filter.trim().toLowerCase()),
+  );
+
+  return (
+    <>
+      <input
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        onKeyDown={(e) => e.stopPropagation()}
+        placeholder="Search stickers"
+        aria-label="Search stickers"
+        className="mb-2 w-full rounded bg-base-600 px-2 py-1.5 text-sm text-signal outline-none placeholder:text-signal-faint"
+      />
+      {isLoading ? (
+        <p className="p-4 text-center text-xs text-signal-faint">Loading…</p>
+      ) : visible.length === 0 ? (
+        <p className="p-4 text-center text-xs text-signal-faint">
+          {stickers?.length ? "Nothing matches that." : "This server has no stickers yet."}
+        </p>
+      ) : (
+        <div className="grid max-h-64 grid-cols-3 gap-1 overflow-y-auto">
+          {visible.map((sticker) => (
+            <button
+              key={sticker.id}
+              type="button"
+              onClick={() => onPick(sticker.id)}
+              title={sticker.description ?? sticker.name}
+              className="flex flex-col items-center gap-0.5 rounded p-1.5 hover:bg-base-600"
+            >
+              <img
+                src={resolveAssetUrl(sticker.imageUrl)}
+                alt={sticker.name}
+                className="h-16 w-16 object-contain"
+                draggable={false}
+              />
+              <span className="w-full truncate text-center text-[10px] text-signal-dim">{sticker.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Sticker picker with its own button.
  *
  * Only rendered when there is a server to pick from — stickers are server-scoped, so in a DM there
  * is nothing to show and the button is absent rather than present and empty.
  */
 export function StickerPicker({ serverId, onPick }: { serverId: string; onPick: (stickerId: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState("");
-  const { data: stickers, isLoading } = useStickers(open ? serverId : undefined);
-
-  const visible = (stickers ?? []).filter((s) => s.name.toLowerCase().includes(filter.trim().toLowerCase()));
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>
@@ -40,44 +103,14 @@ export function StickerPicker({ serverId, onPick }: { serverId: string; onPick: 
           sideOffset={8}
           className="z-50 w-72 rounded-lg border border-base-500 bg-base-700 p-2 shadow-lg"
         >
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            placeholder="Search stickers"
-            aria-label="Search stickers"
-            className="mb-2 w-full rounded bg-base-600 px-2 py-1.5 text-sm text-signal outline-none placeholder:text-signal-faint"
+          <StickerGrid
+            serverId={serverId}
+            active={open}
+            onPick={(id) => {
+              onPick(id);
+              setOpen(false);
+            }}
           />
-          {isLoading ? (
-            <p className="p-4 text-center text-xs text-signal-faint">Loading…</p>
-          ) : visible.length === 0 ? (
-            <p className="p-4 text-center text-xs text-signal-faint">
-              {stickers?.length ? "Nothing matches that." : "This server has no stickers yet."}
-            </p>
-          ) : (
-            <div className="grid max-h-64 grid-cols-3 gap-1 overflow-y-auto">
-              {visible.map((sticker) => (
-                <button
-                  key={sticker.id}
-                  type="button"
-                  onClick={() => {
-                    onPick(sticker.id);
-                    setOpen(false);
-                  }}
-                  title={sticker.description ?? sticker.name}
-                  className="flex flex-col items-center gap-0.5 rounded p-1.5 hover:bg-base-600"
-                >
-                  <img
-                    src={resolveAssetUrl(sticker.imageUrl)}
-                    alt={sticker.name}
-                    className="h-16 w-16 object-contain"
-                    draggable={false}
-                  />
-                  <span className="w-full truncate text-center text-[10px] text-signal-dim">{sticker.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

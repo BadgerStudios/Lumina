@@ -1,9 +1,10 @@
 import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import { BarChart3, EyeOff, Mic, Plus, Send, Square, Upload, X } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { BarChart3, EyeOff, Mic, MoreHorizontal, Plus, Send, Square, Sticker as StickerIcon, Upload, X } from "lucide-react";
 import { ClientEvents, MAX_MESSAGE_LENGTH } from "@lumina/shared";
 import type { MemberDTO } from "@lumina/shared";
 import { getSocket } from "../../socket/socketClient";
-import { StickerPicker } from "./StickerPicker";
+import { StickerGrid } from "./StickerPicker";
 import { EmojiPicker } from "./EmojiPicker";
 import { MentionPalette, findMentionQuery } from "./MentionPalette";
 import { useMembers } from "../../queries/members";
@@ -15,6 +16,116 @@ import type { RichSendPayload } from "../../queries/messages";
 import type { SlashCommandDTO } from "@lumina/shared";
 
 const TYPING_THROTTLE_MS = 2500;
+
+/**
+ * The composer's overflow menu.
+ *
+ * Send, emoji and attach stay on the bar because they are what people reach for constantly.
+ * Everything else was competing with them for the same strip of space beside a one-line text
+ * field, which made the box you are supposed to type in the smallest thing in its own row.
+ *
+ * Stickers appear as a SUBMENU rather than as an item that opens a second popover: the grid needs
+ * a search box and its own scroll area, and Radix has `Sub` for exactly this. Nesting a second
+ * DropdownMenu.Root inside a menu instead would mean juggling two open states and a close that
+ * races the open.
+ */
+function ComposerOverflow({
+  serverId,
+  rich,
+  canRecord,
+  onRecord,
+  onPoll,
+  onSpoiler,
+  onSticker,
+}: {
+  serverId?: string;
+  /** Rich sends (stickers, polls) are only available where the caller supports them. */
+  rich: boolean;
+  canRecord: boolean;
+  onRecord: () => void;
+  onPoll: () => void;
+  onSpoiler: () => void;
+  onSticker: (stickerId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [stickersOpen, setStickersOpen] = useState(false);
+
+  const item =
+    "flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-signal outline-none " +
+    "data-[highlighted]:bg-base-600";
+
+  return (
+    <DropdownMenu.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setStickersOpen(false);
+      }}
+    >
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-signal-dim transition hover:bg-base-600 hover:text-signal"
+          title="More"
+          aria-label="More composer options"
+        >
+          <MoreHorizontal size={18} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          side="top"
+          align="end"
+          sideOffset={8}
+          className="z-50 w-52 rounded-lg border border-base-500 bg-base-700 p-1 shadow-lg"
+        >
+          {canRecord ? (
+            <DropdownMenu.Item className={item} onSelect={onRecord}>
+              <Mic size={16} className="shrink-0 text-signal-dim" />
+              Voice message
+            </DropdownMenu.Item>
+          ) : null}
+
+          {serverId && rich ? (
+            <DropdownMenu.Sub open={stickersOpen} onOpenChange={setStickersOpen}>
+              <DropdownMenu.SubTrigger className={item}>
+                <StickerIcon size={16} className="shrink-0 text-signal-dim" />
+                Sticker
+              </DropdownMenu.SubTrigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent
+                  sideOffset={8}
+                  className="z-50 w-72 rounded-lg border border-base-500 bg-base-700 p-2 shadow-lg"
+                >
+                  <StickerGrid
+                    serverId={serverId}
+                    active={stickersOpen}
+                    onPick={(id) => {
+                      onSticker(id);
+                      setOpen(false);
+                    }}
+                  />
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Sub>
+          ) : null}
+
+          {rich ? (
+            <DropdownMenu.Item className={item} onSelect={onPoll}>
+              <BarChart3 size={16} className="shrink-0 text-signal-dim" />
+              Poll
+            </DropdownMenu.Item>
+          ) : null}
+
+          <DropdownMenu.Item className={item} onSelect={onSpoiler}>
+            <EyeOff size={16} className="shrink-0 text-signal-dim" />
+            Spoiler
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
 
 export function Composer({
   placeholder,
@@ -466,17 +577,20 @@ export function Composer({
             >
               <Plus size={19} />
             </button>
-            <button
-              onClick={toggleRecord}
-              className={
-                "lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition " +
-                (recording ? "bg-dnd/20 text-dnd" : "text-signal-dim hover:bg-base-600 hover:text-signal")
-              }
-              title={recording ? "Stop and send voice message" : "Record a voice message"}
-              aria-label={recording ? "Stop and send voice message" : "Record a voice message"}
-            >
-              {recording ? <Square size={16} /> : <Mic size={18} />}
-            </button>
+            {/* Starting a recording lives in the overflow menu, but STOPPING one cannot:
+                a control you need in order to end something already happening must be on
+                screen, not two interactions away behind a menu. So this appears only while
+                recording, and is the one button that comes back out. */}
+            {recording ? (
+              <button
+                onClick={toggleRecord}
+                className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-dnd/20 text-dnd transition"
+                title="Stop and send voice message"
+                aria-label="Stop and send voice message"
+              >
+                <Square size={16} />
+              </button>
+            ) : null}
           </>
         )}
         <textarea
@@ -505,30 +619,19 @@ export function Composer({
           rows={1}
           className="max-h-40 flex-1 resize-none bg-transparent px-1 py-1.5 text-sm text-signal outline-none placeholder:text-signal-faint"
         />
-        {/* Stickers are server-scoped, so in a DM there is nothing to pick from and the control is
-            absent rather than present and empty. */}
+        {/* Emoji stays out here. Everything else people reach for occasionally — a sticker, a
+            poll, a spoiler, a voice message — is behind the overflow, because seven controls
+            around a one-line text field is a lot of surface for a box you are meant to type in. */}
         <EmojiPicker serverId={serverId} onPick={insertAtCaret} />
-        {serverId && onSendRich ? <StickerPicker serverId={serverId} onPick={(id) => void sendSticker(id)} /> : null}
-        {onSendRich ? (
-          <button
-            type="button"
-            onClick={() => setBuildingPoll((b) => !b)}
-            className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-signal-dim transition hover:bg-base-600 hover:text-signal"
-            title="Attach a poll"
-            aria-label="Attach a poll"
-          >
-            <BarChart3 size={17} />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={wrapSelectionInSpoiler}
-          className="lx-focus mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-signal-dim transition hover:bg-base-600 hover:text-signal"
-          title="Mark as a spoiler (||hidden||)"
-          aria-label="Mark the selected text as a spoiler"
-        >
-          <EyeOff size={16} />
-        </button>
+        <ComposerOverflow
+          serverId={serverId}
+          rich={Boolean(onSendRich)}
+          canRecord={Boolean(onSendRich) && !recording}
+          onRecord={() => void toggleRecord()}
+          onPoll={() => setBuildingPoll((b) => !b)}
+          onSpoiler={wrapSelectionInSpoiler}
+          onSticker={(id) => void sendSticker(id)}
+        />
         <button
           onClick={() => void submit()}
           disabled={sending || (!value.trim() && files.length === 0 && !poll)}
