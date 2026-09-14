@@ -24,7 +24,11 @@ self.addEventListener("push", (event) => {
       body,
       tag,
       icon: "/icons/pwa-192.png",
-      badge: "/icons/pwa-192.png",
+      // NOT the app icon. Android throws the badge's colour away and paints its ALPHA in a single
+      // tone, so an opaque square — which is what pwa-192 is — renders as a solid white block in
+      // the status bar. badge-96 is a silhouette of the mark, carried entirely in alpha, which is
+      // the only shape this field can draw. Built by scripts/build-notification-badge.mjs.
+      badge: "/icons/badge-96.png",
       data: { url: url || "/" },
       // --- wearable behaviour ------------------------------------------------------------------
       // A phone notification is glanced at; a watch notification is felt. These four fields are

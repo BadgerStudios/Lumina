@@ -18,7 +18,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { api } from "../lib/apiClient";
 import { useAuthStore } from "../store/authStore";
 import { useUIStore } from "../store/uiStore";
-import { playNotificationSound } from "../lib/notificationSound";
+import { playMentionSound, playNotificationSound } from "../lib/notificationSound";
 import { usePresenceStore } from "../store/presenceStore";
 import { useTypingStore } from "../store/typingStore";
 import { useActiveSelectionStore } from "../store/activeSelectionStore";
@@ -253,7 +253,9 @@ export function useSocketEvents(): void {
     // a hand-patched insert like the higher-traffic handlers above.
     const onMentionNotification = () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.myMentions() });
-      if (useUIStore.getState().notificationSoundEnabled) playNotificationSound();
+      // The mention motif, not the message one: being named is the case where knowing what
+      // happened without looking at the screen is worth something.
+      if (useUIStore.getState().notificationSoundEnabled) playMentionSound();
     };
 
     // Friend request lifecycle push (modules/friends/service.ts) — invalidate rather than
