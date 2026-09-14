@@ -80,6 +80,7 @@ import ownerRoutes from "./modules/owner/routes.js";
 import imageReviewRoutes from "./modules/imagereview/routes.js";
 import ticketRoutes from "./modules/tickets/routes.js";
 import keepRoutes from "./modules/keep/routes.js";
+import onboardingRoutes from "./modules/onboarding/routes.js";
 import banRoutes from "./modules/bans/routes.js";
 import billingRoutes from "./modules/billing/routes.js";
 import emojiRoutes from "./modules/emoji/routes.js";
@@ -437,6 +438,7 @@ async function main() {
   await fastify.register(imageReviewRoutes, { prefix: "/api/owner/images" });
   await fastify.register(ticketRoutes, { prefix: "/api/tickets" });
   await fastify.register(keepRoutes, { prefix: "/api/keep" });
+  await fastify.register(onboardingRoutes, { prefix: "/api/servers/:serverId/onboarding" });
   await fastify.register(banRoutes, { prefix: "/api/bans" });
   await fastify.register(billingRoutes, { prefix: "/api/billing" });
   await fastify.register(storeRoutes, { prefix: "/api/store" });

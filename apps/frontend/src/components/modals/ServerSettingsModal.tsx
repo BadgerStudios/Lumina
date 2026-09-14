@@ -2,10 +2,11 @@ import { APP_HOME, PUBLIC_ORIGIN } from "../../lib/platform";
 import { ServerAddonsPanel } from "./ServerAddonsPanel";
 import { ServerBotsPanel } from "./ServerBotsPanel";
 import { ServerAutoModPanel } from "./ServerAutoModPanel";
+import { ServerOnboardingPanel } from "./ServerOnboardingPanel";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
-import {
+import { DoorOpen,
   Copy, Check, Trash2, X, Settings as SettingsIcon, ShieldCheck, Users, Smile,
   Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle, Bot, ChevronUp, ChevronDown,
 } from "lucide-react";
@@ -25,7 +26,7 @@ import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
 import { ExpressionsSettingsPanel } from "./ExpressionsSettingsPanel";
 import { ServerTemplateSection } from "./ServerTemplateSection";
 
-type Tab = "overview" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons" | "bots";
+type Tab = "overview" | "onboarding" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons" | "bots";
 
 function colorToHex(color: number | null): string {
   return color === null ? "#5b7cfa" : `#${color.toString(16).padStart(6, "0")}`;
@@ -220,6 +221,7 @@ export function ServerSettingsModal() {
   // collapses to 64px. A tab without one would be a blank button.
   const tabs: Array<{ key: Tab; label: string; icon: typeof SettingsIcon }> = [
     { key: "overview", label: "Overview", icon: SettingsIcon },
+    { key: "onboarding", label: "Onboarding", icon: DoorOpen },
     { key: "moderation", label: "Moderation", icon: ShieldCheck },
     { key: "community", label: "Community", icon: Users },
     { key: "emoji", label: "Expressions", icon: Smile },
@@ -464,6 +466,7 @@ export function ServerSettingsModal() {
             </div>
           )}
 
+          {tab === "onboarding" && <ServerOnboardingPanel serverId={serverId} />}
           {tab === "automod" && <ServerAutoModPanel serverId={serverId} />}
           {tab === "addons" && <ServerAddonsPanel serverId={serverId} />}
           {tab === "bots" && <ServerBotsPanel serverId={serverId} />}

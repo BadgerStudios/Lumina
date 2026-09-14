@@ -11,6 +11,7 @@ import { CommandPalette } from "./CommandPalette";
 import { UpdateBanner } from "./UpdateBanner";
 import { ModalRoot } from "../modals/ModalRoot";
 import { MotdModal } from "../MotdModal";
+import { OnboardingModal } from "../OnboardingModal";
 import { ToastHost } from "../common/ToastHost";
 import { ConnectionBanner } from "../common/ConnectionBanner";
 import { IOSInstallHint } from "../common/IOSInstallHint";
@@ -208,6 +209,12 @@ export function AppShell() {
           being an installed app that can receive notifications at all. Renders nothing on every
           other platform, and nothing once installed. */}
       <IOSInstallHint />
+      {/* Only renders when the SERVER says onboarding is due for this member — see
+          queries/onboarding.ts. Placed in the shell rather than on the invite flow so it also
+          catches members who joined before the server switched onboarding on. */}
+      {serverId && (
+        <OnboardingModal serverId={serverId} serverName={server?.name ?? "this server"} />
+      )}
       <UpdateBanner />
       <div className="flex min-h-0 flex-1 md:gap-2 md:p-2">
         <NavDeck />

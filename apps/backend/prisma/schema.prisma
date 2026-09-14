@@ -483,6 +483,7 @@ model Server {
   createdAt       DateTime @default(now())
 
   botInstallRequests BotInstallRequest[]
+  onboarding         ServerOnboarding?
 
   // ---- Moderation ----
   verificationLevel     VerificationLevel     @default(NONE)
@@ -567,6 +568,11 @@ model Membership {
   serverId   String
   nickname   String?
   mutedUntil DateTime?
+  /// Where this member is in the server's onboarding. Columns here rather than a table of their
+  /// own because this IS one row per member per server, and because the rules gate is then read by
+  /// the same query the message path already runs to check for a timeout.
+  onboardedAt     DateTime?
+  rulesAcceptedAt DateTime?
   joinedAt   DateTime         @default(now())
   /// The invite or vanity code this member arrived through, as typed at the time.
   ///
@@ -3188,4 +3194,55 @@ model UserNote {
   subject   User     @relation("NoteSubject", fields: [subjectId], references: [id], onDelete: Cascade)
 
   @@unique([authorId, subjectId])
+}
+
+/// What a server shows someone who has just arrived.
+///
+/// The largest single retention lever in the research behind this: a short orientation before the
+/// full channel list takes first-week retention from 12-18% to 43-67%. Not because of the welcome
+/// text — because answering two questions grants roles, and roles make a hundred-channel server
+/// look like the six channels that person came for.
+model ServerOnboarding {
+  serverId     String   @id
+  enabled      Boolean  @default(false)
+  welcomeTitle String?  @db.VarChar(120)
+  welcomeBody  String?  @db.VarChar(1000)
+  rules        String?  @db.VarChar(4000)
+  /// When true a member cannot post until they accept. Off by default — a gate nobody configured
+  /// is a server that silently stops working.
+  requireRules Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+  server       Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  prompts      OnboardingPrompt[]
+}
+
+/// One question asked during onboarding.
+model OnboardingPrompt {
+  id         String           @id @default(cuid())
+  serverId   String
+  title      String           @db.VarChar(120)
+  multiple   Boolean          @default(false)
+  position   Int              @default(0)
+  onboarding ServerOnboarding @relation(fields: [serverId], references: [serverId], onDelete: Cascade)
+  options    OnboardingOption[]
+
+  @@index([serverId, position])
+}
+
+/// One answer, and the roles picking it grants.
+///
+/// roleIds is a scalar array rather than a join table: the list is short, always read whole with
+/// its option, and never queried BY role. A join table would be three rows and a join to answer
+/// "what does this button do".
+model OnboardingOption {
+  id          String           @id @default(cuid())
+  promptId    String
+  label       String           @db.VarChar(80)
+  description String?          @db.VarChar(200)
+  emoji       String?          @db.VarChar(16)
+  roleIds     String[]         @default([])
+  position    Int              @default(0)
+  prompt      OnboardingPrompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@index([promptId, position])
 }

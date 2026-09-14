@@ -1,6 +1,7 @@
 import { Permissions, ServerEvents, MAX_MESSAGE_LENGTH } from "@lumina/shared";
 import type { MessageDTO, MentionFeedItemDTO, MessageReplyPreviewDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
+import { assertRulesAccepted } from "../onboarding/service.js";
 import { serializeMessage, serializeUser } from "../../lib/serialize.js";
 import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 import { BadRequestError, ForbiddenError, NotFoundError, TooManyRequestsError } from "../../lib/errors.js";
@@ -114,14 +115,23 @@ export interface CreateMessageAttachmentInput {
   height?: number | null;
 }
 
-async function assertNotMuted(userId: string, serverId: string): Promise<void> {
+/**
+ * Two gates on one read.
+ *
+ * The onboarding config is joined onto the membership lookup that was already happening, so
+ * requiring rules costs no extra round trip on the message path — which matters, because this runs
+ * on every message sent on the platform and the answer is "fine" for almost every server.
+ */
+async function assertCanPost(userId: string, serverId: string): Promise<void> {
   const membership = await prisma.membership.findUnique({
     where: { userId_serverId: { userId, serverId } },
+    include: { server: { select: { onboarding: { select: { enabled: true, requireRules: true } } } } },
   });
   if (!membership) throw new ForbiddenError("Not a member of this server");
   if (membership.mutedUntil && membership.mutedUntil.getTime() > Date.now()) {
     throw new ForbiddenError("You are timed out in this server");
   }
+  assertRulesAccepted(membership.server.onboarding, membership);
 }
 
 function assertHasContent(
@@ -308,7 +318,7 @@ export async function createChannelMessage(params: {
   // A minor with no responsible adult yet cannot put text in front of anyone. First of the
   // gates because it is the broadest: it is not about this channel or this server.
   await assertNotLockedMinor(params.userId);
-  await assertNotMuted(params.userId, channel.serverId);
+  await assertCanPost(params.userId, channel.serverId);
   // Announcement channels are read-only for everyone except moderators: everyone can VIEW and read,
   // but posting requires MANAGE_MESSAGES rather than SEND_MESSAGES. No separate table or overwrite
   // config — the channel type is the whole gate (a THREAD started under a forum keeps SEND_MESSAGES,
@@ -331,7 +341,7 @@ export async function createChannelMessage(params: {
   // and the rule set is Redis-cached so this is not a query per message.
   {
     const membership = await prisma.membership.findUnique({
-      // `userId_serverId`, matching the @@unique field order — same key assertNotMuted uses above.
+      // `userId_serverId`, matching the @@unique field order — same key assertCanPost uses above.
       where: { userId_serverId: { userId: params.userId, serverId: channel.serverId } },
       select: { roles: { select: { roleId: true } } },
     });
