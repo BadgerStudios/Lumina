@@ -61,6 +61,7 @@ import {
 } from "./OwnerChrome";
 import { Sparkline, MiniBars } from "./Sparkline";
 import { UpdateBanner } from "../components/layout/UpdateBanner";
+import { OwnerBuildTag } from "./OwnerBuildTag";
 import { ToastHost } from "../components/common/ToastHost";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { useAuthStore } from "../store/authStore";
@@ -340,6 +341,7 @@ export function OwnerApp() {
             <LogOut className="h-3.5 w-3.5" />
             Sign out
           </button>
+          <OwnerBuildTag />
         </div>
       </aside>
 

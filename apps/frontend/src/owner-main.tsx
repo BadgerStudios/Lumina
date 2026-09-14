@@ -34,7 +34,14 @@ installInspectGuard();
  */
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 15_000, refetchOnWindowFocus: false, retry: 1 },
+    // Refetch on focus, unlike the chat app. Every panel here polls on a timer, which is correct
+    // while the console is in front of you and worth nothing when it is not: Android freezes a
+    // backgrounded WebView's timers, so returning to the console painted whatever was on screen
+    // when you left it, with no sign the numbers had stopped moving. Opening it is the moment the
+    // answer is wanted — the same reasoning the update check already used to opt itself back in.
+    // `staleTime` keeps that honest rather than chatty: a glance away and back inside 15 seconds
+    // re-uses what is already there.
+    queries: { staleTime: 15_000, refetchOnWindowFocus: true, retry: 1 },
   },
 });
 
