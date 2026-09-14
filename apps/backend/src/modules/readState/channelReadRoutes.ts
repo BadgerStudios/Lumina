@@ -7,10 +7,11 @@ export default async function channelReadRoutes(fastify: FastifyInstance) {
   fastify.patch(
     "/:id/read",
     { preHandler: [requireAuth, requireMembership(resolveServerId.fromChannelParam("id"))] },
-    async (request, reply) => {
+    async (request) => {
       const { id } = request.params as { id: string };
-      await markChannelRead({ userId: request.userId!, channelId: id });
-      reply.code(204).send();
+      // Returns { previousLastReadMessageId } — the client anchors the "new messages" divider at
+      // the position this call just cleared (see frontend queries/readState.ts).
+      return markChannelRead({ userId: request.userId!, channelId: id });
     },
   );
 

@@ -7,6 +7,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { hashPassword, verifyPassword } from "../../lib/password.js";
 import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from "../../lib/errors.js";
 import { listMyMentions } from "../messages/service.js";
+import { getGlobalUnread } from "../readState/service.js";
 import { saveProfileImage, deleteProfileImage } from "../../lib/profileImage.js";
 
 const updateMeSchema = z.object({
@@ -106,6 +107,13 @@ export default async function usersRoutes(fastify: FastifyInstance) {
 
   fastify.get("/me/mentions", { preHandler: [requireAuth] }, async (request) => {
     return listMyMentions(request.userId!);
+  });
+
+  // Cross-space unread rollup — one entry per server that has any unread, with mention totals.
+  // Backs the space-rail unread dot and mention badge, which the per-server /servers/:id/unread
+  // cannot provide for a space the user has not opened.
+  fastify.get("/me/unread", { preHandler: [requireAuth] }, async (request) => {
+    return getGlobalUnread(request.userId!);
   });
 
   fastify.patch("/me/presence", { schema: { body: presenceSchema }, preHandler: [requireAuth] }, async (request) => {

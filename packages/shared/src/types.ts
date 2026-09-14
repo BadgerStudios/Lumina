@@ -512,6 +512,19 @@ export interface DMConversationDTO {
 export interface UnreadDTO {
   channelId: string;
   unreadCount: number;
+  /** Unread messages in this channel that mention the caller — directly, via one of their roles,
+   * or @everyone; never their own. Drives the red mention badge, as opposed to a plain dot. */
+  mentionCount: number;
+}
+
+/** One server's rolled-up unread state for the caller, across all its text channels. Returned
+ * (only for servers with unread > 0) by GET /api/users/me/unread — backs the unread dot and
+ * mention badge on the space rail, which the per-server endpoint cannot answer for a space the
+ * user has not opened. */
+export interface ServerUnreadSummaryDTO {
+  serverId: string;
+  unreadCount: number;
+  mentionCount: number;
 }
 
 /** One @mention addressed to the current user (directly, via a role, or @everyone), backing

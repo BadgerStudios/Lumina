@@ -367,22 +367,24 @@ export default async function dmRoutes(fastify: FastifyInstance) {
 
   // Read receipts — DMParticipant.lastReadMessageId already existed in the schema with zero
   // routes using it, mirrors the ChannelReadState pattern (modules/readState/service.ts).
-  fastify.patch("/:id/read", { preHandler: [requireAuth] }, async (request, reply) => {
+  fastify.patch("/:id/read", { preHandler: [requireAuth] }, async (request) => {
     const { id } = request.params as { id: string };
     const participant = await prisma.dMParticipant.findUnique({
       where: { conversationId_userId: { conversationId: id, userId: request.userId! } },
     });
     if (!participant) throw new ForbiddenError("Not a participant in this conversation");
 
+    // The read position from *before* this call — where the "new messages" divider belongs for
+    // the session that just opened the DM. Same contract as the channel read route.
+    const previousLastReadMessageId =
+      participant.lastReadMessageId != null ? participant.lastReadMessageId.toString() : null;
+
     const latest = await prisma.message.findFirst({
       where: { dmConversationId: id, deletedAt: null },
       orderBy: { id: "desc" },
       select: { id: true },
     });
-    if (!latest) {
-      reply.code(204).send();
-      return;
-    }
+    if (!latest) return { previousLastReadMessageId };
 
     await prisma.dMParticipant.update({
       where: { conversationId_userId: { conversationId: id, userId: request.userId! } },
@@ -398,6 +400,6 @@ export default async function dmRoutes(fastify: FastifyInstance) {
       }
     }
 
-    reply.code(204).send();
+    return { previousLastReadMessageId };
   });
 }
