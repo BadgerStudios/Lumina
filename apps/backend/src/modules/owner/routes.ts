@@ -223,7 +223,15 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     // the pre-launch test fixtures) would sit in "Needs attention" forever. updatedAt is when the
     // row was marked FAILED, which is the moment that matters here, not the upload time.
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const [pendingVideos, openReports, pendingAppeals, failedVideos, openUserReports] = await Promise.all([
+    const [
+      pendingVideos,
+      openReports,
+      pendingAppeals,
+      failedVideos,
+      openUserReports,
+      sharedDeviceSignups,
+      underageAttempts,
+    ] = await Promise.all([
       prisma.video.count({ where: { status: "PENDING_REVIEW" } }),
       prisma.videoReport.count({ where: { status: "OPEN" } }),
       prisma.platformBan.count({ where: { appealStatus: "PENDING", liftedAt: null } }),
@@ -231,12 +239,39 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       // Reports about a user or a message. These were written and counted nowhere, so the
       // dashboard read healthy while this queue could have been filling up unseen.
       prisma.contentReport.count({ where: { status: { in: ["OPEN", "IN_PROGRESS", "INVESTIGATING"] } } }),
+      // Signups from a device that already had an account. Never blocked — the owner decides, and
+      // an unresolved row is what "still to decide" means here. `resolvedAt` rather than `active`
+      // because this flag is INFO and deliberately never marks itself as blocking anything.
+      prisma.accountFlag.count({ where: { reasonCode: "DEVICE_MULTI_ACCOUNT", resolvedAt: null } }),
+      // Under-18 signup attempts this week. Nothing to decide — they were refused automatically and
+      // the device is on its cooldown — but the rate is worth seeing, which it is not if it is only
+      // ever a row in a table nobody opens.
+      prisma.accountFlag.count({
+        where: { reasonCode: { in: ["AGE_UNDER_MINIMUM", "AGE_MISMATCH"] }, createdAt: { gte: weekAgo } },
+      }),
     ]);
 
-    const items: Array<{ kind: string; label: string; count: number; href: string; severity: string }> = [];
+    /**
+     * `section` is the owner console's own destination; `href` is the web app's.
+     *
+     * They are both here because the two clients navigate differently — the console has no URLs at
+     * all (MemoryRouter, by internal state) — and because the console previously guessed: every
+     * item except appeals sent you to the System page, which has nothing to do with reviewing a
+     * video or answering a report. A pending action that opens somewhere unrelated is worse than
+     * one that is not clickable, because it costs you the trip to find out.
+     */
+    const items: Array<{
+      kind: string;
+      label: string;
+      count: number;
+      href: string;
+      section: string;
+      severity: string;
+    }> = [];
     if (openUserReports > 0) {
       items.push({
         kind: "user_report",
+        section: "reports",
         label: `${openUserReports} report${openUserReports === 1 ? "" : "s"} about a user or message`,
         count: openUserReports,
         href: "/staff/reports",
@@ -246,6 +281,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     if (pendingVideos > 0) {
       items.push({
         kind: "video_review",
+        section: "videos",
         label: `${pendingVideos} video${pendingVideos === 1 ? "" : "s"} awaiting review`,
         count: pendingVideos,
         href: "/staff/videos",
@@ -255,6 +291,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     if (openReports > 0) {
       items.push({
         kind: "reports",
+        section: "videos",
         label: `${openReports} open report${openReports === 1 ? "" : "s"}`,
         count: openReports,
         href: "/staff/videos",
@@ -264,15 +301,38 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     if (pendingAppeals > 0) {
       items.push({
         kind: "appeals",
+        section: "bans",
         label: `${pendingAppeals} ban appeal${pendingAppeals === 1 ? "" : "s"} awaiting a decision`,
         count: pendingAppeals,
         href: "/owner/bans",
         severity: "warn",
       });
     }
+    if (sharedDeviceSignups > 0) {
+      items.push({
+        kind: "shared_device",
+        label: `${sharedDeviceSignups} signup${sharedDeviceSignups === 1 ? "" : "s"} from a device that already had an account`,
+        count: sharedDeviceSignups,
+        href: "/owner",
+        section: "reasons",
+        severity: "action",
+      });
+    }
+    if (underageAttempts > 0) {
+      items.push({
+        kind: "underage_attempts",
+        label: `${underageAttempts} under-18 signup attempt${underageAttempts === 1 ? "" : "s"} this week`,
+        count: underageAttempts,
+        href: "/owner",
+        section: "reasons",
+        // Nothing to do: each one was refused when it happened. Here to be seen, not actioned.
+        severity: "info",
+      });
+    }
     if (failedVideos > 0) {
       items.push({
         kind: "failed_transcodes",
+        section: "videos",
         label: `${failedVideos} video${failedVideos === 1 ? "" : "s"} failed to process this week`,
         count: failedVideos,
         href: "/staff/videos",

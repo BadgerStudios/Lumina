@@ -20,7 +20,11 @@ export interface AttentionItem {
   kind: string;
   label: string;
   count: number;
+  /** Where this opens in the web app. */
   href: string;
+  /** Where it opens in the owner console, which navigates by internal state and has no URLs. */
+  section: string;
+  /** "urgent" | "action" | "warn" | "info", decided by the server alongside the count. */
   severity: string;
 }
 

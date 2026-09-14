@@ -22,6 +22,7 @@ import {
   BookLock,
   Radio,
   Film,
+  Flag,
 } from "lucide-react";
 import {
   usePlatformStats,
@@ -52,6 +53,7 @@ import { OwnerOfficialAccountsPanel } from "./OwnerOfficialAccountsPanel";
 // The staff review queue, mounted as-is: one component for both consoles, so the owner reviews
 // with the same player, tabs and decisions as staff, and the two can never drift apart.
 import { StaffVideosRoute } from "../routes/StaffVideosRoute";
+import { StaffTicketsRoute } from "../routes/StaffTicketsRoute";
 import {
   Metric,
   Group,
@@ -89,7 +91,8 @@ type Section =
   | "ageReviews"
   | "official"
   | "videos"
-  | "motd";
+  | "motd"
+  | "reports";
 
 /**
  * Navigation, grouped by what you'd be doing rather than as one flat list.
@@ -130,6 +133,7 @@ const NAV_GROUPS: Array<{
     items: [
       { key: "users", label: "Users", icon: Users },
       { key: "videos", label: "Videos", icon: Film },
+      { key: "reports", label: "Reports", icon: Flag },
       { key: "bans", label: "Bans & appeals", icon: Gavel },
       { key: "ageReviews", label: "Age reviews", icon: ShieldCheck },
       { key: "team", label: "Team & access", icon: UserCog },
@@ -174,6 +178,7 @@ const SECTION_LABELS: Record<Section, string> = {
   official: "Official accounts",
   videos: "Videos — review queue",
   motd: "Message of the day",
+  reports: "Reports — user & message queue",
 };
 
 export function OwnerApp() {
@@ -402,6 +407,7 @@ export function OwnerApp() {
               {section === "system" && <SystemSection />}
               {section === "users" && <OwnerUsersPanel />}
               {section === "videos" && <StaffVideosRoute />}
+              {section === "reports" && <StaffTicketsRoute />}
               {section === "bans" && <OwnerBansPanel />}
               {section === "ageReviews" && <OwnerAgeReviewsPanel />}
               {section === "team" && <TeamPanel />}
@@ -440,12 +446,13 @@ function OverviewSection({ onNavigate }: { onNavigate: (s: Section) => void }) {
     );
   }
 
-  const severity = (kind: string): StatusState =>
-    kind === "reports" || kind === "appeals"
-      ? "bad"
-      : kind === "failed_transcodes"
-        ? "idle"
-        : "warn";
+  /**
+   * The server decides how loud each item is, alongside the count that justifies it. This used to
+   * be re-derived here from the item's `kind`, which meant every new kind silently defaulted to
+   * "warn" until someone remembered to come back and add it.
+   */
+  const severity = (level: string): StatusState =>
+    level === "urgent" ? "bad" : level === "info" ? "idle" : "warn";
 
   return (
     <div className="space-y-6">
@@ -456,10 +463,11 @@ function OverviewSection({ onNavigate }: { onNavigate: (s: Section) => void }) {
               <ActionRow
                 key={item.kind}
                 label={item.label}
-                state={severity(item.kind)}
-                onClick={() =>
-                  onNavigate(item.kind === "appeals" ? "bans" : "system")
-                }
+                state={severity(item.severity)}
+                // The server names the destination. This used to send everything except appeals to
+                // the System page — nothing to do with reviewing a video or answering a report —
+                // so a pending action cost you a trip to find out it went nowhere useful.
+                onClick={() => onNavigate(item.section as Section)}
               />
             ))}
           </div>
