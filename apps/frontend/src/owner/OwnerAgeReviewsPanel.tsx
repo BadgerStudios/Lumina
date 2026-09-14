@@ -56,9 +56,13 @@ function ReviewCard({
     <div className="oc-panel overflow-hidden p-3">
       <div className="flex gap-3">
         <AuthedImage url={review.selfieUrl} alt="Selfie for review" />
-        {/* The ID photo is the half that actually carries a date of birth — a selfie alone cannot
-            settle an age question, so both are shown side by side. */}
-        <AuthedImage url={review.idDocumentUrl} alt="ID document for review" />
+        {/* Only shown when there IS one. A document review carries both, and the ID photo is the
+            half that actually carries a date of birth. A facial check carries only the selfie —
+            deliberately, since that path exists precisely to avoid asking for government ID — and
+            an empty tile beside it would read as a missing upload rather than as the design. */}
+        {review.idDocumentUrl ? (
+          <AuthedImage url={review.idDocumentUrl} alt="ID document for review" />
+        ) : null}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-signal">
             @{review.user.username}

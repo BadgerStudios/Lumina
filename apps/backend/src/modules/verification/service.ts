@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "../../db/prisma.js";
@@ -10,6 +11,7 @@ import {
   isDiditAgeConfigured,
   isDiditConfigured,
   readOutcome as readDiditOutcome,
+  fetchDiditSelfie,
 } from "./didit.js";
 import { verifyDeviceAttestation, type AttestationPlatform } from "./attestation.js";
 import { banUser } from "../bans/service.js";
@@ -423,7 +425,18 @@ export async function applyDiditResult(sessionId: string, decision: unknown): Pr
     });
   }
 
-  if (!outcome.approved) return;
+  if (!outcome.approved) {
+    // Didit did not clear them. Rather than leaving the account in limbo with the evidence sitting
+    // in a third party's console, the captured selfie is pulled across and the case is put in front
+    // of a person — which is the whole point of having a review queue.
+    //
+    // Deliberately NOT done for a clean approval. Copying a face onto our own disk for every check
+    // that already passed would mean holding biometric data we have no decision to make about, and
+    // the rest of this module is built around not doing that (see DOC_RETENTION_HOURS and the purge
+    // sweep). An approval needs no human, so it leaves no picture here.
+    if (!outcome.pending) await escalateToManualReview(userId, decision);
+    return;
+  }
 
   // A proven birthdate outranks the typed-in one; its absence is normal and simply leaves the
   // self-declared birthday standing, same as the Persona path.
@@ -455,6 +468,47 @@ export async function pollDiditForUser(
   await applyDiditResult(latest.inquiryId, decision);
   const outcome = readDiditOutcome(decision);
   return { status: outcome.rawStatus, approved: outcome.approved, pending: outcome.pending };
+}
+
+/**
+ * Put a failed automated check in front of a person, with the picture it was judging.
+ *
+ * Best-effort throughout: a verification outcome must never depend on whether an image download
+ * worked. If the selfie cannot be found or fetched, the review is still created — visibly without a
+ * picture — because "Didit declined this and here is nobody to look at it" is a worse outcome than
+ * "Didit declined this and we could not retrieve the photo".
+ *
+ * The review carries no ID document on purpose. This path is the AI facial check, not a
+ * government-ID one; idDocKey stays null and the queue renders the row without that panel.
+ */
+async function escalateToManualReview(userId: string, decision: unknown): Promise<void> {
+  try {
+    // An open review already means a person has been asked. A second failed attempt should not
+    // create a second row for the same question.
+    const existing = await prisma.manualAgeReview.findFirst({ where: { userId, status: "PENDING" } });
+    if (existing?.selfieKey) return;
+
+    const selfie = await fetchDiditSelfie(decision);
+    let selfieKey: string | null = null;
+    if (selfie) {
+      const extension = selfie.contentType === "image/png" ? "png" : selfie.contentType === "image/webp" ? "webp" : "jpg";
+      selfieKey = `${randomUUID()}.${extension}`;
+      await fs.mkdir(path.join(env.UPLOADS_DIR, SELFIE_DIR), { recursive: true });
+      await fs.writeFile(selfieDiskPath(selfieKey), selfie.buffer);
+    }
+
+    if (existing) {
+      await prisma.manualAgeReview.update({ where: { id: existing.id }, data: { selfieKey } });
+      return;
+    }
+    await prisma.manualAgeReview.create({ data: { userId, selfieKey } });
+    await prisma.ageVerification.create({
+      data: { userId, level: "DOCUMENT_VERIFIED", source: "didit_manual_review", rawStatus: "pending" },
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("[verification] could not escalate to manual review:", (error as Error)?.message);
+  }
 }
 
 // ---- manual (admin selfie) review ---------------------------------------------------------------

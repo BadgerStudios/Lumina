@@ -214,3 +214,101 @@ export function verifyWebhookSignature(rawBody: Buffer, signature: string | unde
   const givenBuf = Buffer.from(signature.trim().replace(/^sha256=/, ""), "utf8");
   return givenBuf.length === expectedBuf.length && crypto.timingSafeEqual(givenBuf, expectedBuf);
 }
+
+/**
+ * The selfie Didit captured, downloaded so a person can look at it.
+ *
+ * ## Why the key names are guessed at
+ *
+ * Written exactly the way extractDateOfBirth and extractEstimatedAge are, and for the same reason:
+ * the response shape is not pinned by anything observable here, and the account is out of credits
+ * so no real decision can be inspected to pin it. Several plausible spellings are tried, absence is
+ * tolerated, and nothing about the verification changes when none of them match. A missing image
+ * means a review row with no picture — visibly incomplete — rather than a verification that failed
+ * for a reason nobody can see.
+ *
+ * ## Why it is fetched at all
+ *
+ * Because "approve this person" is a decision somebody has to be able to actually make. A review
+ * queue whose rows say "Didit was unsure" and show nothing is a queue where every answer is a
+ * guess.
+ */
+export async function fetchDiditSelfie(
+  decision: any,
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const url = findImageUrl(decision);
+  if (!url) return null;
+
+  try {
+    const response = await fetch(url, {
+      // Same header the rest of this client uses — Didit authenticates with x-api-key, never a
+      // Bearer. The asset URL is on their domain and needs it too.
+      headers: env.DIDIT_API_KEY ? { "x-api-key": env.DIDIT_API_KEY } : {},
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) {
+      // eslint-disable-next-line no-console
+      console.error(`[didit] could not fetch the captured selfie (${response.status})`);
+      return null;
+    }
+    const contentType = String(response.headers.get("content-type") ?? "image/jpeg").split(";")[0].trim();
+    // Only pictures. A provider handing back something else is not a thing to write to disk and
+    // then serve back to a moderator's browser.
+    if (!contentType.startsWith("image/")) return null;
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    // 12MB is far above any portrait and far below "someone is using this as storage".
+    if (buffer.length === 0 || buffer.length > 12 * 1024 * 1024) return null;
+    return { buffer, contentType };
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("[didit] selfie fetch failed:", (error as Error)?.message);
+    return null;
+  }
+}
+
+/**
+ * Walk the decision for something that looks like the captured portrait.
+ *
+ * Breadth-first with a visited set, because the payload is nested and self-referential in places.
+ * Keys are checked in preference order — a liveness/portrait capture is the face we want, and a
+ * document photo is a last resort that at least shows a person.
+ */
+function findImageUrl(decision: any): string | null {
+  const PREFERRED = [
+    "liveness_reference_image", "livenessReferenceImage",
+    "face_image", "faceImage", "portrait", "selfie", "selfie_url", "selfieUrl",
+    "reference_image", "referenceImage", "face_url", "faceUrl", "image_url", "imageUrl",
+    "cropped_face", "croppedFace", "front_image", "frontImage",
+  ];
+
+  const seen = new Set<unknown>();
+  const queue: unknown[] = [decision];
+  const found = new Map<string, string>();
+
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node || typeof node !== "object" || seen.has(node)) continue;
+    seen.add(node);
+
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (typeof value === "string" && /^https:\/\//i.test(value) && !found.has(key)) {
+        found.set(key, value);
+      } else if (value && typeof value === "object") {
+        queue.push(value);
+      }
+    }
+  }
+
+  for (const key of PREFERRED) {
+    const hit = found.get(key);
+    if (hit) return hit;
+  }
+  // Nothing named like a face. An https URL under a key that merely CONTAINS "image" is the last
+  // thing tried, and only when it is not obviously a document scan.
+  for (const [key, value] of found) {
+    const lower = key.toLowerCase();
+    if (lower.includes("image") && !lower.includes("document") && !lower.includes("back")) return value;
+  }
+  return null;
+}
