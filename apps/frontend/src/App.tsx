@@ -26,6 +26,7 @@ import { StaffAdsRoute } from "./routes/staff/StaffAdsRoute";
 import { StaffAuditRoute } from "./routes/staff/StaffAuditRoute";
 import { StaffVerificationRoute } from "./routes/staff/StaffVerificationRoute";
 import { OwnerRoute } from "./routes/OwnerRoute";
+import { SavedRoute } from "./routes/SavedRoute";
 import { BanScreen } from "./components/BanScreen";
 import { TurnstileChallengeModal } from "./components/TurnstileChallengeModal";
 import { CrashTest } from "./components/common/CrashTest";
@@ -152,6 +153,7 @@ export function App() {
               <Route path="audit" element={<StaffAuditRoute />} />
               <Route path="verification" element={<StaffVerificationRoute />} />
             </Route>
+            <Route path="/saved" element={<SavedRoute />} />
             <Route path="/owner" element={<OwnerRoute />} />
             {/* Dev only — the target for verify-error-boundary.mjs. `import.meta.env.DEV` is
                 replaced with a literal false in a production build and the branch is dropped, so

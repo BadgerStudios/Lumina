@@ -341,6 +341,16 @@ model User {
   deviceTokens           DeviceToken[]
   attachmentsReviewed    Attachment[]             @relation("AttachmentReviewer")
   ticketMessages         TicketMessage[]          @relation("TicketMessageAuthor")
+  savedMessages          SavedMessage[]
+  notesWritten           UserNote[]               @relation("NoteAuthor")
+  notesAbout             UserNote[]               @relation("NoteSubject")
+  /// Daily visit streak. Columns rather than a table: one per account, read on every session
+  /// start, so a join would be paid constantly to store three numbers.
+  streakDays             Int                      @default(0)
+  streakBest             Int                      @default(0)
+  /// A DATE, not a timestamp — a streak is about days, and comparing timestamps would lose a
+  /// streak for someone who signed in at 23:50 and again at 00:10.
+  streakDay              DateTime?                @db.Date
 
   /// Which message of the day this member last dismissed, and when.
   ///
@@ -838,6 +848,8 @@ model ChannelPermissionOverwrite {
 
 model Message {
   id                BigInt                   @id @default(autoincrement())
+  /// Everyone who kept this message. Cascades on delete — see SavedMessage.
+  savedBy           SavedMessage[]
   channelId         String?
   dmConversationId  String?
   authorId          String?
@@ -3134,4 +3146,46 @@ model DeviceToken {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// A message somebody kept.
+///
+/// The note and the reminder are columns here rather than tables of their own because they are
+/// properties of the act of saving: there is no note without a saved message, and a reminder about
+/// an unsaved message has nothing to point at.
+model SavedMessage {
+  id         String    @id @default(cuid())
+  userId     String
+  messageId  BigInt
+  note       String?   @db.VarChar(500)
+  /// Set when a reminder was asked for; nulled once delivered, so the sweeper's partial index only
+  /// ever holds reminders that have not fired.
+  remindAt   DateTime?
+  remindedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Cascade: a deleted message cannot be reopened, so a save pointing at one is dead weight.
+  message    Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId, createdAt])
+  @@index([remindAt])
+}
+
+/// A private note one account keeps about another.
+///
+/// Never visible to its subject and never part of any moderation surface — this is "met them in the
+/// Tuesday raid", not a report. Deliberately separate from AccountFlag for that reason: one is a
+/// person's own memory, the other is a platform record.
+model UserNote {
+  id        String   @id @default(cuid())
+  authorId  String
+  subjectId String
+  body      String   @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  author    User     @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  subject   User     @relation("NoteSubject", fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([authorId, subjectId])
 }

@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Link as LinkIcon, CornerUpLeft } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Bookmark, Link as LinkIcon, CornerUpLeft } from "lucide-react";
+import { useSaveMessage } from "../../queries/keep";
 import { useUIStore } from "../../store/uiStore";
 import { useMarkChannelUnread } from "../../queries/readState";
 import { BotBadge } from "../common/BotBadge";
@@ -104,6 +105,7 @@ export function MessageItem({
   const canDelete = isOwn || canManage;
   const openReport = useUIStore((s) => s.openModalWith);
   const markUnread = useMarkChannelUnread();
+  const save = useSaveMessage();
   const author = message.author;
   const displayName = author?.displayName ?? author?.username ?? message.webhookUsername ?? "Unknown user";
   const avatarUrl = author?.avatarUrl ?? message.webhookAvatarUrl ?? null;
@@ -413,6 +415,15 @@ export function MessageItem({
           <Tooltip content="Reply">
             <button onClick={() => onReply(message)} className={iconBtn} aria-label="Reply">
               <Reply size={15} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Save this">
+            <button
+              onClick={() => save.mutate({ messageId: message.id })}
+              className={iconBtn}
+              aria-label="Save this message"
+            >
+              <Bookmark size={15} />
             </button>
           </Tooltip>
           <Tooltip content="Forward">

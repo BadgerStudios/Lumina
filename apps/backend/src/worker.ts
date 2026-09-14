@@ -21,6 +21,7 @@ import { sweepArchivableThreads } from "./modules/threads/service.js";
 import { releaseMaturedEarnings } from "./modules/economy/service.js";
 import { purgeExpiredReviewDocuments } from "./modules/verification/service.js";
 import { sweepBarrierLeaks } from "./modules/age/barrierAudit.js";
+import { sweepReminders } from "./modules/keep/service.js";
 import { sweepAdPools } from "./modules/economy/pools.js";
 import { sweepEventReminders } from "./modules/events/service.js";
 import { rotatePqKeys } from "./modules/pq/service.js";
@@ -339,6 +340,26 @@ async function main() {
   };
   void barrierSweepTick();
   const barrierSweepTimer = setInterval(() => void barrierSweepTick(), 60 * 60 * 1000);
+
+  // Saved-message reminders. Here rather than in the API process for the same reason as every
+  // other sweep: the API is horizontally scaled, so each replica would deliver the same
+  // reminder. The sweeper claims each row before sending, so it is safe either way — but
+  // "safe" and "sensible" are different, and one worker is the sensible arrangement.
+  const reminderTick = async () => {
+    try {
+      const sent = await sweepReminders();
+      if (sent > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[worker] reminders: delivered ${sent}`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] reminder sweep failed", err);
+    }
+  };
+  void reminderTick();
+  const reminderTimer = setInterval(() => void reminderTick(), 60 * 1000);
+  reminderTimer.unref();
 
   void identityDocTick();
   const identityDocTimer = setInterval(() => void identityDocTick(), 15 * 60 * 1000);
