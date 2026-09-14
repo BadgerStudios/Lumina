@@ -674,3 +674,11 @@ export interface VideoDTO {
 /** Longest message body we accept. Shared so the composer and the server cannot drift;
  * the server enforces it too, because a crafted client can simply ignore the composer. */
 export const MAX_MESSAGE_LENGTH = 4000;
+
+/** A third-party OAuth application the current user has granted access to (via the consent
+ * screen), for the "Authorized apps" settings surface. Backed by GET /api/oauth2/authorizations. */
+export interface AuthorizedAppDTO {
+  application: { id: string; name: string; iconUrl: string | null };
+  scope: string;
+  authorizedAt: string;
+}

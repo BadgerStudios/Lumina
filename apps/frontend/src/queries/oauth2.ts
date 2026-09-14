@@ -1,6 +1,7 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import type { OAuthAuthorizeInfoDTO } from "@lumina/shared";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { AuthorizedAppDTO, OAuthAuthorizeInfoDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
+import { reportError } from "../store/toastStore";
 
 export interface OAuthAuthorizeParams {
   clientId: string;
@@ -63,5 +64,29 @@ export function useInstallBot() {
         permissions: params.permissions,
         guildId: params.guildId,
       }),
+  });
+}
+
+/** Third-party OAuth apps the current user has authorized — backs the "Authorized apps" section
+ * in settings. Distinct from useMyApplications, which is the apps the user OWNS. */
+export function useAuthorizedApps() {
+  return useQuery({
+    queryKey: ["oauth", "authorizations"],
+    queryFn: () => api.get<AuthorizedAppDTO[]>("/oauth2/authorizations"),
+  });
+}
+
+/** De-authorize an app: revokes every token it holds for this user. The list is pruned locally
+ * rather than refetched, so the row disappears the moment the request succeeds. */
+export function useRevokeAuthorization() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (applicationId: string) => api.delete<void>(`/oauth2/authorizations/${applicationId}`),
+    onSuccess: (_data, applicationId) => {
+      queryClient.setQueryData<AuthorizedAppDTO[]>(["oauth", "authorizations"], (old) =>
+        old ? old.filter((a) => a.application.id !== applicationId) : old,
+      );
+    },
+    onError: (e) => reportError(e, "Couldn't revoke that app's access"),
   });
 }

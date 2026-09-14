@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { OAuthAuthorizeInfoDTO, OAuthBotTargetServerDTO, UserDTO } from "@lumina/shared";
+import type { AuthorizedAppDTO, OAuthAuthorizeInfoDTO, OAuthBotTargetServerDTO, UserDTO } from "@lumina/shared";
 import { Permissions } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { generateRefreshToken, hashRefreshToken } from "../../lib/jwt.js";
@@ -313,6 +313,37 @@ export async function exchangeCodeForToken(params: {
   });
 
   return { accessToken, tokenType: "Bearer", scope: row.scope, expiresIn: TOKEN_TTL_SECONDS };
+}
+
+/** The apps the user has authorized (one entry per application, even when several tokens
+ * exist), for the "Authorized apps" settings screen. Only live grants — revoked and expired
+ * tokens are excluded, matching exactly what identifyFromToken will still accept. */
+export async function listAuthorizations(userId: string): Promise<AuthorizedAppDTO[]> {
+  const tokens = await prisma.oAuthAccessToken.findMany({
+    where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "asc" },
+    include: { application: { select: { id: true, name: true, iconUrl: true } } },
+  });
+  const byApp = new Map<string, AuthorizedAppDTO>();
+  for (const t of tokens) {
+    if (byApp.has(t.applicationId)) continue; // earliest grant per app wins
+    byApp.set(t.applicationId, {
+      application: { id: t.application.id, name: t.application.name, iconUrl: t.application.iconUrl },
+      scope: t.scope,
+      authorizedAt: t.createdAt.toISOString(),
+    });
+  }
+  return [...byApp.values()];
+}
+
+/** Revoke every live token this user holds for one application — the "de-authorize" action.
+ * identifyFromToken already refuses a revoked token, so this takes effect on the next call the
+ * app makes rather than whenever the token would have expired. */
+export async function revokeAuthorization(userId: string, applicationId: string): Promise<void> {
+  await prisma.oAuthAccessToken.updateMany({
+    where: { userId, applicationId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
 }
 
 /** GET /api/oauth2/identify's implementation — the ONLY thing an OAuth access token can ever

@@ -53,6 +53,9 @@ import { AdvertisingSection } from "./AdvertisingSection";
 import { FamilySection } from "../parental/FamilySection";
 import { useGameLinks, useLinkMinecraft, useUnlinkMinecraft, useActivities, useCreateActivity, useDeleteActivity } from "../../queries/game";
 import { useMinorState } from "../../queries/parental";
+import { useAuthorizedApps, useRevokeAuthorization } from "../../queries/oauth2";
+import { useConfirm } from "../common/ConfirmDialog";
+import { ICON } from "../common/Icon";
 
 const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND", "INVISIBLE"];
 
@@ -1440,6 +1443,66 @@ function MinecraftFace({ skinUrl, size = 48 }: { skinUrl: string; size?: number 
   );
 }
 
+/** Third-party OAuth apps the user has granted access to, with a per-app revoke. */
+function AuthorizedAppsBlock() {
+  const { data: apps } = useAuthorizedApps();
+  const revoke = useRevokeAuthorization();
+  const { confirm } = useConfirm();
+  return (
+    <div>
+      <span className="text-xs font-bold uppercase text-signal-dim">Authorized apps</span>
+      <p className="mb-2 text-sm text-signal-faint">
+        Apps you've allowed to sign you in or read your Lumina profile. Revoking one takes effect
+        immediately.
+      </p>
+      {apps && apps.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          {apps.map((a) => (
+            <div key={a.application.id} className="flex items-center gap-3 rounded-xl bg-base-900 p-3">
+              {a.application.iconUrl ? (
+                <img
+                  src={resolveAssetUrl(a.application.iconUrl)}
+                  alt=""
+                  className="h-9 w-9 shrink-0 rounded-lg object-cover"
+                />
+              ) : (
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-base-700 text-signal-faint">
+                  <Bot size={ICON.sm} />
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-signal">{a.application.name}</p>
+                <p className="text-xs text-signal-faint">
+                  Can {a.scope === "identify" ? "read your profile" : a.scope} · authorized{" "}
+                  {new Date(a.authorizedAt).toLocaleDateString()}
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  const yes = await confirm({
+                    title: `Revoke ${a.application.name}?`,
+                    description: "It loses access to your account immediately.",
+                    confirmText: "Revoke",
+                    danger: true,
+                  });
+                  if (!yes) return;
+                  revoke.mutate(a.application.id);
+                }}
+                disabled={revoke.isPending}
+                className="shrink-0 text-xs text-flare hover:underline disabled:opacity-60"
+              >
+                Revoke
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-signal-faint">You haven't authorized any apps.</p>
+      )}
+    </div>
+  );
+}
+
 function ConnectionsSection() {
   const { data: links } = useGameLinks();
   const linkMc = useLinkMinecraft();
@@ -1509,6 +1572,8 @@ function ConnectionsSection() {
           </div>
         )}
       </div>
+
+      <AuthorizedAppsBlock />
 
       <p className="text-xs text-signal-faint">
         More games arrive as their platforms allow. Titles without a public API (Call of Duty among

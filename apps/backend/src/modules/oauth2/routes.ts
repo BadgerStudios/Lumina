@@ -2,7 +2,16 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, UnauthorizedError } from "../../lib/errors.js";
-import { approveAuthorization, BOT_SCOPE, exchangeCodeForToken, getAuthorizeInfo, identifyFromToken, installBot } from "./service.js";
+import {
+  approveAuthorization,
+  BOT_SCOPE,
+  exchangeCodeForToken,
+  getAuthorizeInfo,
+  identifyFromToken,
+  installBot,
+  listAuthorizations,
+  revokeAuthorization,
+} from "./service.js";
 
 // redirect_uri is optional because scope=bot has no redirect leg — approving installs the bot and
 // the flow ends there. The service still rejects a missing redirect_uri for every other scope.
@@ -94,5 +103,18 @@ export default async function oauth2Routes(fastify: FastifyInstance) {
     const header = request.headers.authorization;
     if (!header?.startsWith("Bearer ")) throw new UnauthorizedError("Missing OAuth access token");
     return identifyFromToken(header.slice("Bearer ".length));
+  });
+
+  // The user's own view of which third-party apps they have authorized, and the way to take one
+  // back. Session-authenticated (requireAuth), NOT OAuth-token-authenticated — an app must never
+  // be able to enumerate or revoke grants with the token it was handed.
+  fastify.get("/authorizations", { preHandler: [requireAuth] }, async (request) => {
+    return listAuthorizations(request.userId!);
+  });
+
+  fastify.delete("/authorizations/:applicationId", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { applicationId } = request.params as { applicationId: string };
+    await revokeAuthorization(request.userId!, applicationId);
+    reply.code(204).send();
   });
 }
