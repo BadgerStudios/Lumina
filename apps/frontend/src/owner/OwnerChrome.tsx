@@ -174,7 +174,7 @@ export function Badge({
   tone,
 }: {
   children: ReactNode;
-  tone?: "master" | "owner" | "staff" | "good" | "bad";
+  tone?: "master" | "owner" | "executive" | "admin" | "staff" | "good" | "bad";
 }) {
   return (
     <span className="oc-badge" data-tone={tone}>

@@ -31,6 +31,11 @@
 
   --oc-master: #f5b942;
   --oc-owner: #a45cf5;
+  /* The staff ladder reads as one ramp from blue to purple, so seniority is legible before the
+     label is: moderator → admin → executive → owner. Gold is deliberately off that ramp — master is
+     not another rung but the one role no API can grant. */
+  --oc-executive: #8f63f6;
+  --oc-admin: #7a6cf7;
   --oc-staff: #5b7cfa;
 
   /* One spacing rhythm for the whole console. Panels previously each picked their own padding,
@@ -186,6 +191,8 @@
 }
 .oc-badge[data-tone="master"] { color: var(--oc-master); border-color: color-mix(in srgb, var(--oc-master) 40%, transparent); }
 .oc-badge[data-tone="owner"]  { color: var(--oc-owner);  border-color: color-mix(in srgb, var(--oc-owner) 40%, transparent); }
+.oc-badge[data-tone="executive"] { color: var(--oc-executive); border-color: color-mix(in srgb, var(--oc-executive) 40%, transparent); }
+.oc-badge[data-tone="admin"]  { color: var(--oc-admin);  border-color: color-mix(in srgb, var(--oc-admin) 40%, transparent); }
 .oc-badge[data-tone="staff"]  { color: var(--oc-staff);  border-color: color-mix(in srgb, var(--oc-staff) 40%, transparent); }
 .oc-badge[data-tone="bad"]    { color: var(--oc-bad);    border-color: color-mix(in srgb, var(--oc-bad) 45%, transparent); }
 .oc-badge[data-tone="good"]   { color: var(--oc-good);   border-color: color-mix(in srgb, var(--oc-good) 45%, transparent); }

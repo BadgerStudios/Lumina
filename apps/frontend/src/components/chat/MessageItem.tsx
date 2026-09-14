@@ -6,6 +6,7 @@ import { useUIStore } from "../../store/uiStore";
 import { useMarkChannelUnread } from "../../queries/readState";
 import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
+import { StaffBadge } from "../common/StaffBadge";
 import { PremiumBadge } from "../common/PremiumBadge";
 import type { MessageDTO } from "@lumina/shared";
 import { UserAvatar } from "../common/UserAvatar";
@@ -246,6 +247,7 @@ export function MessageItem({
               <span className="truncate text-sm font-semibold text-signal">{displayName}</span>
             )}
             {author?.isOfficial ? <OfficialBadge compact /> : null}
+            {!author?.isOfficial && author?.isStaff ? <StaffBadge compact /> : null}
             {author?.isPremium ? <PremiumBadge compact /> : null}
             {author?.isBot ? <BotBadge /> : null}
             {!author && message.webhookId ? <BotBadge label="Webhook" /> : null}

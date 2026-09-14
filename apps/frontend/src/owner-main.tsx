@@ -11,7 +11,7 @@ import { useRoleSync } from "./hooks/useRoleSync";
 import { useAuthStore } from "./store/authStore";
 import { silentRefresh } from "./lib/apiClient";
 import { useLogout } from "./queries/auth";
-import { isOwner } from "./lib/platformRole";
+import { isStaff } from "./lib/platformRole";
 import { startViewportSync } from "./lib/viewport";
 import { installInspectGuard } from "./lib/inspectGuard";
 import "./index.css";
@@ -69,7 +69,7 @@ function OwnerRoot() {
   }
 
   if (!user) return <Login />;
-  if (!isOwner(user.platformRole)) return <NotAuthorized />;
+  if (!isStaff(user.platformRole)) return <NotAuthorized />;
   return <OwnerApp />;
 }
 
@@ -79,10 +79,10 @@ function NotAuthorized() {
     <div className="flex h-app items-center justify-center bg-base-900 p-6">
       <div className="w-full max-w-sm rounded-xl border border-hairline bg-base-800 p-6 text-center">
         <ShieldAlert className="mx-auto mb-3 h-10 w-10 text-flare" />
-        <h1 className="font-display text-lg text-signal">Owner access required</h1>
+        <h1 className="font-display text-lg text-signal">Staff access required</h1>
         <p className="mt-2 text-sm text-signal-dim">
-          This console is only usable by the platform owner or master account. Yours doesn't have
-          that access.
+          This console is for Lumina staff. Yours isn't a staff account — and what you can see in
+          here depends on your rank, so ask an owner if you think it should be.
         </p>
         <button
           type="button"

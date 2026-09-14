@@ -92,9 +92,16 @@ enum ExplicitContentFilter {
 // shell access to the server. Deliberately NOT a permission bitfield like Role.permissions
 // — that system is per-server and this one governs surfaces (the video queue, the owner dashboard,
 // platform bans) that belong to no server at all.
+/// Lumina's own staff ladder, strictly ordered: each rung can do everything below it.
+///
+/// MODERATOR is the old STAFF, renamed rather than replaced so existing accounts kept their access
+/// across the migration. MASTER is granted solely by MASTER_EMAIL and can never be assigned through
+/// the API — see assignableRoles in backend lib/platformRole.ts.
 enum PlatformRole {
   USER
-  STAFF
+  MODERATOR
+  ADMIN
+  EXECUTIVE
   OWNER
   MASTER
 }

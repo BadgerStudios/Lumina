@@ -22,7 +22,9 @@ import type {
   SoundboardSoundDTO,
   StickerDTO,
 } from "@lumina/shared";
+import type { PlatformRole } from "@prisma/client";
 import { isPremiumActive } from "../modules/billing/premium.js";
+import { isStaff } from "./platformRole.js";
 
 type UserLike = {
   id: string;
@@ -38,6 +40,7 @@ type UserLike = {
   isBot: boolean;
   isOfficial?: boolean;
   premiumUntil?: Date | null;
+  platformRole?: string;
 };
 
 export function serializeUser(user: UserLike): UserDTO {
@@ -56,6 +59,15 @@ export function serializeUser(user: UserLike): UserDTO {
     presence: (user.presence === "INVISIBLE" ? "OFFLINE" : user.presence) as UserDTO["presence"],
     isBot: user.isBot,
     isOfficial: user.isOfficial ?? false,
+    // Public, and present only when true. This is the boolean and NOT the rank: which rung someone
+    // is on is internal, and publishing it would tell anyone picking a target exactly who outranks
+    // whom. The badge only needs to say that the account really is staff — which is the one claim
+    // an impersonator cannot reproduce.
+    //
+    // Read off the role that is already on the row, so it appears wherever a full user record is
+    // loaded. A caller that selects individual columns and omits platformRole gets no badge rather
+    // than a wrong one, which is the right way for this to fail.
+    ...(isStaff(user.platformRole as PlatformRole | undefined) ? { isStaff: true } : {}),
     // Present only when true, like isOfficial. The Premium plan sells a profile badge;
     // this is the field that renders it, read off the denormalised date so no join is needed.
     ...(isPremiumActive(user.premiumUntil) ? { isPremium: true } : {}),

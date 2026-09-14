@@ -148,11 +148,11 @@ async function reconcilePlatformRole<T extends { id: string; email: string; plat
     target = "USER";
   } else {
     // Env as a floor only. hasPlatformRole compares RANK, so someone the dashboard promoted to
-    // OWNER is not pulled back down to STAFF just because that's what env lists.
+    // OWNER is not pulled back down to MODERATOR just because that's what env lists.
     const envFloor: PlatformRole | null = owners.includes(email)
       ? "OWNER"
       : staff.includes(email)
-        ? "STAFF"
+        ? "MODERATOR"
         : null;
     if (envFloor && !hasPlatformRole(user.platformRole, envFloor)) target = envFloor;
   }

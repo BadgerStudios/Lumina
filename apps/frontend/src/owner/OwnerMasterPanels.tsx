@@ -10,6 +10,7 @@ import { SectionHeading, StatTile, formatBytes } from "./OwnerBusinessPanels";
 import { cn } from "../lib/cn";
 import { isMaster } from "../lib/platformRole";
 import { ConfirmRoleChange } from "./OwnerChrome";
+import { ROLE_META, ROLE_DUTIES } from "./roleMeta";
 
 interface TeamMember extends UserDTO {
   email: string;
@@ -18,12 +19,7 @@ interface TeamMember extends UserDTO {
   activity: { videosReviewed: number; staffActions: number };
 }
 
-const ROLE_META: Record<PlatformRole, { label: string; icon: typeof Crown; className: string }> = {
-  MASTER: { label: "Master", icon: Crown, className: "text-amber" },
-  OWNER: { label: "Owner", icon: Crown, className: "text-aurora" },
-  STAFF: { label: "Staff", icon: ShieldCheck, className: "text-accent" },
-  USER: { label: "User", icon: UserIcon, className: "text-signal-faint" },
-};
+
 
 function useTeam() {
   return useQuery({
@@ -128,11 +124,19 @@ export function TeamPanel() {
 
             {grant.isError && <p className="text-sm text-flare">{(grant.error as Error).message}</p>}
 
-            <p className="text-xs text-signal-faint">
-              Staff get the video review queue. Owners additionally get platform stats, user
-              management and bans. Master is set only by <code>MASTER_EMAIL</code> in the server's
-              .env and can never be granted from here.
-            </p>
+            {/* Spelled out per rank rather than as one sentence about "staff and owners". The
+                ladder has four rungs now, each strictly containing the one below it, and choosing
+                between them is the whole decision being made on this screen. */}
+            <dl className="space-y-1.5 text-xs">
+              {(["MODERATOR", "ADMIN", "EXECUTIVE", "OWNER", "MASTER"] as const).map((role) => (
+                <div key={role} className="flex gap-2">
+                  <dt className={cn("w-20 shrink-0 font-medium", ROLE_META[role].className)}>
+                    {ROLE_META[role].label}
+                  </dt>
+                  <dd className="text-signal-faint">{ROLE_DUTIES[role]}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         ) : (
           <p className="rounded-xl border border-hairline bg-base-800 p-4 text-sm text-signal-dim">

@@ -13,6 +13,7 @@ import { useAuthStore } from "../../store/authStore";
 import { UserAvatar } from "../common/UserAvatar";
 import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
+import { StaffBadge } from "../common/StaffBadge";
 import { PremiumBadge } from "../common/PremiumBadge";
 import { UserProfileCard } from "../common/UserProfileCard";
 import { useConfirm } from "../common/ConfirmDialog";
@@ -350,6 +351,7 @@ function MemberRow({
               <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium" style={{ color }}>
                 <span className="truncate">{label}</span>
                 {member.user.isOfficial ? <OfficialBadge compact /> : null}
+                {!member.user.isOfficial && member.user.isStaff ? <StaffBadge compact /> : null}
                 {member.user.isPremium ? <PremiumBadge compact /> : null}
                 {member.user.isBot ? <BotBadge /> : null}
               </span>

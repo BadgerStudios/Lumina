@@ -6,7 +6,7 @@ import { prisma } from "../../db/prisma.js";
 import { getIO } from "../../realtime/io.js";
 import { redis } from "../../db/redis.js";
 import { env } from "../../config/env.js";
-import { requireAuth, requireOwner } from "../../plugins/authenticate.js";
+import { requireAuth, requireStaff, requireAdmin, requireExecutive, requireOwner } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { applyRoleGrant } from "../../lib/roleGrant.js";
 import { assignableRoles, isOwner } from "../../lib/platformRole.js";
@@ -27,7 +27,9 @@ const banSchema = z.object({
   banDevice: z.boolean().default(true),
 });
 
-const roleSchema = z.object({ platformRole: z.enum(["USER", "STAFF", "OWNER"]) });
+const roleSchema = z.object({
+  platformRole: z.enum(["USER", "MODERATOR", "ADMIN", "EXECUTIVE", "OWNER"]),
+});
 const appealResolveSchema = z.object({
   approve: z.boolean(),
   response: z.string().min(1).max(500),
@@ -37,7 +39,13 @@ const appealResolveSchema = z.object({
  * Owner-only platform administration. Mounted under /api/owner.
  *
  * Separate from /api/staff because the authority differs in kind, not degree: staff moderate
- * content, the owner manages people and the platform itself. Every route carries requireOwner.
+ * content, the owner manages people and the platform itself.
+ *
+ * The gate differs per route rather than being requireOwner throughout, which is what makes the
+ * staff ladder mean anything: admins work the people surfaces (directory, bans, appeals, linked
+ * accounts), executives additionally see how the platform is doing (stats, engagement, revenue),
+ * and the shell's own two endpoints sit at the staff floor so every rank that can open the console
+ * can actually render it. Changing who holds a role stays with owners.
  */
 export default async function ownerRoutes(fastify: FastifyInstance) {
   /** Headline platform statistics. Every number here is measured, never estimated. */
@@ -73,7 +81,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
   return { users: ids.length - bots, bots };
 }
 
-  fastify.get("/stats", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.get("/stats", { preHandler: [requireAuth, requireExecutive] }, async () => {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
@@ -161,7 +169,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
    * .createdAt is a faithful came-back signal; presence pings would overcount idle tabs).
    * Derived live from existing tables — no counters to drift, nothing new to maintain.
    */
-  fastify.get("/engagement", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.get("/engagement", { preHandler: [requireAuth, requireExecutive] }, async () => {
     const daily = await prisma.$queryRaw<{ day: Date; users: bigint }[]>`
       SELECT d.day, count(DISTINCT d.u) AS users FROM (
         SELECT date_trunc('day', m."createdAt") AS day, m."authorId" AS u
@@ -218,7 +226,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     };
   });
 
-  fastify.get("/attention", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.get("/attention", { preHandler: [requireAuth, requireStaff] }, async () => {
     // Failed transcodes only count for a week. A FAILED row is terminal — the uploader already saw
     // the reason and the source file is gone — so without a window every old rejection (including
     // the pre-launch test fixtures) would sit in "Needs attention" forever. updatedAt is when the
@@ -363,7 +371,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
    * Live system health. Real measurements only — process/OS metrics, a Postgres and Redis
    * round-trip, actual disk usage of the uploads volume, and the real transcode queue depth.
    */
-  fastify.get("/health", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.get("/health", { preHandler: [requireAuth, requireStaff] }, async () => {
     const dbStart = Date.now();
     let dbOk = true;
     try {
@@ -430,7 +438,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
    * connected" from "connected and genuinely zero" so the dashboard never implies income exists
    * where none is being measured.
    */
-  fastify.get("/business", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.get("/business", { preHandler: [requireAuth, requireExecutive] }, async () => {
     const [revenue, downloads, bandwidth] = await Promise.all([
       getRevenueStats(isBillingConfigured(), 30),
       getDownloadStats(30),
@@ -446,12 +454,12 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
    * hundred groups with the larger ones truncated. A page boundary through the middle of a pair
    * would defeat the only thing this view is for.
    */
-  fastify.get("/duplicates", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.get("/duplicates", { preHandler: [requireAuth, requireAdmin] }, async () => {
     return { groups: await listLinkedAccounts() };
   });
 
   /** Paginated user directory with search. */
-  fastify.get("/users", { preHandler: [requireAuth, requireOwner] }, async (request) => {
+  fastify.get("/users", { preHandler: [requireAuth, requireAdmin] }, async (request) => {
     const query = request.query as { q?: string; page?: string; limit?: string };
     const page = Math.max(0, Number(query.page ?? 0) || 0);
     const limit = Math.min(100, Math.max(1, Number(query.limit ?? 25) || 25));
@@ -515,7 +523,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     };
   });
 
-  fastify.get("/users/:id", { preHandler: [requireAuth, requireOwner] }, async (request) => {
+  fastify.get("/users/:id", { preHandler: [requireAuth, requireAdmin] }, async (request) => {
     const { id } = request.params as { id: string };
     const user = await prisma.user.findUnique({
       where: { id },
@@ -601,7 +609,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     return { id: updated.id, platformRole: updated.platformRole, envMayOverride: false };
   });
 
-  fastify.post("/users/:id/ban", { preHandler: [requireAuth, requireOwner] }, async (request) => {
+  fastify.post("/users/:id/ban", { preHandler: [requireAuth, requireAdmin] }, async (request) => {
     const { id } = request.params as { id: string };
     const parsed = banSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("A ban reason is required");
@@ -641,7 +649,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     return { groupId: result.groupId, identifiersBanned: result.rows };
   });
 
-  fastify.post("/bans/:groupId/lift", { preHandler: [requireAuth, requireOwner] }, async (request) => {
+  fastify.post("/bans/:groupId/lift", { preHandler: [requireAuth, requireAdmin] }, async (request) => {
     const { groupId } = request.params as { groupId: string };
     const count = await liftBan(groupId, request.userId!);
     if (count === 0) throw new NotFoundError("No active ban found for that group");
@@ -658,7 +666,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
   });
 
   /** Ban list, filterable to just those with an appeal waiting. */
-  fastify.get("/bans", { preHandler: [requireAuth, requireOwner] }, async (request) => {
+  fastify.get("/bans", { preHandler: [requireAuth, requireAdmin] }, async (request) => {
     const query = request.query as { appeals?: string };
     const onlyAppeals = query.appeals === "true";
 
@@ -701,7 +709,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     }));
   });
 
-  fastify.post("/bans/:groupId/appeal", { preHandler: [requireAuth, requireOwner] }, async (request) => {
+  fastify.post("/bans/:groupId/appeal", { preHandler: [requireAuth, requireAdmin] }, async (request) => {
     const { groupId } = request.params as { groupId: string };
     const parsed = appealResolveSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("A response is required");

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { requireAuth, requireOwner } from "../../plugins/authenticate.js";
+import { requireAuth, requireExecutive } from "../../plugins/authenticate.js";
 import { getMotdForUser, listRecentMotds, markMotdSeen, publishMotd, retireMotd } from "./service.js";
 
 /**
@@ -36,11 +36,11 @@ export default async function motdRoutes(fastify: FastifyInstance) {
   });
 
   /** What has been published recently, newest first. */
-  fastify.get("/all", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.get("/all", { preHandler: [requireAuth, requireExecutive] }, async () => {
     return { motds: await listRecentMotds() };
   });
 
-  fastify.post("/", { schema: { body: publishSchema }, preHandler: [requireAuth, requireOwner] }, async (request) => {
+  fastify.post("/", { schema: { body: publishSchema }, preHandler: [requireAuth, requireExecutive] }, async (request) => {
     const body = request.body as z.infer<typeof publishSchema>;
     const motd = await publishMotd({
       title: body.title?.trim() || null,
@@ -51,7 +51,7 @@ export default async function motdRoutes(fastify: FastifyInstance) {
   });
 
   /** Take the current notice down without replacing it. */
-  fastify.delete("/", { preHandler: [requireAuth, requireOwner] }, async () => {
+  fastify.delete("/", { preHandler: [requireAuth, requireExecutive] }, async () => {
     await retireMotd();
     return { ok: true };
   });

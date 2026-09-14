@@ -71,7 +71,9 @@ import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { useAuthStore } from "../store/authStore";
 import { useLogout } from "../queries/auth";
 import { cn } from "../lib/cn";
-import { isMaster as checkMaster } from "../lib/platformRole";
+import type { PlatformRole } from "@lumina/shared";
+import { isMaster as checkMaster, hasRole } from "../lib/platformRole";
+import { ROLE_META } from "./roleMeta";
 import "./ownerTheme.css";
 
 type Section =
@@ -100,8 +102,13 @@ type Section =
  * Navigation, grouped by what you'd be doing rather than as one flat list.
  *
  * Nine destinations in a single column is a scan every time; three labelled groups of two to four
- * means you go to the right area by category first. `master: true` marks a section only the master
- * account sees — the server enforces the same on every /api/master route.
+ * means you go to the right area by category first.
+ *
+ * `minRole` is the rung a section needs, and it MIRRORS the gate on the route that section calls —
+ * the server enforces it, this only avoids offering a destination that would answer 403. Keeping
+ * the two in step is the whole job: a section listed below its route's gate is a dead end, and one
+ * listed above it is a surface somebody was meant to reach and cannot find. Sections with no
+ * minRole sit at the console floor, which is MODERATOR.
  */
 const NAV_GROUPS: Array<{
   group: string;
@@ -109,37 +116,39 @@ const NAV_GROUPS: Array<{
     key: Section;
     label: string;
     icon: typeof LayoutDashboard;
-    master?: boolean;
+    minRole?: PlatformRole;
   }>;
 }> = [
   {
     group: "Platform",
     items: [
-      { key: "overview", label: "Overview", icon: LayoutDashboard },
-      { key: "activity", label: "Activity", icon: Radio },
-      { key: "system", label: "System", icon: Activity },
-      { key: "infrastructure", label: "Infrastructure", icon: ServerCog },
+      { key: "overview", label: "Overview", icon: LayoutDashboard, minRole: "EXECUTIVE" },
+      { key: "activity", label: "Activity", icon: Radio, minRole: "EXECUTIVE" },
+      { key: "system", label: "System", icon: Activity, minRole: "OWNER" },
+      { key: "infrastructure", label: "Infrastructure", icon: ServerCog, minRole: "OWNER" },
     ],
   },
   {
     group: "Business",
     items: [
-      { key: "revenue", label: "Revenue", icon: DollarSign },
-      { key: "ads", label: "Ads", icon: Megaphone },
-      { key: "motd", label: "Message of the day", icon: Megaphone },
-      { key: "downloads", label: "Downloads", icon: Download },
+      { key: "revenue", label: "Revenue", icon: DollarSign, minRole: "EXECUTIVE" },
+      // Ad review is a moderation queue; the revenue it earns is not.
+      { key: "ads", label: "Ads", icon: Megaphone, minRole: "MODERATOR" },
+      { key: "motd", label: "Message of the day", icon: Megaphone, minRole: "EXECUTIVE" },
+      { key: "downloads", label: "Downloads", icon: Download, minRole: "EXECUTIVE" },
     ],
   },
   {
     group: "People",
     items: [
-      { key: "users", label: "Users", icon: Users },
+      { key: "users", label: "Users", icon: Users, minRole: "ADMIN" },
       { key: "videos", label: "Videos", icon: Film },
       { key: "reports", label: "Reports", icon: Flag },
-      { key: "bans", label: "Bans & appeals", icon: Gavel },
-      { key: "duplicates", label: "Linked accounts", icon: Users },
+      { key: "bans", label: "Bans & appeals", icon: Gavel, minRole: "ADMIN" },
+      { key: "duplicates", label: "Linked accounts", icon: Users, minRole: "ADMIN" },
       { key: "ageReviews", label: "Age reviews", icon: ShieldCheck },
-      { key: "team", label: "Team & access", icon: UserCog },
+      // Appointing people is the one thing an admin does not inherit — see assignableRoles.
+      { key: "team", label: "Team & access", icon: UserCog, minRole: "OWNER" },
       // Staff-visible: they are the ones answering "why am I blocked".
       { key: "reasons", label: "Block reasons", icon: BookLock },
     ],
@@ -151,13 +160,13 @@ const NAV_GROUPS: Array<{
         key: "official",
         label: "Official accounts",
         icon: BadgeCheck,
-        master: true,
+        minRole: "MASTER",
       },
-      { key: "config", label: "Configuration", icon: KeyRound, master: true },
-      { key: "brand", label: "Brand kit", icon: Palette, master: true },
+      { key: "config", label: "Configuration", icon: KeyRound, minRole: "MASTER" },
+      { key: "brand", label: "Brand kit", icon: Palette, minRole: "MASTER" },
       // Temporary: here to choose a redesign direction, and meant to be removed once one is picked
       // rather than drifting into a permanent feature.
-      { key: "design", label: "Design lab", icon: PaletteIcon, master: true },
+      { key: "design", label: "Design lab", icon: PaletteIcon, minRole: "MASTER" },
     ],
   },
 ];
@@ -186,22 +195,32 @@ const SECTION_LABELS: Record<Section, string> = {
 };
 
 export function OwnerApp() {
-  const [section, setSection] = useState<Section>("overview");
+  // Null until chosen, rather than defaulting to "overview": overview needs EXECUTIVE, so a
+  // moderator or admin would otherwise open the console on the one page they cannot load.
+  const [chosen, setChosen] = useState<Section | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
-  const isMaster = checkMaster(user?.platformRole);
+  const role = user?.platformRole;
+  const isMaster = checkMaster(role);
+  const rank = role ? ROLE_META[role] : null;
 
   const { data: health, isFetching: healthFetching } = usePlatformHealth();
   const { data: attention } = useAttentionItems();
 
   const groups = NAV_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((i) => !i.master || isMaster),
+    items: g.items.filter((i) => hasRole(role, i.minRole ?? "MODERATOR")),
   })).filter((g) => g.items.length > 0);
 
+  // Falling back to the first section this person can actually open — and re-deriving it rather
+  // than storing it — means a demotion mid-session lands somewhere valid instead of on a panel
+  // that now 403s.
+  const visible = groups.flatMap((g) => g.items.map((i) => i.key));
+  const section: Section = chosen && visible.includes(chosen) ? chosen : (visible[0] ?? "overview");
+
   const go = (next: Section) => {
-    setSection(next);
+    setChosen(next);
     setNavOpen(false);
   };
 
@@ -275,7 +294,7 @@ export function OwnerApp() {
           <span
             className="flex h-8 w-8 items-center justify-center rounded-lg"
             style={{
-              background: isMaster ? "var(--oc-master)" : "var(--oc-owner)",
+              background: `var(--oc-${rank?.tone ?? "staff"})`,
             }}
           >
             <Crown className="h-4 w-4 text-black" />
@@ -287,10 +306,10 @@ export function OwnerApp() {
             <span
               className="oc-label block leading-tight"
               style={{
-                color: isMaster ? "var(--oc-master)" : "var(--oc-owner)",
+                color: `var(--oc-${rank?.tone ?? "staff"})`,
               }}
             >
-              {isMaster ? "Master" : "Owner"}
+              {rank?.label ?? "Staff"}
             </span>
           </span>
           <button
@@ -339,7 +358,7 @@ export function OwnerApp() {
             <ShieldCheck
               className="h-4 w-4 shrink-0"
               style={{
-                color: isMaster ? "var(--oc-master)" : "var(--oc-owner)",
+                color: `var(--oc-${rank?.tone ?? "staff"})`,
               }}
             />
             <p className="min-w-0 flex-1 truncate text-xs text-signal-dim">

@@ -25,7 +25,7 @@ import { OwnerAdsPanel } from "../owner/OwnerAdsPanel";
 import { OwnerOfficialAccountsPanel } from "../owner/OwnerOfficialAccountsPanel";
 import { RevenuePanel, DownloadsPanel, BandwidthPanel } from "../owner/OwnerBusinessPanels";
 import { useAuthStore } from "../store/authStore";
-import { isOwner, isMaster } from "../lib/platformRole";
+import { isStaff, isMaster } from "../lib/platformRole";
 import { cn } from "../lib/cn";
 
 type Tab = "overview" | "users" | "bans" | "ageReviews" | "team" | "infrastructure" | "ads" | "official";
@@ -42,7 +42,7 @@ export function OwnerRoute() {
   const master = isMaster(user?.platformRole);
 
   if (!user) return null;
-  if (!isOwner(user.platformRole)) return <Navigate to={APP_HOME} replace />;
+  if (!isStaff(user.platformRole)) return <Navigate to={APP_HOME} replace />;
 
   return (
     <div className="lx-pane flex h-full min-w-0 flex-1 flex-col max-md:rounded-none max-md:border-x-0 max-md:border-b-0 bg-base-900">

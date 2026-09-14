@@ -6,7 +6,7 @@ export type PresenceStatus = "ONLINE" | "IDLE" | "DND" | "OFFLINE" | "INVISIBLE"
 
 /** Platform-wide authority ladder, strictly ordered — each rank implies everything below it.
  * MASTER is a single account and is assignable only from the server's MASTER_EMAIL env var. */
-export type PlatformRole = "USER" | "STAFF" | "OWNER" | "MASTER";
+export type PlatformRole = "USER" | "MODERATOR" | "ADMIN" | "EXECUTIVE" | "OWNER" | "MASTER";
 
 /** Coarse age bands collected at signup. Only the minor/adult distinction is acted on. */
 export type AgeBracket = "UNDER_18" | "AGE_18_24" | "AGE_25_34" | "AGE_35_49" | "AGE_50_PLUS";
@@ -52,6 +52,12 @@ export interface UserDTO {
   /** A current Lumina Premium subscriber. Present only when true, like isOfficial — the plan
    * sells a profile badge and this is what renders it. */
   isPremium?: boolean;
+  /** Holds a Lumina staff rank (MODERATOR or above). Public, and present only when true.
+   *
+   * Deliberately a boolean and not the rank itself: which rung someone is on is internal, and
+   * publishing it tells anyone choosing a target exactly who outranks whom. What the badge needs to
+   * say is only that this account really is staff — the claim an impersonator cannot reproduce. */
+  isStaff?: boolean;
 }
 
 /** A dev-portal app a user owns, with exactly one bot User (see backend schema.prisma

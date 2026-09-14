@@ -13,14 +13,10 @@ import {
 import { UserAvatar } from "../components/common/UserAvatar";
 import { Badge, ConfirmRoleChange, DataList, DataRow, EmptyState, Toolbar } from "./OwnerChrome";
 import { OwnerUserDetailPanel } from "./OwnerUserDetailPanel";
+import { ROLE_META } from "./roleMeta";
 import { cn } from "../lib/cn";
 
-const ROLE_LABELS: Record<PlatformRole, string> = {
-  USER: "User",
-  STAFF: "Staff",
-  OWNER: "Owner",
-  MASTER: "Master",
-};
+
 
 /**
  * User directory and ban/appeal management.
@@ -130,23 +126,13 @@ export function OwnerUsersPanel() {
                           >
                             {assignable.map((role) => (
                               <option key={role} value={role}>
-                                {ROLE_LABELS[role]}
+                                {ROLE_META[role].label}
                               </option>
                             ))}
                           </select>
                         ) : (
-                          <Badge
-                            tone={
-                              u.platformRole === "MASTER"
-                                ? "master"
-                                : u.platformRole === "OWNER"
-                                  ? "owner"
-                                  : u.platformRole === "STAFF"
-                                    ? "staff"
-                                    : undefined
-                            }
-                          >
-                            {ROLE_LABELS[u.platformRole]}
+                          <Badge tone={ROLE_META[u.platformRole].tone}>
+                            {ROLE_META[u.platformRole].label}
                           </Badge>
                         )}
                         {/* Owners and the master cannot be banned server-side, so no button is
@@ -201,8 +187,8 @@ export function OwnerUsersPanel() {
       {roleChange && (
         <ConfirmRoleChange
           username={roleChange.user.username}
-          fromLabel={ROLE_LABELS[roleChange.user.platformRole]}
-          toLabel={ROLE_LABELS[roleChange.role]}
+          fromLabel={ROLE_META[roleChange.user.platformRole].label}
+          toLabel={ROLE_META[roleChange.role].label}
           pending={setRole.isPending}
           onCancel={() => setRoleChange(null)}
           onConfirm={() =>

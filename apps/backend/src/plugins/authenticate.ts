@@ -4,6 +4,7 @@ import { hashRefreshToken, verifyAccessToken } from "../lib/jwt.js";
 import { BannedError, ForbiddenError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
 import { checkPermission, checkChannelPermission } from "../permissions/permissionService.js";
 import { prisma } from "../db/prisma.js";
+import type { PlatformRole } from "@prisma/client";
 import { hasPlatformRole } from "../lib/platformRole.js";
 import { isUserBanned } from "../modules/bans/service.js";
 
@@ -207,7 +208,7 @@ export function requirePermission(bit: bigint): preHandlerHookHandler {
  * otherwise pass — nothing grants it today (bootstrap is email-based and bot emails are synthesized),
  * but that's why this checks isBot explicitly rather than assuming it can't happen.
  */
-function requirePlatformRole(required: "STAFF" | "OWNER" | "MASTER"): preHandlerHookHandler {
+function requirePlatformRole(required: PlatformRole): preHandlerHookHandler {
   return async (request: FastifyRequest) => {
     if (!request.userId) throw new UnauthorizedError();
     const user = await prisma.user.findUnique({
@@ -215,17 +216,37 @@ function requirePlatformRole(required: "STAFF" | "OWNER" | "MASTER"): preHandler
       select: { platformRole: true, isBot: true },
     });
     if (!user || user.isBot || !hasPlatformRole(user.platformRole, required)) {
-      throw new ForbiddenError(
-        required === "MASTER" ? "Master account only" : required === "OWNER" ? "Owner only" : "Staff only",
-      );
+      throw new ForbiddenError(DENIED[required]);
     }
   };
 }
 
-/** STAFF or above — the video review queue and everything else moderators touch. */
-export const requireStaff = requirePlatformRole("STAFF");
+/**
+ * What a refusal says, per rung.
+ *
+ * Named rather than a nested ternary because there are six of them now, and because the wording is
+ * the only thing the person on the other end sees — "Staff only" on a page an admin is expected to
+ * reach reads as a bug rather than as a boundary.
+ */
+const DENIED: Record<PlatformRole, string> = {
+  USER: "Sign in to continue",
+  MODERATOR: "Lumina staff only",
+  ADMIN: "Lumina admins and above only",
+  EXECUTIVE: "Lumina executives and above only",
+  OWNER: "Owner only",
+  MASTER: "Master account only",
+};
 
-/** OWNER or above — the owner dashboard, user management, and platform bans. */
+/** MODERATOR or above — the video review queue, reports, and everything else moderators touch. */
+export const requireStaff = requirePlatformRole("MODERATOR");
+
+/** ADMIN or above — the people surfaces: user directory, bans, appeals, linked accounts. */
+export const requireAdmin = requirePlatformRole("ADMIN");
+
+/** EXECUTIVE or above — how the platform is doing: stats, engagement, revenue, downloads, MOTD. */
+export const requireExecutive = requirePlatformRole("EXECUTIVE");
+
+/** OWNER or above — the platform itself: roles, configuration, infrastructure. */
 export const requireOwner = requirePlatformRole("OWNER");
 
 /** MASTER only — role granting, platform configuration, and destructive actions. Nothing below the

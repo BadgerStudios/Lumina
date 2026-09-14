@@ -52,7 +52,7 @@ function brandFileRejection(ext: string): string | null {
 
 const grantSchema = z.object({
   userId: z.string().min(1),
-  platformRole: z.enum(["USER", "STAFF", "OWNER"]),
+  platformRole: z.enum(["USER", "MODERATOR", "ADMIN", "EXECUTIVE", "OWNER"]),
 });
 
 /**
@@ -76,7 +76,7 @@ export default async function masterRoutes(fastify: FastifyInstance) {
     });
 
     const team = await prisma.user.findMany({
-      where: { platformRole: { in: ["STAFF", "OWNER", "MASTER"] } },
+      where: { platformRole: { not: "USER" } },
       orderBy: [{ platformRole: "desc" }, { username: "asc" }],
       include: { _count: { select: { reviewedVideos: true, staffAuditEntries: true } } },
     });
