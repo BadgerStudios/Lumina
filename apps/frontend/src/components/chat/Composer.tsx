@@ -1,8 +1,13 @@
-import { useRef, useState, type KeyboardEvent } from "react";
-import { BarChart3, EyeOff, Mic, Plus, Send, Square, X } from "lucide-react";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { BarChart3, EyeOff, Mic, Plus, Send, Square, Upload, X } from "lucide-react";
 import { ClientEvents, MAX_MESSAGE_LENGTH } from "@lumina/shared";
+import type { MemberDTO } from "@lumina/shared";
 import { getSocket } from "../../socket/socketClient";
 import { StickerPicker } from "./StickerPicker";
+import { EmojiPicker } from "./EmojiPicker";
+import { MentionPalette, findMentionQuery } from "./MentionPalette";
+import { useMembers } from "../../queries/members";
+import { ICON } from "../common/Icon";
 import { PollBuilder, type PollDraft } from "./PollBuilder";
 import { SlashCommandPalette, parseInvocation } from "./SlashCommandPalette";
 import { useServerCommands, useInvokeCommand } from "../../queries/interactions";
@@ -40,6 +45,14 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [commandIndex, setCommandIndex] = useState(0);
+  const [caret, setCaret] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  // Escape closes the suggestion list for THIS `@…` token without closing it for the next one.
+  const [dismissedMentionStart, setDismissedMentionStart] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // dragenter/dragleave fire for every child element the pointer crosses, so a plain boolean
+  // flickers. Counting depth means the overlay only clears when the pointer truly leaves.
+  const dragDepth = useRef(0);
   const lastTypingSentAt = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -88,6 +101,87 @@ export function Composer({
   // is being typed, the list has served its purpose and would only be in the way.
   const slashQuery = /^\/([a-z0-9_-]*)$/i.exec(value)?.[1];
   const paletteOpen = slashQuery !== undefined && (commands?.length ?? 0) > 0;
+
+  // ---- @-mention autocomplete --------------------------------------------------------------
+  // Typing a mention meant knowing the exact username by heart and spelling it right, since a
+  // near-miss silently sends as plain text and nobody is notified. Matched on username, display
+  // name and nickname, so the name you see on screen is a name you can find.
+  const { data: members } = useMembers(serverId);
+  const mention = paletteOpen ? null : findMentionQuery(value, caret);
+  const mentionMatches: MemberDTO[] = (() => {
+    if (!mention || !members) return [];
+    const q = mention.query.toLowerCase();
+    return members
+      .filter((m) => {
+        const nick = m.nickname?.toLowerCase() ?? "";
+        const display = m.user.displayName?.toLowerCase() ?? "";
+        const uname = m.user.username.toLowerCase();
+        return uname.includes(q) || display.includes(q) || nick.includes(q);
+      })
+      .slice(0, 8);
+  })();
+  const mentionOpen = mention !== null && mentionMatches.length > 0 && mention.start !== dismissedMentionStart;
+
+  function pickMention(member: MemberDTO) {
+    if (!mention) return;
+    const before = value.slice(0, mention.start);
+    const after = value.slice(caret);
+    const insert = `@${member.user.username} `;
+    setValue(before + insert + after);
+    const pos = before.length + insert.length;
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      }
+      setCaret(pos);
+    });
+    setMentionIndex(0);
+  }
+
+  /** Inserts text at the caret (or over the selection) — what the emoji picker hands back. */
+  function insertAtCaret(text: string) {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? start;
+    setValue(value.slice(0, start) + text + value.slice(end));
+    const pos = start + text.length;
+    requestAnimationFrame(() => {
+      if (el) {
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      }
+      setCaret(pos);
+    });
+  }
+
+  function syncCaret() {
+    const el = textareaRef.current;
+    if (el) setCaret(el.selectionStart ?? 0);
+  }
+
+  /** A screenshot in the clipboard is an attachment, not text. */
+  function handlePaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    if (!onSendWithAttachments) return;
+    const pasted = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === "file")
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f != null);
+    if (pasted.length > 0) {
+      e.preventDefault();
+      setFiles((fs) => [...fs, ...pasted]);
+    }
+  }
+
+  function handleDrop(e: DragEvent) {
+    if (!onSendWithAttachments) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const dropped = Array.from(e.dataTransfer?.files ?? []);
+    if (dropped.length > 0) setFiles((fs) => [...fs, ...dropped]);
+  }
 
   function notifyTyping() {
     if (!typingChannelId) return;
@@ -204,6 +298,32 @@ export function Composer({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => i + 1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        // Both complete a mention here, unlike the slash palette where Enter is left alone to
+        // send: an `@…` mid-sentence is far more often an unfinished mention than a real word.
+        e.preventDefault();
+        const picked = mentionMatches[mentionIndex % mentionMatches.length];
+        if (picked) pickMention(picked);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionIndex(0);
+        if (mention) setDismissedMentionStart(mention.start);
+        return;
+      }
+    }
     if (paletteOpen && commands) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -236,7 +356,34 @@ export function Composer({
   }
 
   return (
-    <div className="shrink-0 px-3 pb-3 pt-1">
+    <div
+      className="relative shrink-0 px-3 pb-3 pt-1"
+      onDragEnter={(e) => {
+        if (!onSendWithAttachments || !Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (onSendWithAttachments) e.preventDefault();
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={handleDrop}
+    >
+      {dragging && (
+        <div className="lm-pop pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-1 rounded-pane border-2 border-dashed border-accent bg-base-900/80 text-sm font-medium text-accent">
+          <Upload size={ICON.md} />
+          Drop files to attach
+        </div>
+      )}
+
+      {mentionOpen ? (
+        <MentionPalette matches={mentionMatches} activeIndex={mentionIndex} onPick={pickMention} />
+      ) : null}
+
       {paletteOpen && commands ? (
         <SlashCommandPalette
           commands={commands}
@@ -340,11 +487,19 @@ export function Composer({
             // Refuse the keystroke rather than let them type a message the server rejects.
             if (e.target.value.length > MAX_MESSAGE_LENGTH) return;
             setValue(e.target.value);
+            setCaret(e.target.selectionStart ?? e.target.value.length);
             setError(null);
             setCommandIndex(0);
+            setMentionIndex(0);
+            // Editing the text re-arms a suggestion list that Escape had closed.
+            setDismissedMentionStart(null);
             notifyTyping();
           }}
           onKeyDown={handleKeyDown}
+          onKeyUp={syncCaret}
+          onClick={syncCaret}
+          onSelect={syncCaret}
+          onPaste={handlePaste}
           onBlur={stopTyping}
           placeholder={placeholder}
           rows={1}
@@ -352,6 +507,7 @@ export function Composer({
         />
         {/* Stickers are server-scoped, so in a DM there is nothing to pick from and the control is
             absent rather than present and empty. */}
+        <EmojiPicker serverId={serverId} onPick={insertAtCaret} />
         {serverId && onSendRich ? <StickerPicker serverId={serverId} onPick={(id) => void sendSticker(id)} /> : null}
         {onSendRich ? (
           <button
