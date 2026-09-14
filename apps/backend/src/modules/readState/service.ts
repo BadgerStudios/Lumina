@@ -1,6 +1,7 @@
 import type { UnreadDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
+import { filterVisibleChannels } from "../../permissions/permissionService.js";
 
 /**
  * Backs the Signal panel (frontend components/layout/SignalPanel.tsx). Uses the
@@ -52,10 +53,15 @@ export async function markChannelUnread(params: { userId: string; channelId: str
  * ChannelReadState row is treated as fully unread (every non-deleted message counts) — matches
  * a user who has never opened the channel. Only channels with unreadCount > 0 are returned. */
 export async function getServerUnread(params: { userId: string; serverId: string }): Promise<UnreadDTO[]> {
-  const channels = await prisma.channel.findMany({
+  const allChannels = await prisma.channel.findMany({
     where: { serverId: params.serverId, type: "TEXT" },
     select: { id: true },
   });
+  if (allChannels.length === 0) return [];
+  // Only count channels the caller can actually VIEW. Otherwise a private channel's
+  // unread count leaks to a member who cannot open it. Uses the same helper the
+  // sidebar channel list uses, so the two can never disagree about what is visible.
+  const channels = await filterVisibleChannels(params.userId, params.serverId, allChannels);
   if (channels.length === 0) return [];
 
   const readStates = await prisma.channelReadState.findMany({
