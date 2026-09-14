@@ -101,8 +101,11 @@ export function UserProfileCard({
           </div>
         ) : null}
 
-        {user.statusText ? (
-          <div className="mt-2 border-t border-base-900/60 pt-2 text-sm italic text-signal-dim">{user.statusText}</div>
+        {user.statusText || user.statusEmoji ? (
+          <div className="mt-2 flex items-start gap-1.5 border-t border-base-900/60 pt-2 text-sm italic text-signal-dim">
+            {user.statusEmoji ? <span className="not-italic leading-none">{user.statusEmoji}</span> : null}
+            {user.statusText ? <span>{user.statusText}</span> : null}
+          </div>
         ) : null}
 
         <div className="mt-3 flex flex-col gap-1.5">

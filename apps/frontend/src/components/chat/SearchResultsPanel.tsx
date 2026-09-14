@@ -52,11 +52,11 @@ export function SearchResultsPanel({
               <button
                 key={m.id}
                 type="button"
-                // Opens the channel the hit is in. Scrolling to the exact message would need
-                // anchored pagination the message list doesn't have yet — landing in the right
-                // channel is honest and useful; pretending to jump and silently not would not be.
+                // Jumps to the exact message. The ?message= deep link, the message-context
+                // endpoint behind it, and the list's flash-on-arrival all exist now — this used to
+                // stop at the channel because they did not.
                 onClick={() => {
-                  if (m.channelId) navigate(`/channels/${serverId}/${m.channelId}`);
+                  if (m.channelId) navigate(`/channels/${serverId}/${m.channelId}?message=${m.id}`);
                   onClose();
                 }}
                 className="group rounded-lg px-2 py-2 text-left hover:bg-base-600"

@@ -18,6 +18,7 @@ import { resolveAssetUrl, attachmentUrl } from "../../lib/apiClient";
 import { useCustomEmojis } from "../../queries/emoji";
 import { ReactionPicker } from "./ReactionPicker";
 import { cn } from "../../lib/cn";
+import { useConfirm } from "../common/ConfirmDialog";
 import { useCreateDM } from "../../queries/dms";
 import { reportError, toast } from "../../store/toastStore";
 import { PUBLIC_ORIGIN } from "../../lib/platform";
@@ -106,6 +107,23 @@ export function MessageItem({
   const avatarUrl = author?.avatarUrl ?? message.webhookAvatarUrl ?? null;
   const navigate = useNavigate();
   const createDM = useCreateDM();
+  const { confirm } = useConfirm();
+
+  // Deleting a message cannot be undone, and every other destructive action in the app asks
+  // first. Shift-click skips the prompt, the same escape hatch the roster offers.
+  async function confirmDelete(e: { shiftKey: boolean }) {
+    if (
+      e.shiftKey ||
+      (await confirm({
+        title: "Delete message?",
+        description: "This can't be undone.",
+        confirmText: "Delete",
+        danger: true,
+      }))
+    ) {
+      await onDelete(message.id);
+    }
+  }
 
   // Clicking a message author opens a real profile popover with a "Message" button inside for the
   // DM jump. Webhook posts (author === null) have no real user behind them, so they aren't
@@ -460,9 +478,9 @@ export function MessageItem({
           )}
           {canDelete && (
             <button
-              onClick={() => void onDelete(message.id)}
+              onClick={(e) => void confirmDelete(e)}
               className="rounded-md p-1 text-signal-dim transition hover:bg-base-600 hover:text-flare"
-              title="Delete"
+              title="Delete (shift-click to skip confirm)"
               aria-label="Delete"
             >
               <Trash2 size={15} />
