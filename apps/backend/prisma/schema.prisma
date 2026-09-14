@@ -339,6 +339,7 @@ model User {
   giftsReceived          GiftSend[]               @relation("GiftsReceived")
   motdsPublished         Motd[]                   @relation("MotdAuthor")
   deviceTokens           DeviceToken[]
+  attachmentsReviewed    Attachment[]             @relation("AttachmentReviewer")
 
   /// Which message of the day this member last dismissed, and when.
   ///
@@ -930,8 +931,27 @@ model Attachment {
   createdAt DateTime @default(now())
   message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
+  /// Where this stands with moderation. Everything starts PENDING and is visible immediately — the
+  /// queue is a sweep of what has been sent, not a gate in front of sending it. REMOVED is what
+  /// takes an image down: the serializer omits it and the file route refuses it, and the bytes are
+  /// unlinked at the same time.
+  reviewStatus  AttachmentReviewStatus @default(PENDING)
+  reviewedAt    DateTime?
+  reviewedById  String?
+  removalReason String?                @db.VarChar(500)
+  reviewedBy    User?                  @relation("AttachmentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
   /// Joined on every message list render; unindexed it scanned the whole table per page.
   @@index([messageId])
+  /// The review queue's only ordering: oldest undecided first.
+  @@index([reviewStatus, createdAt])
+}
+
+/// See Attachment.reviewStatus.
+enum AttachmentReviewStatus {
+  PENDING
+  APPROVED
+  REMOVED
 }
 
 model Reaction {

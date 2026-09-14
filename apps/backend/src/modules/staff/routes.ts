@@ -4,9 +4,10 @@ import { ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { getIO } from "../../realtime/io.js";
 import { requireAuth, requireStaff } from "../../plugins/authenticate.js";
-import { BadRequestError, NotFoundError } from "../../lib/errors.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { parseCursor, parseLimit } from "../../lib/pagination.js";
-import { isOwner } from "../../lib/platformRole.js";
+import { isAdmin, isOwner } from "../../lib/platformRole.js";
+import { banUser } from "../bans/service.js";
 import { serializeVideoWithStatus, VIDEO_AUTHOR_SELECT, VIDEO_TAGS_INCLUDE, VIDEO_SOURCE_INCLUDE } from "../videos/serialize.js";
 import { VIDEO_DIRS, unlinkOrThrow } from "../videos/storage.js";
 import path from "node:path";
@@ -20,7 +21,26 @@ const listQuerySchema = z.object({
 });
 
 const rejectSchema = z.object({ reason: z.string().min(1).max(300) });
-const removeSchema = z.object({ reason: z.string().min(1).max(300) });
+const removeSchema = z.object({
+  reason: z.string().min(1).max(300),
+  /**
+   * Present only when the reviewer chose to act on the uploader as well as the upload. Absent — the
+   * default — takes the video down and leaves the person alone, which is what most removals want.
+   *
+   * `email`/`ip`/`device` widen the account ban to the identifiers that account is known by; a
+   * device ban is what stops the same phone simply signing up again.
+   */
+  ban: z
+    .object({
+      email: z.boolean().default(false),
+      ip: z.boolean().default(false),
+      device: z.boolean().default(false),
+      reason: z.string().max(300).optional(),
+      /** Null or absent is permanent. */
+      days: z.number().int().min(1).max(3650).nullable().optional(),
+    })
+    .optional(),
+});
 
 /**
  * Platform staff routes. Mounted under /api/staff.
@@ -79,6 +99,18 @@ export default async function staffRoutes(fastify: FastifyInstance) {
 
   /** Takedown of an already-published video. Distinct from reject so the audit trail can
    * distinguish "never published" from "published, then pulled". */
+  /**
+   * Take a video down, and optionally act on whoever uploaded it.
+   *
+   * The ban is opt-in and absent by default: most removals are a first mistake and want nothing to
+   * happen to the person. When it IS asked for, doing it here rather than as a second trip to the
+   * Users page means the reason recorded against the ban is the reason for the takedown, which is
+   * the thing an appeal will actually be about.
+   *
+   * Banning is an admin's call even though removing is a moderator's, so the ban is checked against
+   * that rung separately rather than by raising the gate on the whole route — a moderator can still
+   * remove a video, they just cannot ban with it.
+   */
   fastify.post("/videos/:id/remove", { preHandler: [requireAuth, requireStaff] }, async (request) => {
     const parsed = removeSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("A removal reason is required");
@@ -86,7 +118,36 @@ export default async function staffRoutes(fastify: FastifyInstance) {
     if (video.status !== "APPROVED") {
       throw new BadRequestError(`Cannot remove a video that is ${video.status}`);
     }
-    return decide(request.userId!, video.id, "REMOVED", parsed.data.reason, "VIDEO_REMOVE");
+    const result = await decide(request.userId!, video.id, "REMOVED", parsed.data.reason, "VIDEO_REMOVE");
+
+    const ban = parsed.data.ban;
+    if (ban) {
+      const actor = await prisma.user.findUnique({
+        where: { id: request.userId! },
+        select: { platformRole: true },
+      });
+      if (!isAdmin(actor?.platformRole)) {
+        throw new ForbiddenError("Banning someone for an upload is an admin's call — the video was still removed");
+      }
+      // authorId is nullable: a deleted account leaves its uploads behind, and there is then
+      // nobody left to ban. Saying so is better than a 500 out of banUser, or a ban silently
+      // skipped while the screen reports success.
+      if (!video.authorId) {
+        throw new BadRequestError("That video has no account behind it any more — it was still removed");
+      }
+      if (video.authorId === request.userId!) {
+        throw new BadRequestError("That video is yours — removing it won't ban you");
+      }
+      await banUser({
+        userId: video.authorId,
+        actorId: request.userId!,
+        reason: (ban.reason || parsed.data.reason).slice(0, 300),
+        expiresAt: ban.days ? new Date(Date.now() + ban.days * 24 * 60 * 60 * 1000) : null,
+        scopes: { email: ban.email, ip: ban.ip, device: ban.device },
+      });
+      await writeAudit(request.userId!, "VIDEO_REMOVE_BAN", video.authorId, parsed.data.reason);
+    }
+    return result;
   });
 
   /**

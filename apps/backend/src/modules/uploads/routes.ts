@@ -50,6 +50,11 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
     // deletes a message at all.
     if (message.deletedAt) throw new NotFoundError("Attachment not found");
 
+    // Taken down in review. The bytes are unlinked at the same time, so this is belt and
+    // braces — but the row is the authority, and an unlink that failed must not leave the
+    // image quietly fetchable by anyone who kept the id.
+    if (attachment.reviewStatus === "REMOVED") throw new NotFoundError("Attachment not found");
+
     if (message.channelId && message.channel) {
       const membership = await prisma.membership.findUnique({
         where: { userId_serverId: { userId, serverId: message.channel.serverId } },

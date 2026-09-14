@@ -251,9 +251,22 @@ type AttachmentLike = {
   url: string;
   width: number | null;
   height: number | null;
+  reviewStatus?: string;
 };
 
-export function serializeAttachment(attachment: AttachmentLike): AttachmentDTO {
+/**
+ * `null` for an image that has been taken down, so callers drop it from the message.
+ *
+ * Returning the DTO anyway and relying on the file route to 404 would leave a broken-image frame
+ * where the removed picture was, which still tells everyone in the channel exactly what happened
+ * and where. A removed attachment should simply not be part of the message any more.
+ */
+export function serializeAttachment(attachment: AttachmentLike): AttachmentDTO | null {
+  if (attachment.reviewStatus === "REMOVED") return null;
+  return serializeAttachmentRow(attachment);
+}
+
+function serializeAttachmentRow(attachment: AttachmentLike): AttachmentDTO {
   return {
     id: attachment.id,
     fileName: attachment.fileName,
@@ -512,7 +525,10 @@ export function serializeMessage(
         }
       : null,
     createdAt: message.createdAt.toISOString(),
-    attachments: message.attachments.map(serializeAttachment),
+    // filter(Boolean) is doing real work: serializeAttachment returns null for an image taken
+    // down in review, and dropping it here is what makes the message render as if it never
+    // carried one — rather than as a broken frame announcing that something was removed.
+    attachments: message.attachments.map(serializeAttachment).filter((a): a is AttachmentDTO => a !== null),
     reactions: summarizeReactions(message.reactions, currentUserId),
     webhookId: message.webhookId,
     webhookUsername: message.overrideUsername,

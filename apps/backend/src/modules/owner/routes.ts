@@ -241,6 +241,9 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       sharedDeviceSignups,
       underageAttempts,
       barrierLeaks,
+      pendingAgeReviews,
+      reportedImages,
+      pendingImages,
     ] = await Promise.all([
       prisma.video.count({ where: { status: "PENDING_REVIEW" } }),
       prisma.videoReport.count({ where: { status: "OPEN" } }),
@@ -264,6 +267,28 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       // Contact across the age line that happened despite the separation. Rare by construction —
       // parent-approved pairs and unrecorded ages are excluded — so any number here is real.
       prisma.accountFlag.count({ where: { reasonCode: "AGE_BARRIER_LEAK", resolvedAt: null } }),
+      // Age reviews waiting on a person. The console has had this queue all along and nothing
+      // pointed at it, so the one item here that blocks a real account from being used was the one
+      // item the dashboard never mentioned.
+      prisma.manualAgeReview.count({ where: { status: "PENDING" } }),
+      // Images on a message somebody reported. Counted separately from the rest of the queue
+      // because these are the ones worth opening first, and a single number mixing them in would
+      // hide four urgent images behind four hundred ordinary ones.
+      prisma.attachment.count({
+        where: {
+          mimeType: { startsWith: "image/" },
+          reviewStatus: "PENDING",
+          messageId: {
+            in: (
+              await prisma.contentReport.findMany({
+                where: { status: { in: ["OPEN", "IN_PROGRESS", "INVESTIGATING"] }, targetMessageId: { not: null } },
+                select: { targetMessageId: true },
+              })
+            ).flatMap((r) => (r.targetMessageId === null ? [] : [r.targetMessageId])),
+          },
+        },
+      }),
+      prisma.attachment.count({ where: { mimeType: { startsWith: "image/" }, reviewStatus: "PENDING" } }),
     ]);
 
     /**
@@ -291,6 +316,39 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         count: openUserReports,
         href: "/staff/reports",
         severity: "urgent",
+      });
+    }
+    if (pendingAgeReviews > 0) {
+      items.push({
+        kind: "age_review",
+        section: "ageReviews",
+        label: `${pendingAgeReviews} age review${pendingAgeReviews === 1 ? "" : "s"} awaiting a decision`,
+        count: pendingAgeReviews,
+        href: "/owner",
+        // Urgent because the account on the other side cannot use the platform until it is answered.
+        severity: "urgent",
+      });
+    }
+    if (reportedImages > 0) {
+      items.push({
+        kind: "reported_images",
+        section: "images",
+        label: `${reportedImages} reported image${reportedImages === 1 ? "" : "s"} to look at`,
+        count: reportedImages,
+        href: "/owner",
+        severity: "urgent",
+      });
+    }
+    if (pendingImages > reportedImages) {
+      const rest = pendingImages - reportedImages;
+      items.push({
+        kind: "image_review",
+        section: "images",
+        label: `${rest} image${rest === 1 ? "" : "s"} not yet reviewed`,
+        count: rest,
+        href: "/owner",
+        // Info, not action: these are a backlog to work through, and nothing is blocked on them.
+        severity: "info",
       });
     }
     if (pendingVideos > 0) {

@@ -17,6 +17,7 @@ import { useAuthStore } from "../store/authStore";
 import { isMaster } from "../lib/platformRole";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { cn } from "../lib/cn";
+import { BanOptions, DEFAULT_REMOVAL_BAN, type RemovalBan } from "../components/common/BanOptions";
 
 const TABS: Array<{ key: StaffQueueStatus; label: string }> = [
   { key: "PENDING_REVIEW", label: "Pending" },
@@ -98,6 +99,8 @@ function ReviewCard({ video, status }: { video: VideoDTO; status: StaffQueueStat
   const purge = usePurgeVideoMedia();
   const [reason, setReason] = useState("");
   const [mode, setMode] = useState<"none" | "reject" | "remove">("none");
+  const [banning, setBanning] = useState(false);
+  const [ban, setBan] = useState<RemovalBan>(DEFAULT_REMOVAL_BAN);
   const src = videoMediaUrl(video.playbackUrl);
   const busy = approve.isPending || reject.isPending || remove.isPending || purge.isPending;
 
@@ -160,10 +163,19 @@ function ReviewCard({ video, status }: { video: VideoDTO; status: StaffQueueStat
             onSubmit={(e) => {
               e.preventDefault();
               if (!reason.trim() || busy) return;
-              const args = { videoId: video.id, reason: reason.trim() };
+              // The ban rides with the takedown, and only with a takedown: rejecting a video
+              // that was never published is not the kind of thing anyone gets banned for.
+              const args =
+                mode === "remove" && banning
+                  ? { videoId: video.id, reason: reason.trim(), ban }
+                  : { videoId: video.id, reason: reason.trim() };
               // Reset only on success, not right after firing: resetting unconditionally made a
               // failed submit look identical to a successful one — the form vanished either way.
-              const onSuccess = () => { setMode("none"); setReason(""); };
+              const onSuccess = () => {
+                setMode("none");
+                setReason("");
+                setBanning(false);
+              };
               if (mode === "reject") reject.mutate(args, { onSuccess });
               else remove.mutate(args, { onSuccess });
             }}
@@ -197,6 +209,16 @@ function ReviewCard({ video, status }: { video: VideoDTO; status: StaffQueueStat
             {/* The reason is shown verbatim to the uploader, so it should read as an explanation
                 rather than an internal note. */}
             <p className="text-xs text-signal-faint">The uploader will see this reason.</p>
+
+            {mode === "remove" && video.author && (
+              <BanOptions
+                name={video.author.displayName ?? video.author.username}
+                banning={banning}
+                onBanningChange={setBanning}
+                ban={ban}
+                onBanChange={setBan}
+              />
+            )}
           </form>
         )}
 

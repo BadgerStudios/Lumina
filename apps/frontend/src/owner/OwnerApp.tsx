@@ -22,6 +22,7 @@ import {
   BookLock,
   Radio,
   Film,
+  Image as ImageIcon,
   Flag,
 } from "lucide-react";
 import {
@@ -49,6 +50,7 @@ import { OwnerActivityPanel } from "./OwnerActivityPanel";
 import { OwnerAdsPanel } from "./OwnerAdsPanel";
 import { OwnerMotdPanel } from "./OwnerMotdPanel";
 import { OwnerDuplicatesPanel } from "./OwnerDuplicatesPanel";
+import { OwnerImagesPanel } from "./OwnerImagesPanel";
 import { OwnerInfrastructurePanel } from "./OwnerInfrastructurePanel";
 import { OwnerOfficialAccountsPanel } from "./OwnerOfficialAccountsPanel";
 // The staff review queue, mounted as-is: one component for both consoles, so the owner reviews
@@ -96,7 +98,8 @@ type Section =
   | "videos"
   | "motd"
   | "reports"
-  | "duplicates";
+  | "duplicates"
+  | "images";
 
 /**
  * Navigation, grouped by what you'd be doing rather than as one flat list.
@@ -143,6 +146,7 @@ const NAV_GROUPS: Array<{
     items: [
       { key: "users", label: "Users", icon: Users, minRole: "ADMIN" },
       { key: "videos", label: "Videos", icon: Film },
+      { key: "images", label: "Images", icon: ImageIcon },
       { key: "reports", label: "Reports", icon: Flag },
       { key: "bans", label: "Bans & appeals", icon: Gavel, minRole: "ADMIN" },
       { key: "duplicates", label: "Linked accounts", icon: Users, minRole: "ADMIN" },
@@ -192,6 +196,7 @@ const SECTION_LABELS: Record<Section, string> = {
   motd: "Message of the day",
   reports: "Reports — user & message queue",
   duplicates: "Linked accounts — shared device or address",
+  images: "Images — review queue",
 };
 
 export function OwnerApp() {
@@ -430,6 +435,7 @@ export function OwnerApp() {
               {section === "system" && <SystemSection />}
               {section === "users" && <OwnerUsersPanel />}
               {section === "videos" && <StaffVideosRoute />}
+              {section === "images" && <OwnerImagesPanel />}
               {section === "reports" && <StaffTicketsRoute />}
               {section === "bans" && <OwnerBansPanel />}
               {section === "ageReviews" && <OwnerAgeReviewsPanel />}

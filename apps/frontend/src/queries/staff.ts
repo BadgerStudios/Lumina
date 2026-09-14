@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { VideoDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
+import type { RemovalBan } from "../components/common/BanOptions";
 import { queryKeys } from "../lib/queryKeys";
 import { reportError } from "../store/toastStore";
 
@@ -70,8 +71,11 @@ export function useRejectVideo() {
 }
 
 export function useRemoveVideo() {
-  return useStaffAction(({ videoId, reason }: { videoId: string; reason: string }) =>
-    api.post<VideoDTO>(`/staff/videos/${videoId}/remove`, { reason }),
+  return useStaffAction(
+    ({ videoId, reason, ban }: { videoId: string; reason: string; ban?: RemovalBan }) =>
+      // `ban` is omitted rather than sent as undefined: the route treats its absence as "take the
+      // video down and leave the person alone", which is what most takedowns want.
+      api.post<VideoDTO>(`/staff/videos/${videoId}/remove`, { reason, ...(ban ? { ban } : {}) }),
   );
 }
 
