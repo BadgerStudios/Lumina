@@ -29,6 +29,7 @@ export async function pushInboxNotification(params: {
   channelId?: string | null;
   serverId?: string | null;
   videoId?: string | null;
+  postId?: bigint | null;
   preview?: string | null;
 }): Promise<void> {
   if (params.actorId && params.actorId === params.userId) return;
@@ -44,6 +45,7 @@ export async function pushInboxNotification(params: {
       channelId: params.channelId ?? null,
       serverId: params.serverId ?? null,
       videoId: params.videoId ?? null,
+      postId: params.postId ?? null,
       preview: params.preview?.slice(0, 140) ?? null,
     },
     update: {

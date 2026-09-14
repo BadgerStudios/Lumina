@@ -2611,6 +2611,9 @@ enum NotificationKind {
   REACTION
   VIDEO_LIKE
   VIDEO_COMMENT
+  POST_LIKE
+  POST_COMMENT
+  POST_SHARE
   THREAD
   FRIEND_ACCEPT
   LEVEL_UP
@@ -2635,6 +2638,10 @@ model Notification {
   channelId  String?
   serverId   String?
   videoId    String?
+  /// Which post it was about. Its own column rather than reusing videoId: the inbox links
+  /// somewhere different for each, and overloading one is how a link ends up pointing at a
+  /// video that happens to share an id with a post.
+  postId     BigInt?
   /// Short pre-rendered context (message snippet, video caption) so the inbox renders without a
   /// join per row against content that may since be deleted.
   preview    String?          @db.VarChar(140)

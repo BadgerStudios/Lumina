@@ -87,6 +87,9 @@ services:
       TURN_PORT: 3478
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      # Firebase, for the notifications Android renders itself with the app's own sound. Optional:
+      # unset, lib/fcm.ts is a no-op and web push carries on unchanged.
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT}
       ANDROID_VERSION_CODE: ${ANDROID_VERSION_CODE}
       OPS_AGENT_SECRET: ${OPS_AGENT_SECRET}
@@ -273,6 +276,13 @@ services:
       PREMIUM_MAX_VIDEO_UPLOAD_MB: ${PREMIUM_MAX_VIDEO_UPLOAD_MB}
       MAX_VIDEO_DURATION_SEC: ${MAX_VIDEO_DURATION_SEC}
       MAX_VIDEO_UPLOADS_PER_DAY: ${MAX_VIDEO_UPLOADS_PER_DAY}
+      # The worker DELIVERS notifications — saved-message reminders run here, not in the API — so it
+      # needs the same credentials the API has. Without them sendPushToUser no-ops silently, which
+      # meant every reminder was marked delivered and sent nothing.
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
     volumes:
       - lumina-uploads:/data/uploads
     # The shared image's HEALTHCHECK probes http://127.0.0.1:4000/healthz, which only the API

@@ -1,6 +1,8 @@
 import { prisma } from "../../db/prisma.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { serializeUser } from "../../lib/serialize.js";
+import { pushInboxNotification } from "../inbox/service.js";
+import { sendPushToUser } from "../../lib/push.js";
 
 /**
  * The feed: posts, likes, comments and shares.
@@ -79,6 +81,60 @@ function serializePost(row: PostRow, viewerId: Viewer, shared: PostDTO | null = 
     sharedUnavailable: false,
     mine: Boolean(viewerId && row.authorId === viewerId),
   };
+}
+
+/**
+ * "Someone did something to your post."
+ *
+ * Fire-and-forget from every caller, the same rule the message path uses: a like must never wait on
+ * a notification write, and a lost notification is an acceptable loss where a slow like is not.
+ *
+ * pushInboxNotification already refuses to notify you about your own actions and bundles repeats
+ * into one row, so twenty likes on one post are one line saying twenty — not twenty lines.
+ *
+ * The push is deliberately only sent for the FIRST actor in a bundle. The inbox can afford to say
+ * "and 19 others" quietly; a phone buzzing twenty times cannot, and that is how people turn
+ * notifications off for good.
+ */
+async function notifyPostAuthor(params: {
+  postId: bigint;
+  actorId: string;
+  kind: "POST_LIKE" | "POST_COMMENT" | "POST_SHARE";
+  verb: string;
+}): Promise<void> {
+  const post = await prisma.post.findUnique({
+    where: { id: params.postId },
+    select: { authorId: true, body: true, deletedAt: true },
+  });
+  if (!post?.authorId || post.deletedAt || post.authorId === params.actorId) return;
+
+  const bundleKey = `${params.kind}:${params.postId}`;
+  const existing = await prisma.notification.findUnique({
+    where: { userId_bundleKey: { userId: post.authorId, bundleKey } },
+    select: { id: true },
+  });
+
+  await pushInboxNotification({
+    userId: post.authorId,
+    kind: params.kind,
+    bundleKey,
+    actorId: params.actorId,
+    postId: params.postId,
+    preview: post.body.slice(0, 140) || null,
+  });
+
+  if (existing) return;
+  const actor = await prisma.user.findUnique({
+    where: { id: params.actorId },
+    select: { username: true, displayName: true },
+  });
+  const who = actor?.displayName ?? actor?.username ?? "Someone";
+  await sendPushToUser(post.authorId, {
+    title: `${who} ${params.verb}`,
+    body: post.body.slice(0, 120) || "your post",
+    url: "/feed",
+    tag: bundleKey,
+  }).catch(() => undefined);
 }
 
 export async function listFeed(params: {
@@ -200,6 +256,15 @@ export async function createPost(params: {
     return created;
   });
 
+  if (sharedPostId) {
+    void notifyPostAuthor({
+      postId: sharedPostId,
+      actorId: params.authorId,
+      kind: "POST_SHARE",
+      verb: "shared your post",
+    }).catch(() => undefined);
+  }
+
   return getPost(post.id, params.authorId);
 }
 
@@ -318,6 +383,13 @@ export async function addComment(params: {
     await tx.postComment.create({ data: { postId: params.postId, authorId: params.authorId, body, parentId } });
     await tx.post.update({ where: { id: params.postId }, data: { commentCount: { increment: 1 } } });
   });
+
+  void notifyPostAuthor({
+    postId: params.postId,
+    actorId: params.authorId,
+    kind: "POST_COMMENT",
+    verb: "commented on your post",
+  }).catch(() => undefined);
 
   return listComments(params.postId, params.authorId);
 }
