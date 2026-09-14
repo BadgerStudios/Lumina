@@ -9,6 +9,7 @@ import type {
   InviteDTO,
   MemberDTO,
   MessageDTO,
+  MessageReplyPreviewDTO,
   ReactionSummaryDTO,
   RoleDTO,
   ServerDTO,
@@ -463,7 +464,16 @@ type MessageLike = {
   } | null;
 };
 
-export function serializeMessage(message: MessageLike, currentUserId: string | null = null): MessageDTO {
+export function serializeMessage(
+  message: MessageLike,
+  currentUserId: string | null = null,
+  // The parent, already resolved by the caller. There is no Prisma relation to include for
+  // replyToId, so a transport that wants reply previews looks the parents up itself and passes
+  // the result in (see modules/messages/service.ts, buildReplyPreviewMap). `undefined` means this
+  // transport does not resolve replies at all; the DTO's replyTo is then null and the client falls
+  // back to the bare replyToId.
+  replyPreview?: MessageReplyPreviewDTO | null,
+): MessageDTO {
   return {
     id: message.id.toString(),
     channelId: message.channelId,
@@ -474,7 +484,9 @@ export function serializeMessage(message: MessageLike, currentUserId: string | n
     editedAt: message.editedAt ? message.editedAt.toISOString() : null,
     pinned: message.pinned,
     replyToId: message.replyToId !== null ? message.replyToId.toString() : null,
-    replyTo: message.replyTo
+    replyTo: replyPreview !== undefined
+      ? replyPreview
+      : message.replyTo
       ? {
           id: message.replyTo.id.toString(),
           author: message.replyTo.author ? serializeUser(message.replyTo.author) : null,

@@ -1,7 +1,7 @@
 import { Permissions, ServerEvents, MAX_MESSAGE_LENGTH } from "@lumina/shared";
-import type { MessageDTO, MentionFeedItemDTO } from "@lumina/shared";
+import type { MessageDTO, MentionFeedItemDTO, MessageReplyPreviewDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
-import { serializeMessage } from "../../lib/serialize.js";
+import { serializeMessage, serializeUser } from "../../lib/serialize.js";
 import { checkPermission, checkChannelPermission } from "../../permissions/permissionService.js";
 import { BadRequestError, ForbiddenError, NotFoundError, TooManyRequestsError } from "../../lib/errors.js";
 import { getIO } from "../../realtime/io.js";
@@ -45,6 +45,63 @@ export const messageInclude = {
   // it the origin message cannot show that a thread exists at all.
   thread: { select: { id: true, name: true, archived: true, _count: { select: { messages: true } } } },
 } as const;
+
+/**
+ * Reply previews without a Prisma relation. Message.replyToId is a bare scalar FK — the Message
+ * model declares no relation for it — so the parent cannot be `include`d, and trying to was what
+ * broke message loading before. Instead the distinct parent ids across a page are collected and
+ * fetched in one query.
+ *
+ * `scope` pins that fetch to the same channel or conversation the replies live in. That is a
+ * security boundary, not an optimisation: replyToId is client-supplied and never checked against
+ * the container at write time, so without the filter a crafted reply could surface the text of a
+ * message from a channel the viewer cannot see. A parent outside the scope simply does not come
+ * back and renders as the neutral deleted-parent quote.
+ */
+async function buildReplyPreviewMap(
+  messages: { replyToId: bigint | null }[],
+  scope: { channelId: string } | { dmConversationId: string },
+): Promise<Map<string, MessageReplyPreviewDTO>> {
+  const ids = [...new Set(messages.map((m) => m.replyToId).filter((v): v is bigint => v !== null))];
+  const map = new Map<string, MessageReplyPreviewDTO>();
+  if (ids.length === 0) return map;
+
+  const parents = await prisma.message.findMany({
+    where: { id: { in: ids }, ...scope },
+    select: {
+      id: true,
+      content: true,
+      deletedAt: true,
+      author: true,
+      _count: { select: { attachments: true } },
+    },
+  });
+  for (const p of parents) {
+    const deleted = p.deletedAt !== null;
+    map.set(p.id.toString(), {
+      id: p.id.toString(),
+      author: deleted || !p.author ? null : serializeUser(p.author),
+      // A deleted parent's text is withheld rather than quoted: deleting a message should not
+      // leave it legible inside every reply to it. 200 chars is all a one-line quote can show.
+      content: deleted ? "" : p.content.slice(0, 200),
+      deleted,
+      hasAttachments: !deleted && p._count.attachments > 0,
+    });
+  }
+  return map;
+}
+
+/** The preview to attach to one message: its resolved parent, or a deleted-parent placeholder
+ * when the row is gone (hard delete) or out of scope and so absent from the map. Null for a
+ * message that is not a reply. */
+function replyPreviewFor(
+  replyToId: bigint | null,
+  map: Map<string, MessageReplyPreviewDTO>,
+): MessageReplyPreviewDTO | null {
+  if (replyToId === null) return null;
+  const id = replyToId.toString();
+  return map.get(id) ?? { id, author: null, content: "", deleted: true, hasAttachments: false };
+}
 
 export interface CreateMessageAttachmentInput {
   id?: string;
@@ -125,7 +182,8 @@ export async function listChannelMessages(params: {
     include: messageInclude,
   });
 
-  return messages.map((m) => serializeMessage(m, params.userId));
+  const replyMap = await buildReplyPreviewMap(messages, { channelId: params.channelId });
+  return messages.map((m) => serializeMessage(m, params.userId, replyPreviewFor(m.replyToId, replyMap)));
 }
 
 export async function listDMMessages(params: {
@@ -153,7 +211,8 @@ export async function listDMMessages(params: {
     include: messageInclude,
   });
 
-  return messages.map((m) => serializeMessage(m, params.userId));
+  const replyMap = await buildReplyPreviewMap(messages, { dmConversationId: params.conversationId });
+  return messages.map((m) => serializeMessage(m, params.userId, replyPreviewFor(m.replyToId, replyMap)));
 }
 
 /**
@@ -202,7 +261,11 @@ export async function getMessageContext(params: {
   // Newest-first overall: the nearest-newer messages (fetched ascending) reversed to newest-first,
   // then the anchor, then the older messages (already newest-first).
   const combined = [...newer.reverse(), anchor, ...older];
-  return combined.map((m) => serializeMessage(m, params.userId));
+  const replyMap = await buildReplyPreviewMap(
+    combined,
+    anchor.channelId ? { channelId: anchor.channelId } : { dmConversationId: anchor.dmConversationId! },
+  );
+  return combined.map((m) => serializeMessage(m, params.userId, replyPreviewFor(m.replyToId, replyMap)));
 }
 
 /** Slowmode (Channel.slowmodeSeconds, set via ChannelSettingsModal) — MANAGE_MESSAGES bypasses
@@ -307,7 +370,8 @@ export async function createChannelMessage(params: {
     include: messageInclude,
   });
 
-  const dto = serializeMessage(message, null);
+  const replyMap = await buildReplyPreviewMap([message], { channelId: params.channelId });
+  const dto = serializeMessage(message, null, replyPreviewFor(message.replyToId, replyMap));
   getIO().to(`channel:${params.channelId}`).emit(ServerEvents.MESSAGE_CREATE, dto);
   // Out-of-band, never awaited, and never in the send path — see lib/linkPreview.ts. Unfurling a
   // link means this server makes an outbound request to a URL a user chose; doing that before the
@@ -431,7 +495,8 @@ export async function createDMMessage(params: {
     include: messageInclude,
   });
 
-  const dto = serializeMessage(message, null);
+  const replyMap = await buildReplyPreviewMap([message], { dmConversationId: params.conversationId });
+  const dto = serializeMessage(message, null, replyPreviewFor(message.replyToId, replyMap));
   getIO().to(`dm:${params.conversationId}`).emit(ServerEvents.MESSAGE_CREATE, dto);
   scheduleLinkPreviews({ messageId: message.id, content: params.content, room: `dm:${params.conversationId}` });
 
@@ -511,7 +576,11 @@ export async function editMessage(params: { userId: string; messageId: string; c
     include: messageInclude,
   });
 
-  const dto = serializeMessage(updated, null);
+  const replyMap = await buildReplyPreviewMap(
+    [updated],
+    message.channelId ? { channelId: message.channelId } : { dmConversationId: message.dmConversationId! },
+  );
+  const dto = serializeMessage(updated, null, replyPreviewFor(updated.replyToId, replyMap));
   const room = message.channelId ? `channel:${message.channelId}` : `dm:${message.dmConversationId}`;
   getIO().to(room).emit(ServerEvents.MESSAGE_UPDATE, dto);
   if (message.channelId && message.channel && message.authorId) {
@@ -738,7 +807,8 @@ export async function togglePinMessage(params: { userId: string; messageId: stri
     include: messageInclude,
   });
 
-  const dto = serializeMessage(updated, null);
+  const replyMap = await buildReplyPreviewMap([updated], { channelId: message.channelId });
+  const dto = serializeMessage(updated, null, replyPreviewFor(updated.replyToId, replyMap));
   getIO().to(`channel:${message.channelId}`).emit(ServerEvents.MESSAGE_UPDATE, dto);
   return dto;
 }
@@ -758,7 +828,8 @@ export async function listPinnedMessages(params: { userId: string; channelId: st
     include: messageInclude,
     take: 100,
   });
-  return messages.map((m) => serializeMessage(m, params.userId));
+  const replyMap = await buildReplyPreviewMap(messages, { channelId: params.channelId });
+  return messages.map((m) => serializeMessage(m, params.userId, replyPreviewFor(m.replyToId, replyMap)));
 }
 
 /**
