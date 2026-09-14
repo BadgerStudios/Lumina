@@ -113,6 +113,11 @@ services:
       DIDIT_ENABLED: ${DIDIT_ENABLED:-}
       DIDIT_API_KEY: ${DIDIT_API_KEY:-}
       DIDIT_WORKFLOW_ID: ${DIDIT_WORKFLOW_ID:-}
+      # The age-estimation workflow: a selfie the provider estimates an age from, with no
+      # identity document involved. Separate from the one above because they answer different
+      # questions at very different cost to the person being asked. Unset, the age check falls
+      # back to the document workflow.
+      DIDIT_AGE_WORKFLOW_ID: ${DIDIT_AGE_WORKFLOW_ID:-}
       # Optional: without it inbound webhooks are refused and the decision is read by polling.
       DIDIT_WEBHOOK_SECRET: ${DIDIT_WEBHOOK_SECRET:-}
       DIDIT_BASE_URL: ${DIDIT_BASE_URL:-https://verification.didit.me}
