@@ -35,11 +35,21 @@ function connKey(userId: string): string {
 const CONN_TTL_SECONDS = 6 * 60 * 60;
 
 /**
- * Clear every presence counter. Called once, before the server accepts connections: at that
- * moment there are zero live sockets by definition, so anything still in Redis is a leak from a
- * previous life. Also self-heals drift that has already accumulated.
+ * Bring stored presence back in line with reality. Called once, before the server accepts
+ * connections: at that moment there are zero live sockets BY DEFINITION, so anything claiming
+ * otherwise is a leak from a previous life, and this cannot mark a connected user offline.
+ *
+ * Both halves matter and only the first was ever done. The Redis counters were cleared here, but
+ * `User.presence` was written on connect and on disconnect and NOWHERE ELSE — and a process that
+ * stops never runs the disconnect half. Every deploy therefore stranded everyone who was connected
+ * at that moment as permanently ONLINE, and since the column is what the member list reads, they
+ * stayed lit up in every space they belonged to until they happened to connect and disconnect
+ * cleanly again. The count only ever went up.
+ *
+ * INVISIBLE is left alone: it is a stored choice rather than a live state, it already displays as
+ * OFFLINE to everyone else, and keeping it is what makes it survive to the next sign-in.
  */
-export async function resetPresenceCounters(): Promise<void> {
+export async function resetPresenceAtBoot(): Promise<void> {
   let cursor = "0";
   let cleared = 0;
   do {
@@ -51,6 +61,15 @@ export async function resetPresenceCounters(): Promise<void> {
     }
   } while (cursor !== "0");
   if (cleared) console.log(`presence: cleared ${cleared} stale connection counter(s) at boot`);
+
+  // No broadcast: nothing is connected yet to hear one, and every client fetches current state on
+  // connect anyway. Anyone genuinely present reconnects within seconds and is marked ONLINE again
+  // by the ordinary connect path.
+  const { count } = await prisma.user.updateMany({
+    where: { presence: { in: ["ONLINE", "IDLE", "DND"] } },
+    data: { presence: "OFFLINE" },
+  });
+  if (count) console.log(`presence: reset ${count} user(s) left ONLINE by the previous process`);
 }
 
 async function setPresenceAndBroadcast(io: SocketIOServer, userId: string, presence: PresenceStatus): Promise<void> {
@@ -71,6 +90,115 @@ async function setPresenceAndBroadcast(io: SocketIOServer, userId: string, prese
   }
   // Also notify the user's own other sessions / DM peers listening on their user room.
   io.to(`user:${userId}`).emit(ServerEvents.PRESENCE_UPDATE, payload);
+}
+
+/**
+ * What to correct, given who is actually connected and what the column claims.
+ *
+ * Split out from the I/O so the rule itself can be tested: presence is the kind of thing where an
+ * inverted condition marks every connected user offline, and that is not a bug you want to find in
+ * production. Both directions are needed —
+ *
+ *   - marked online with no socket: the drift this whole file exists to stop, and
+ *   - marked offline while holding one: the other half of the same fault. A connection counter
+ *     stuck above zero means INCR never returns 1 again, so that person is never marked ONLINE and
+ *     looks offline to everyone while genuinely connected.
+ *
+ * INVISIBLE is skipped in both directions. It is a choice, not an observation.
+ */
+export function planPresenceReconciliation(
+  connected: ReadonlySet<string>,
+  stored: ReadonlyArray<{ id: string; presence: PresenceStatus }>,
+): { toOffline: string[]; toOnline: string[] } {
+  const toOffline: string[] = [];
+  const toOnline: string[] = [];
+  for (const row of stored) {
+    if (row.presence === "INVISIBLE") continue;
+    const isConnected = connected.has(row.id);
+    if (!isConnected && row.presence !== "OFFLINE") toOffline.push(row.id);
+    else if (isConnected && row.presence === "OFFLINE") toOnline.push(row.id);
+  }
+  return { toOffline, toOnline };
+}
+
+/** How often stored presence is checked against the live socket table. */
+const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+/** A sane ceiling on one pass. Steady state after the boot reset is zero; a number anywhere near
+ * this means something else is wrong, and it should be visible rather than silently expensive. */
+const RECONCILE_MAX_ROWS = 1000;
+
+async function reconcilePresenceOnce(io: SocketIOServer): Promise<void> {
+  let sockets;
+  try {
+    sockets = await io.fetchSockets();
+  } catch {
+    return; // adapter not ready; the next pass will do it
+  }
+  const connectedIds = [
+    ...new Set(sockets.map((s) => s.data?.userId).filter((v): v is string => typeof v === "string")),
+  ];
+  const connected = new Set(connectedIds);
+
+  const stored = await prisma.user.findMany({
+    where: {
+      OR: [
+        { presence: { in: ["ONLINE", "IDLE", "DND"] } },
+        ...(connectedIds.length ? [{ id: { in: connectedIds }, presence: "OFFLINE" as const }] : []),
+      ],
+    },
+    select: { id: true, presence: true },
+    take: RECONCILE_MAX_ROWS,
+  });
+
+  const { toOffline, toOnline } = planPresenceReconciliation(connected, stored);
+  if (toOffline.length === 0 && toOnline.length === 0) return;
+
+  // Re-read the socket table immediately before writing. Someone can connect between the fetch
+  // above and here, and marking a user who just arrived as offline is a worse bug than the drift
+  // this is correcting.
+  let nowConnected = connected;
+  try {
+    const fresh = await io.fetchSockets();
+    nowConnected = new Set(
+      fresh.map((s) => s.data?.userId).filter((v): v is string => typeof v === "string"),
+    );
+  } catch {
+    /* keep the earlier snapshot */
+  }
+
+  for (const userId of toOffline) {
+    if (nowConnected.has(userId)) continue;
+    await setPresenceAndBroadcast(io, userId, "OFFLINE");
+  }
+  for (const userId of toOnline) {
+    if (!nowConnected.has(userId)) continue;
+    await setPresenceAndBroadcast(io, userId, "ONLINE");
+  }
+  console.log(
+    `presence: reconciled ${toOffline.length} stale online, ${toOnline.length} missed online`,
+  );
+}
+
+/**
+ * Keeps the column honest while the process runs.
+ *
+ * The boot reset handles a process that stopped; this handles everything that goes wrong while one
+ * is running — a decrement lost to a Redis blip, a counter stranded above zero, an instance that
+ * went away in a multi-instance deployment (the offline debounce below is per-process and would
+ * never fire for sockets it never owned). The live socket table is the one source that cannot
+ * drift: if the connection is gone, the entry is gone. It is the same ground truth the owner
+ * dashboard counts from.
+ *
+ * Unref'd so it can never be the reason the process stays alive.
+ */
+export function startPresenceReconciler(io: SocketIOServer): NodeJS.Timeout {
+  const timer = setInterval(() => {
+    void reconcilePresenceOnce(io).catch((err) => {
+      console.error("presence: reconciliation failed", err);
+    });
+  }, RECONCILE_INTERVAL_MS);
+  timer.unref();
+  return timer;
 }
 
 export async function registerPresenceHandlers(io: SocketIOServer, socket: Socket): Promise<void> {

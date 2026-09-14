@@ -2,7 +2,7 @@ import type { Server as HTTPServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { redis, createRedisDuplicate } from "../db/redis.js";
-import { resetPresenceCounters } from "./handlers/presence.js";
+import { resetPresenceAtBoot, startPresenceReconciler } from "./handlers/presence.js";
 import { env } from "../config/env.js";
 import { authenticateSocket } from "./middleware/authenticateSocket.js";
 import { registerMessageHandlers } from "./handlers/message.js";
@@ -67,9 +67,9 @@ export async function initIO(httpServer: HTTPServer): Promise<SocketIOServer> {
     },
   });
 
-  // Before a single socket is accepted: anything left in the presence counters belongs to a
-  // process that is no longer running.
-  await resetPresenceCounters();
+  // Before a single socket is accepted: anything claiming to be connected belongs to a process
+  // that is no longer running.
+  await resetPresenceAtBoot();
 
   const pubClient = redis;
   const subClient = createRedisDuplicate();
@@ -102,6 +102,10 @@ export async function initIO(httpServer: HTTPServer): Promise<SocketIOServer> {
       setSocketConnections(io!.sockets.sockets.size);
     });
   });
+
+  // The boot reset above covers a process that stopped. This covers drift that accumulates while
+  // one is running, by checking the stored column against the live socket table.
+  startPresenceReconciler(io);
 
   return io;
 }
