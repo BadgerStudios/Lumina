@@ -101,10 +101,11 @@ export default async function ticketRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get("/mine", { preHandler: [requireAuth] }, async (request) => {
-    const all = await listTickets({ status: "ALL", limit: 100 });
-    // Filtered here rather than in the query because "mine" means FILED BY me, while the queue's
-    // own `mine` means CLAIMED BY me — two different questions that would otherwise share a name.
-    return { tickets: all.tickets.filter((t) => t.person?.id === request.userId!) };
+    // Queried by reporter rather than filtered out of the global page. Filtering meant a person's
+    // own ticket vanished from their list the moment a hundred newer ones existed anywhere on the
+    // platform — and it read every other account's tickets to answer a question about one.
+    const mine = await listTickets({ status: "ALL", reporterId: request.userId!, limit: 100 });
+    return { tickets: mine.tickets };
   });
 
   /** Ownership is checked per ticket: this is the one read a non-staff account gets. */

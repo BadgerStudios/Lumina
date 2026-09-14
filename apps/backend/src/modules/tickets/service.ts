@@ -168,6 +168,10 @@ export interface ListParams {
   category?: TicketCategory;
   /** Only tickets this person has claimed. */
   assignedToId?: string;
+  /** Only tickets this person FILED. Different question from assignedToId, and the reason both
+   *  exist: "mine" means one thing to a moderator working a queue and another to someone who
+   *  opened a support ticket. */
+  reporterId?: string;
   limit: number;
 }
 
@@ -186,6 +190,7 @@ export async function listTickets(params: ListParams): Promise<{
   const where = {
     ...(statuses ? { status: { in: statuses } } : {}),
     ...(params.assignedToId ? { assignedToId: params.assignedToId } : {}),
+    ...(params.reporterId ? { reporterId: params.reporterId } : {}),
   };
 
   // Both tables, then merged and sorted as one. Each is asked for the full page limit because
