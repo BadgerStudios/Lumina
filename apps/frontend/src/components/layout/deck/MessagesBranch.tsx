@@ -10,6 +10,24 @@ import { UserSearchInput, type LookupUser } from "../../common/UserSearchInput";
 import { usePresenceStore } from "../../../store/presenceStore";
 import { reportError } from "../../../store/toastStore";
 import { cn } from "../../../lib/cn";
+import type { DMConversationDTO } from "@lumina/shared";
+
+/** Has this conversation received a message I have not seen? DMParticipant.lastReadMessageId,
+ * carried on the conversation DTO, against the last message. Message ids are monotonically
+ * increasing bigint strings, so "newer" is a BigInt comparison with a plain inequality fallback.
+ * My own latest message never counts as unread to me. */
+function dmIsUnread(c: DMConversationDTO, myId: string | undefined): boolean {
+  const last = c.lastMessage;
+  if (!last || !myId) return false;
+  if (last.authorId === myId) return false;
+  const lastRead = c.readStates.find((r) => r.userId === myId)?.lastReadMessageId;
+  if (!lastRead) return true;
+  try {
+    return BigInt(last.id) > BigInt(lastRead);
+  } catch {
+    return last.id !== lastRead;
+  }
+}
 
 /**
  * The "Messages" section of the nav deck, expanded.
@@ -129,6 +147,8 @@ export function MessagesBranch() {
         const label = c.isGroup
           ? (c.name ?? c.participants.map((p) => p.displayName ?? p.username).join(", "))
           : (other?.displayName ?? other?.username ?? "Unknown");
+        // Suppressed on the open conversation, which the chat pane marks read as you read it.
+        const unread = c.id !== activeId && dmIsUnread(c, user?.id);
         return (
           <div key={c.id} className="group relative">
             <button
@@ -137,6 +157,7 @@ export function MessagesBranch() {
                 closeMobileDrawer();
               }}
               data-active={c.id === activeId}
+              data-unread={unread}
               className="lx-row lx-focus text-sm"
             >
               <UserAvatar
@@ -146,6 +167,12 @@ export function MessagesBranch() {
                 presence={other ? (presenceByUserId[other.id] ?? other.presence) : undefined}
               />
               <span className={cn("min-w-0 flex-1 truncate", c.isGroup && "italic")}>{label}</span>
+              {unread && (
+                <>
+                  <span className="sr-only">(unread)</span>
+                  <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-accent" />
+                </>
+              )}
             </button>
             {c.isGroup && (
               <button

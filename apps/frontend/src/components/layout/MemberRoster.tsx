@@ -367,6 +367,8 @@ function MemberRow({
             <UserProfileCard
               user={{ ...member.user, presence }}
               nickname={member.nickname}
+              roles={roles}
+              member={member}
               onMessage={!isSelf && !member.user.isBot ? () => onMessage(member.userId) : undefined}
             />
           </DropdownMenu.Content>

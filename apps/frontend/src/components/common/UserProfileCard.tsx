@@ -1,11 +1,12 @@
 import { MessageCircle, UserMinus, Ban, ShieldCheck, Copy, Flag } from "lucide-react";
-import type { UserDTO } from "@lumina/shared";
+import type { UserDTO, RoleDTO, MemberDTO } from "@lumina/shared";
 import { UserAvatar } from "./UserAvatar";
 import { BotBadge } from "./BotBadge";
 import { OfficialBadge } from "./OfficialBadge";
 import { PremiumBadge } from "./PremiumBadge";
 import { FriendActionButton } from "./FriendActionButton";
 import { resolveAssetUrl } from "../../lib/apiClient";
+import { shortDate } from "../../lib/relativeTime";
 import {
   useFriends,
   useRemoveFriend,
@@ -27,14 +28,27 @@ import { useUIStore } from "../../store/uiStore";
  * backend + the friends hooks but were reachable ONLY from the dedicated Friends page. Since this
  * one card is the popover for the member list, message avatars AND message author names, adding
  * them here surfaces them on every one of those surfaces at once. */
+function colorToCss(color: number | null | undefined): string | undefined {
+  if (color === null || color === undefined) return undefined;
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
 export function UserProfileCard({
   user,
   nickname,
   onMessage,
+  roles,
+  member,
 }: {
   user: UserDTO;
   nickname?: string | null;
   onMessage?: () => void;
+  /** Roles to consider for the chips: either this person's already-resolved roles, or the whole
+   * server role list, in which case `member.roleIds` picks out the ones that are theirs. */
+  roles?: RoleDTO[];
+  /** The server membership — supplies "member since" and, with `roles`, which roles are theirs.
+   * Both stay optional so the plain DM popover, which has no server context, is unchanged. */
+  member?: MemberDTO;
 }) {
   const displayName = nickname ?? user.displayName ?? user.username;
   const me = useAuthStore((s) => s.user);
@@ -52,6 +66,13 @@ export function UserProfileCard({
 
   const isFriend = friends?.some((f) => f.user.id === user.id) ?? false;
   const isBlocked = blocked?.some((b) => b.user.id === user.id) ?? false;
+
+  // With `member` present, `roles` is narrowed to what this person holds; without it, `roles` is
+  // taken as already scoped to them. @everyone never makes a useful chip, and the order matches
+  // the roster: highest first.
+  const roleChips = (roles ?? [])
+    .filter((r) => !r.isDefault && (!member || member.roleIds.includes(r.id)))
+    .sort((a, b) => b.position - a.position);
 
   const copyId = async () => {
     try {
@@ -106,6 +127,30 @@ export function UserProfileCard({
             {user.statusEmoji ? <span className="not-italic leading-none">{user.statusEmoji}</span> : null}
             {user.statusText ? <span>{user.statusText}</span> : null}
           </div>
+        ) : null}
+
+        {roleChips.length > 0 ? (
+          <div className="mt-2 border-t border-base-900/60 pt-2">
+            <div className="lx-eyebrow mb-1 text-signal-faint">Roles</div>
+            <div className="flex flex-wrap gap-1">
+              {roleChips.map((r) => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center gap-1 rounded-row border border-hairline bg-base-700 px-1.5 py-0.5 text-micro font-medium text-signal-dim"
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ background: colorToCss(r.color) ?? "var(--signal-faint)" }}
+                  />
+                  {r.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {member?.joinedAt ? (
+          <div className="mt-2 text-xs text-signal-faint">Member since {shortDate(member.joinedAt)}</div>
         ) : null}
 
         <div className="mt-3 flex flex-col gap-1.5">
