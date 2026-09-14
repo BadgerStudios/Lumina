@@ -720,6 +720,31 @@ body {
   .lx-mark--voice {
     border-radius: 999px;
   }
+
+  /* Voice rooms carry a speaker instead of the mark.
+     Same state language deliberately — faint at rest, accent on hover or when
+     you are connected, pulse with a glow when somebody is already in there — so
+     the row is read exactly as every other row is; only the glyph differs.
+     The negative inline margin is optical alignment, not a hack to hide: it
+     gives a 12px icon the same 6px footprint the mark has, so voice and text
+     rooms start their names on the same x. Without it every voice row's label
+     sits 6px right of every text row's, which reads as a broken list. */
+  .lx-speaker {
+    flex: none;
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-inline: -0.1875rem;
+    color: var(--signal-faint);
+    transition: color 120ms ease, filter 120ms ease;
+  }
+  .lx-row:hover .lx-speaker,
+  .lx-row[data-active="true"] .lx-speaker {
+    color: var(--accent);
+  }
+  .lx-row[data-live="true"] .lx-speaker {
+    color: var(--pulse);
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--pulse) 55%, transparent));
+  }
   .lx-row:hover .lx-mark,
   .lx-row[data-active="true"] .lx-mark {
     border-color: var(--accent);

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
-import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket, Flag, Info, ChevronRight } from "lucide-react";
+import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket, Flag, LifeBuoy, Info, ChevronRight } from "lucide-react";
 import { MyReportsPanel } from "../feed/MyReportsPanel";
 import { CLIENT_TYPE } from "../../lib/platform";
 import { getInstalledVersion } from "../../lib/appUpdater";
@@ -47,6 +47,7 @@ import { UserAvatar } from "../common/UserAvatar";
 import type { PresenceStatus } from "@lumina/shared";
 import { cn } from "../../lib/cn";
 import { ApiError, resolveAssetUrl } from "../../lib/apiClient";
+import { SupportSection } from "./SupportSection";
 import { isWebPushSupported, getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "../../lib/webPush";
 import {
   isNativePushSupported,
@@ -65,7 +66,7 @@ import { ICON } from "../common/Icon";
 
 const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND", "INVISIBLE"];
 
-type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about";
+type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "support" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "account", label: "My Account", icon: User },
@@ -73,6 +74,7 @@ const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "privacy", label: "Privacy & Safety", icon: ShieldCheck },
   { key: "reports", label: "My Reports", icon: Flag },
+  { key: "support", label: "Support", icon: LifeBuoy },
   { key: "family", label: "Family", icon: Users },
   { key: "connections", label: "Connections", icon: Gamepad2 },
   { key: "notifications", label: "Notifications", icon: Bell },
@@ -1848,6 +1850,7 @@ export function UserSettingsModal() {
               {section === "appearance" && <AppearanceSection />}
               {section === "privacy" && <PrivacySection />}
               {section === "reports" && <MyReportsPanel />}
+              {section === "support" && <SupportSection />}
               {section === "notifications" && <NotificationsSection />}
               {section === "billing" && <BillingSection />}
               {section === "advertising" && <AdvertisingSection />}

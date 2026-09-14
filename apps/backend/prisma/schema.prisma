@@ -340,6 +340,7 @@ model User {
   motdsPublished         Motd[]                   @relation("MotdAuthor")
   deviceTokens           DeviceToken[]
   attachmentsReviewed    Attachment[]             @relation("AttachmentReviewer")
+  ticketMessages         TicketMessage[]          @relation("TicketMessageAuthor")
 
   /// Which message of the day this member last dismissed, and when.
   ///
@@ -3012,6 +3013,20 @@ model BotRecipe {
 enum ReportTargetType {
   USER
   MESSAGE
+  ATTACHMENT
+  /// A support request is about nothing at all — see TicketCategory.
+  NONE
+}
+
+/// What kind of work a ticket is, and therefore which tab it appears under.
+///
+/// USER_REPORT is somebody reporting something. SYSTEM_FLAGGED is the platform raising it itself
+/// (automod, the age barrier audit, a duplicate-device flag). CUSTOMER_SUPPORT is someone asking
+/// for help, which previously had nowhere to go — so people raised it as a report about themselves.
+enum TicketCategory {
+  USER_REPORT
+  SYSTEM_FLAGGED
+  CUSTOMER_SUPPORT
 }
 
 /// A report filed against a USER or a MESSAGE. Separate from VideoReport (feed-only).
@@ -3024,7 +3039,10 @@ enum ReportTargetType {
 /// because a composite unique over nullable columns is a no-op in Postgres (NULLs compare distinct).
 model ContentReport {
   id              String           @id @default(cuid())
-  reporterId      String
+  /// Null when the platform raised the ticket itself rather than a person filing it — see
+  /// TicketCategory.SYSTEM_FLAGGED. A bare scalar with no relation, like the target ids above it,
+  /// because a ticket must outlive the accounts it refers to.
+  reporterId      String?
   targetType      ReportTargetType
   targetUserId    String?
   targetMessageId BigInt?
@@ -3037,10 +3055,42 @@ model ContentReport {
   resolvedAt      DateTime?
   createdAt       DateTime         @default(now())
 
+  /// Which queue this belongs in. ContentReport is now the general ticket table — user, message and
+  /// image reports, system flags, and support requests — with VideoReport kept alongside it and
+  /// presented as one queue by modules/tickets.
+  category           TicketCategory @default(USER_REPORT)
+  /// The line shown on the card. Only a support ticket has one of its own; reports build a sentence
+  /// from what they are about, so a card never reads as a bare reason code.
+  subject            String?        @db.VarChar(200)
+  targetAttachmentId String?
+
   @@index([status, createdAt])
   @@index([reporterId])
   @@index([targetUserId])
   @@index([targetMessageId])
+  @@index([category, status, createdAt])
+}
+
+/// One message in a ticket conversation — both sides of it.
+///
+/// `ticketRef` is a plain string ("c:<id>" or "v:<id>"), not a foreign key: a ticket is a row in one
+/// of two tables, so there is nothing single to point at. Same reasoning that already keeps
+/// ContentReport's target ids relation-less.
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketRef String
+  authorId  String?
+  /// Stored rather than derived from the author's current rank. A moderator can be promoted or
+  /// demoted afterwards, and the archive has to keep showing who was speaking as staff at the time
+  /// — deriving it would silently rewrite old conversations.
+  fromStaff Boolean  @default(false)
+  /// A note between staff. Never returned on the reporter's own read of the ticket.
+  internal  Boolean  @default(false)
+  body      String   @db.VarChar(4000)
+  createdAt DateTime @default(now())
+  author    User?    @relation("TicketMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketRef, createdAt])
 }
 
 /// The owner's message of the day.

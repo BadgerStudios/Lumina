@@ -5,7 +5,7 @@ import { APP_HOME } from "../../lib/platform";
 import { useAuthStore } from "../../store/authStore";
 import { isStaff } from "../../lib/platformRole";
 import { useStaffVideoCounts } from "../../queries/staff";
-import { useTickets } from "../../queries/reports";
+import { useTicketQueue } from "../../queries/tickets";
 import { useAdReviewQueue } from "../../queries/ads";
 import { cn } from "../../lib/cn";
 
@@ -55,7 +55,7 @@ export function StaffLayout() {
   // fetched anyway the moment their tab is opened, so this shares one cache entry rather than
   // adding traffic.
   const videoCounts = useStaffVideoCounts();
-  const openTickets = useTickets("OPEN");
+  const openTickets = useTicketQueue({ status: "ACTIVE" });
   const ageReviews = useAgeReviews();
   const adQueue = useAdReviewQueue();
 
@@ -71,7 +71,10 @@ export function StaffLayout() {
     },
     // `counts.OPEN`, not the returned page length — the list is paginated, so its length would
     // silently cap the badge at a page size and read as "10 reports" forever.
-    { to: "/staff/reports", label: "Reports", icon: Flag, count: openTickets.data?.counts?.OPEN },
+    // Everything a moderator works, in one queue: user, message, image and video reports,
+    // system flags, and support requests. The badge counts all of them, which is why it reads
+    // the unified endpoint rather than the video-report one it used to.
+    { to: "/staff/tickets", label: "Tickets", icon: Flag, count: openTickets.data?.counts?.open },
     { to: "/staff/ads", label: "Ads", icon: Megaphone, count: adQueue.data?.length },
     { to: "/staff/verification", label: "Verification", icon: ShieldCheck, count: ageReviews.data?.length },
     { to: "/staff/audit", label: "Audit log", icon: ScrollText },

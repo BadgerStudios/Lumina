@@ -21,6 +21,7 @@ import StoreRoute from "./routes/StoreRoute";
 import { StaffLayout } from "./routes/staff/StaffLayout";
 import { StaffVideosRoute } from "./routes/StaffVideosRoute";
 import { StaffTicketsRoute } from "./routes/StaffTicketsRoute";
+import { StaffTicketsPage } from "./routes/staff/StaffTicketsPage";
 import { StaffAdsRoute } from "./routes/staff/StaffAdsRoute";
 import { StaffAuditRoute } from "./routes/staff/StaffAuditRoute";
 import { StaffVerificationRoute } from "./routes/staff/StaffVerificationRoute";
@@ -144,7 +145,9 @@ export function App() {
             <Route path="/staff" element={<StaffLayout />}>
               <Route index element={<Navigate to="/staff/videos" replace />} />
               <Route path="videos" element={<StaffVideosRoute />} />
-              <Route path="reports" element={<StaffTicketsRoute />} />
+              <Route path="tickets" element={<StaffTicketsPage />} />
+              {/* The old path, still bookmarked and still linked from resolution emails. */}
+              <Route path="reports" element={<Navigate to="/staff/tickets" replace />} />
               <Route path="ads" element={<StaffAdsRoute />} />
               <Route path="audit" element={<StaffAuditRoute />} />
               <Route path="verification" element={<StaffVerificationRoute />} />

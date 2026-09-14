@@ -96,7 +96,9 @@ export function StatusStrip({
   items,
   updating,
 }: {
-  items: Array<{ label: string; state: StatusState; detail?: string }>;
+  /** An item with `onClick` renders as a button — the strip reports status, but a status that has
+   *  something waiting behind it should be a way in rather than only a number to read. */
+  items: Array<{ label: string; state: StatusState; detail?: string; onClick?: () => void }>;
   updating?: boolean;
 }) {
   const worst: StatusState = items.some((i) => i.state === "bad")
@@ -116,13 +118,29 @@ export function StatusStrip({
 
       <span className="hidden h-3 w-px bg-[var(--oc-line)] sm:block" />
 
-      {items.map((item) => (
-        <span key={item.label} className="flex items-center gap-1.5">
-          <StatusDot state={item.state} />
-          <span className="text-xs text-signal-dim">{item.label}</span>
-          {item.detail && <span className="oc-num text-xs text-signal-faint">{item.detail}</span>}
-        </span>
-      ))}
+      {items.map((item) => {
+        const body = (
+          <>
+            <StatusDot state={item.state} />
+            <span className="text-xs text-signal-dim">{item.label}</span>
+            {item.detail && <span className="oc-num text-xs text-signal-faint">{item.detail}</span>}
+          </>
+        );
+        return item.onClick ? (
+          <button
+            key={item.label}
+            type="button"
+            onClick={item.onClick}
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 -mx-1.5 hover:bg-[var(--oc-panel-raised)]"
+          >
+            {body}
+          </button>
+        ) : (
+          <span key={item.label} className="flex items-center gap-1.5">
+            {body}
+          </span>
+        );
+      })}
 
       {/* Freshness, pinned right. A dashboard with no timestamp is one you cannot trust after
           leaving it open: every number could be from thirty seconds ago or from this morning, and

@@ -21,6 +21,7 @@ import {
   Palette as PaletteIcon,
   BookLock,
   Radio,
+  Archive,
   Film,
   Image as ImageIcon,
   Flag,
@@ -51,6 +52,8 @@ import { OwnerAdsPanel } from "./OwnerAdsPanel";
 import { OwnerMotdPanel } from "./OwnerMotdPanel";
 import { OwnerDuplicatesPanel } from "./OwnerDuplicatesPanel";
 import { OwnerImagesPanel } from "./OwnerImagesPanel";
+import { TicketQueue } from "../components/tickets/TicketQueue";
+import { OwnerReviewModal } from "./OwnerReviewModal";
 import { OwnerInfrastructurePanel } from "./OwnerInfrastructurePanel";
 import { OwnerOfficialAccountsPanel } from "./OwnerOfficialAccountsPanel";
 // The staff review queue, mounted as-is: one component for both consoles, so the owner reviews
@@ -99,7 +102,8 @@ type Section =
   | "motd"
   | "reports"
   | "duplicates"
-  | "images";
+  | "images"
+  | "archive";
 
 /**
  * Navigation, grouped by what you'd be doing rather than as one flat list.
@@ -111,7 +115,8 @@ type Section =
  * the server enforces it, this only avoids offering a destination that would answer 403. Keeping
  * the two in step is the whole job: a section listed below its route's gate is a dead end, and one
  * listed above it is a surface somebody was meant to reach and cannot find. Sections with no
- * minRole sit at the console floor, which is MODERATOR.
+ * minRole sit at the console floor, which is ADMIN — moderators do not open the console at all
+ * and work from the staff suite in the main app instead.
  */
 const NAV_GROUPS: Array<{
   group: string;
@@ -147,7 +152,8 @@ const NAV_GROUPS: Array<{
       { key: "users", label: "Users", icon: Users, minRole: "ADMIN" },
       { key: "videos", label: "Videos", icon: Film },
       { key: "images", label: "Images", icon: ImageIcon },
-      { key: "reports", label: "Reports", icon: Flag },
+      { key: "reports", label: "Tickets", icon: Flag },
+      { key: "archive", label: "Ticket archive", icon: Archive },
       { key: "bans", label: "Bans & appeals", icon: Gavel, minRole: "ADMIN" },
       { key: "duplicates", label: "Linked accounts", icon: Users, minRole: "ADMIN" },
       { key: "ageReviews", label: "Age reviews", icon: ShieldCheck },
@@ -197,6 +203,7 @@ const SECTION_LABELS: Record<Section, string> = {
   reports: "Reports — user & message queue",
   duplicates: "Linked accounts — shared device or address",
   images: "Images — review queue",
+  archive: "Ticket archive — everything closed",
 };
 
 export function OwnerApp() {
@@ -204,6 +211,7 @@ export function OwnerApp() {
   // moderator or admin would otherwise open the console on the one page they cannot load.
   const [chosen, setChosen] = useState<Section | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
   const role = user?.platformRole;
@@ -215,7 +223,7 @@ export function OwnerApp() {
 
   const groups = NAV_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((i) => hasRole(role, i.minRole ?? "MODERATOR")),
+    items: g.items.filter((i) => hasRole(role, i.minRole ?? "ADMIN")),
   })).filter((g) => g.items.length > 0);
 
   // Falling back to the first section this person can actually open — and re-deriving it rather
@@ -235,6 +243,8 @@ export function OwnerApp() {
     label: string;
     state: StatusState;
     detail?: string;
+    /** Present on the Review chip, which is a way into the queues rather than only a number. */
+    onClick?: () => void;
   }> = health
     ? [
         {
@@ -264,6 +274,11 @@ export function OwnerApp() {
           detail: String(
             attention?.items.reduce((n, i) => n + i.count, 0) ?? 0,
           ),
+          // The count was a number you could read and not act on: seeing "9" meant leaving the
+          // page, finding the right section, and losing track of the other eight. Opening the
+          // review window instead brings every queue to the count.
+          onClick:
+            (attention?.items.length ?? 0) > 0 ? () => setReviewing(true) : undefined,
         },
       ]
     : [{ label: "Connecting", state: "idle" }];
@@ -424,7 +439,9 @@ export function OwnerApp() {
               instead of latching until a reload. */}
           <ErrorBoundary resetKey={section} label={SECTION_LABELS[section]}>
             <div className="mx-auto max-w-6xl space-y-6">
-              {section === "overview" && <OverviewSection onNavigate={go} />}
+              {section === "overview" && (
+                <OverviewSection onNavigate={go} onReview={() => setReviewing(true)} />
+              )}
               {section === "revenue" && <RevenuePanel />}
               {section === "downloads" && (
                 <>
@@ -436,7 +453,9 @@ export function OwnerApp() {
               {section === "users" && <OwnerUsersPanel />}
               {section === "videos" && <StaffVideosRoute />}
               {section === "images" && <OwnerImagesPanel />}
-              {section === "reports" && <StaffTicketsRoute />}
+              {/* The same queue the staff suite uses — see components/tickets/TicketQueue. */}
+              {section === "reports" && <TicketQueue status="ACTIVE" />}
+              {section === "archive" && <TicketQueue status="CLOSED" />}
               {section === "bans" && <OwnerBansPanel />}
               {section === "ageReviews" && <OwnerAgeReviewsPanel />}
               {section === "team" && <TeamPanel />}
@@ -458,12 +477,20 @@ export function OwnerApp() {
       </div>
 
       {/* Fixed-position overlay, so it belongs at the root rather than inside the scrolling main. */}
+      {reviewing && <OwnerReviewModal onClose={() => setReviewing(false)} />}
+
       <ToastHost />
     </div>
   );
 }
 
-function OverviewSection({ onNavigate }: { onNavigate: (s: Section) => void }) {
+function OverviewSection({
+  onNavigate,
+  onReview,
+}: {
+  onNavigate: (s: Section) => void;
+  onReview: () => void;
+}) {
   const { data: stats, isLoading } = usePlatformStats();
   const { data: attention } = useAttentionItems();
   const { data: business } = useBusinessMetrics();
@@ -494,10 +521,10 @@ function OverviewSection({ onNavigate }: { onNavigate: (s: Section) => void }) {
                 key={item.kind}
                 label={item.label}
                 state={severity(item.severity)}
-                // The server names the destination. This used to send everything except appeals to
-                // the System page — nothing to do with reviewing a video or answering a report —
-                // so a pending action cost you a trip to find out it went nowhere useful.
-                onClick={() => onNavigate(item.section as Section)}
+                // Opens the review window rather than navigating. Going to the section works,
+                // but it costs the list: you lose sight of everything else outstanding at the
+                // moment you act on one of them. The window keeps all of it in front of you.
+                onClick={onReview}
               />
             ))}
           </div>

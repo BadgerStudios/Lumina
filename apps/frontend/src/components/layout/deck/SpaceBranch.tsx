@@ -22,6 +22,7 @@ import {
   Trophy,
   UserPlus,
   Video,
+  Volume2,
 } from "lucide-react";
 import { APP_HOME } from "../../../lib/platform";
 import { useChannels, useReorderChannels } from "../../../queries/channels";
@@ -283,7 +284,10 @@ function VoiceRoomRow({ channel, serverId }: { channel: ChannelDTO; serverId: st
         data-live={occupied || isConnected}
         className="lx-row lx-focus text-sm"
       >
-        <span className="lx-mark lx-mark--voice" aria-hidden="true" />
+        {/* A speaker rather than the generic room mark. It carries exactly the same states —
+            see .lx-speaker — but says "you can hear this here" without the dot's fill having to
+            be learned first. */}
+        <Volume2 className="lx-speaker" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">{channel.name}</span>
         {connecting && isConnected ? (
           <span className="shrink-0 font-mono text-[0.6rem] text-signal-faint">…</span>
