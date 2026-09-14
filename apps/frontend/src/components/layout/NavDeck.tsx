@@ -27,6 +27,7 @@ import { useServers } from "../../queries/servers";
 import { useServerFolders, useCreateFolder } from "../../queries/serverFolders";
 import { DeckFolder } from "./deck/DeckFolder";
 import { useInboxUnread } from "../../queries/inbox";
+import { useGlobalUnread } from "../../queries/readState";
 import { useUIStore } from "../../store/uiStore";
 import { resolveAssetUrl } from "../../lib/apiClient";
 import { cn } from "../../lib/cn";
@@ -138,6 +139,10 @@ export function NavDeck() {
   const { pathname } = useLocation();
   const { serverId } = useParams<{ serverId?: string }>();
   const { data: servers } = useServers();
+  // Cross-space unread rollup — lets a space that is not open say it has activity (a dot) or that
+  // someone is asking for you (a red count), without opening it. One poll covers every space.
+  const { data: globalUnread } = useGlobalUnread();
+  const unreadBySpace = new Map((globalUnread ?? []).map((u) => [u.serverId, u] as const));
   const user = useAuthStore((s) => s.user);
   const platformRole = useAuthStore((s) => s.user?.platformRole);
   // Rank comparison, never equality — MASTER is above OWNER and would fail an === check, hiding
@@ -194,6 +199,11 @@ export function NavDeck() {
   const renderSpace = (s: ServerDTO) => {
     const isCurrent = s.id === serverId;
     const isExpanded = !collapsed && expandedSpaceId === s.id;
+    // An expanded space already shows its rooms' own badges below, so a rollup on its avatar would
+    // only be a louder duplicate — show it on closed spaces.
+    const rollup = isExpanded ? undefined : unreadBySpace.get(s.id);
+    const mentionCount = rollup?.mentionCount ?? 0;
+    const hasUnread = (rollup?.unreadCount ?? 0) > 0;
     return (
       <div key={s.id}>
         <div className="group relative flex items-center">
@@ -231,8 +241,25 @@ export function NavDeck() {
                 className={cn("shrink-0 text-signal-faint transition-transform", isExpanded && "rotate-90")}
               />
             )}
-            <SpaceAvatar name={s.name} iconUrl={s.iconUrl} size={collapsed ? 28 : 22} />
+            <span className="relative shrink-0">
+              <SpaceAvatar name={s.name} iconUrl={s.iconUrl} size={collapsed ? 28 : 22} />
+              {mentionCount > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-dnd px-0.5 font-mono text-micro font-bold text-white"
+                >
+                  {mentionCount > 99 ? "99+" : mentionCount}
+                </span>
+              ) : hasUnread ? (
+                <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-signal ring-2 ring-base-800" />
+              ) : null}
+            </span>
             {!collapsed && <span className="min-w-0 flex-1 truncate">{s.name}</span>}
+            {(mentionCount > 0 || hasUnread) && (
+              <span className="sr-only">
+                {mentionCount > 0 ? `${mentionCount} mention${mentionCount === 1 ? "" : "s"}` : "unread messages"}
+              </span>
+            )}
           </button>
           {!collapsed && (
             // Opacity, never `display`, for anything a popover anchors to: see SpaceMenu.

@@ -95,7 +95,8 @@ function MinecraftStatusChip({ serverId, configured }: { serverId: string; confi
 function TextRoomRow({
   channel,
   active,
-  unread,
+  unreadCount,
+  mentionCount,
   serverId,
   canManageChannels,
   icon,
@@ -104,7 +105,11 @@ function TextRoomRow({
 }: {
   channel: ChannelDTO;
   active: boolean;
-  unread: boolean;
+  /** Unread messages in this room (0 = read). Drives both the row's unread state and the count. */
+  unreadCount: number;
+  /** Unread messages here that mention the reader — turns the badge red and shows the mention
+   * count instead of the message count, so being addressed reads differently from mere activity. */
+  mentionCount: number;
   serverId: string;
   canManageChannels: boolean;
   /** Replaces the default hash glyph — a megaphone for announcements, a board for forums. */
@@ -115,6 +120,7 @@ function TextRoomRow({
   const navigate = useNavigate();
   const closeMobileDrawer = useUIStore((s) => s.closeMobileDrawer);
   const openModalWith = useUIStore((s) => s.openModalWith);
+  const unread = unreadCount > 0;
   return (
     <div className="group relative flex items-center">
       <button
@@ -134,7 +140,29 @@ function TextRoomRow({
           <span className="lx-mark" aria-hidden="true" />
         )}
         <span className="min-w-0 flex-1 truncate">{channel.name}</span>
-        {unread && <span className="sr-only">(unread)</span>}
+        {unread && (
+          <>
+            <span className="sr-only">
+              {unreadCount} unread
+              {mentionCount > 0 ? `, ${mentionCount} mention${mentionCount === 1 ? "" : "s"}` : ""}
+            </span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "shrink-0 rounded-full px-1.5 font-mono text-micro font-semibold tabular-nums",
+                mentionCount > 0 ? "bg-dnd text-white" : "bg-base-500 text-signal",
+              )}
+            >
+              {mentionCount > 0
+                ? mentionCount > 99
+                  ? "99+"
+                  : mentionCount
+                : unreadCount > 99
+                  ? "99+"
+                  : unreadCount}
+            </span>
+          </>
+        )}
       </button>
       {canManageChannels && (
         <span className="absolute right-1 hidden items-center gap-0.5 group-hover:flex max-md:flex">
@@ -424,11 +452,14 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
   // second request. It answers a different question though: Signal lists the rooms with activity,
   // this marks them where they actually live in the tree.
   //
-  // KNOWN GAP: there is no cross-space unread endpoint — `/servers/:id/unread` is per space — so a
-  // COLLAPSED space cannot show that something happened inside it without one polling query per
-  // space. Adding `GET /users/me/unread` (server -> count) is the right fix and is backend work.
+  // Per-space room detail. The cross-space rollup a COLLAPSED space needs — to show it has
+  // activity without being opened — is served by GET /users/me/unread and consumed in NavDeck;
+  // this query stays the per-room source for the space that is actually open.
   const { data: unread } = useUnread(serverId);
-  const unreadChannelIds = new Set((unread ?? []).map((u) => u.channelId));
+  // The count, not just presence, so a room can show how much is waiting rather than only a dot.
+  const unreadByChannel = new Map((unread ?? []).map((u) => [u.channelId, u.unreadCount]));
+  // Per-room unread mentions — the red badge, as against the plain count.
+  const mentionByChannel = new Map((unread ?? []).map((u) => [u.channelId, u.mentionCount]));
   const user = useAuthStore((s) => s.user);
   const openModalWith = useUIStore((s) => s.openModalWith);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
@@ -489,7 +520,8 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
         <TextRoomRow
           channel={c}
           active={c.id === routeChannelId}
-          unread={c.id !== routeChannelId && unreadChannelIds.has(c.id)}
+          unreadCount={c.id === routeChannelId ? 0 : (unreadByChannel.get(c.id) ?? 0)}
+          mentionCount={c.id === routeChannelId ? 0 : (mentionByChannel.get(c.id) ?? 0)}
           serverId={serverId}
           canManageChannels={canManageChannels}
           icon={icon}
