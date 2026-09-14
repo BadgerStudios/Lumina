@@ -462,7 +462,10 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
   const mentionByChannel = new Map((unread ?? []).map((u) => [u.channelId, u.mentionCount]));
   const user = useAuthStore((s) => s.user);
   const openModalWith = useUIStore((s) => s.openModalWith);
-  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+  // Persisted in uiStore/localStorage rather than per-mount component state: a category you
+  // folded away reappeared on every reload, and on every remount of this branch.
+  const collapsedCategories = useUIStore((s) => s.collapsedCategories);
+  const toggleCategoryCollapsed = useUIStore((s) => s.toggleCategoryCollapsed);
   const reorder = useReorderChannels(serverId);
 
   const me = members?.find((m) => m.userId === user?.id);
@@ -547,7 +550,7 @@ export function SpaceBranch({ serverId }: { serverId: string }) {
         return (
           <div key={cat.id} className="mt-2">
             <button
-              onClick={() => setCollapsedCategories((s) => ({ ...s, [cat.id]: !s[cat.id] }))}
+              onClick={() => toggleCategoryCollapsed(cat.id)}
               className="lx-eyebrow lx-focus flex w-full items-center gap-1 px-1.5 py-1 hover:text-signal-dim"
             >
               <ChevronDown size={10} className={cn("transition-transform", collapsed && "-rotate-90")} />

@@ -12,6 +12,7 @@ import { NotificationSettingsModal } from "./NotificationSettingsModal";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { ContentReportModal } from "./ContentReportModal";
 import { ForwardModal } from "./ForwardModal";
+import { ShortcutsModal } from "./ShortcutsModal";
 
 /** All modals mount permanently and gate their own visibility off useUIStore. NOTE: despite
  * what this comment used to say, mounting-once does NOT reset a modal's local form state on
@@ -37,6 +38,7 @@ export function ModalRoot() {
       <UserSettingsModal />
       <ContentReportModal />
       <ForwardModal />
+      <ShortcutsModal />
     </>
   );
 }

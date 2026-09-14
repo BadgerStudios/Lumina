@@ -15,6 +15,7 @@ export type ModalType =
   | "userSettings"
   | "report"
   | "forward"
+  | "shortcuts"
   | null;
 
 interface ModalPayloads {
@@ -32,6 +33,7 @@ interface ModalPayloads {
   createServer: undefined;
   report: { targetType: "USER" | "MESSAGE"; targetId: string; label: string };
   forward: { content: string; authorLabel: string; attachmentCount: number };
+  shortcuts: undefined;
 }
 
 export type Density = "comfortable" | "compact";
@@ -79,6 +81,7 @@ const ACCENT_THEME_KEY = "lumina-accent-theme";
 const NOTIFICATION_SOUND_KEY = "lumina-notification-sound";
 const KEYBINDS_KEY = "lumina-keybinds";
 const DECK_KEY = "lumina-deck-collapsed";
+const COLLAPSED_CATEGORIES_KEY = "lumina-collapsed-categories";
 
 function readStoredNotificationSound(): boolean {
   if (typeof window === "undefined") return true;
@@ -166,6 +169,8 @@ interface UIState {
   accentTheme: AccentTheme;
   notificationSoundEnabled: boolean;
   keybinds: Keybinds;
+  /** Collapsed nav-deck categories, keyed by category channel id. Persisted. */
+  collapsedCategories: Record<string, boolean>;
   mobileDrawer: MobileDrawer;
   openModalWith: <T extends Exclude<ModalType, null>>(modal: T, payload?: ModalPayloads[T]) => void;
   closeModal: () => void;
@@ -173,6 +178,7 @@ interface UIState {
   setAsideTab: (tab: AsideTab) => void;
   openAsideTab: (tab: AsideTab) => void;
   toggleDeck: () => void;
+  toggleCategoryCollapsed: (categoryId: string) => void;
   setExpandedSpace: (serverId: string | null) => void;
   setCommandOpen: (open: boolean) => void;
   setDensity: (density: Density) => void;
@@ -224,6 +230,21 @@ function readStoredDeckCollapsed(): boolean {
   return window.localStorage.getItem(DECK_KEY) === "1";
 }
 
+/** Which space categories are collapsed in the nav deck, keyed by category channel id. Persisted
+ * so a group you folded away stays folded across reloads. Only `true` entries are kept, so the map
+ * is the size of what is currently collapsed rather than everything ever toggled. */
+function readStoredCollapsedCategories(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const stored = window.localStorage.getItem(COLLAPSED_CATEGORIES_KEY);
+    if (!stored) return {};
+    const parsed: unknown = JSON.parse(stored);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
 /** Is the aside actually visible right now — as a desktop column OR as a phone sheet? The two are
  * driven by different fields, and every consumer needs the answer, not the mechanism. */
 export function selectAsideOpen(s: UIState): boolean {
@@ -236,6 +257,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   asideCollapsed: defaultAsideCollapsed(),
   asideTab: "people",
   deckCollapsed: readStoredDeckCollapsed(),
+  collapsedCategories: readStoredCollapsedCategories(),
   expandedSpaceId: null,
   commandOpen: false,
   density: readStoredDensity(),
@@ -284,6 +306,20 @@ export const useUIStore = create<UIState>((set, get) => ({
       const next = !s.deckCollapsed;
       window.localStorage.setItem(DECK_KEY, next ? "1" : "0");
       return { deckCollapsed: next };
+    }),
+  toggleCategoryCollapsed: (categoryId) =>
+    set((s) => {
+      const next = { ...s.collapsedCategories };
+      // Expanding drops the key rather than storing false, so the map never grows past the number
+      // of categories actually collapsed right now.
+      if (next[categoryId]) delete next[categoryId];
+      else next[categoryId] = true;
+      try {
+        window.localStorage.setItem(COLLAPSED_CATEGORIES_KEY, JSON.stringify(next));
+      } catch {
+        /* storage disabled or full — the in-memory state below still holds for this session */
+      }
+      return { collapsedCategories: next };
     }),
   setExpandedSpace: (serverId) => set({ expandedSpaceId: serverId }),
   setCommandOpen: (open) => set({ commandOpen: open }),
