@@ -444,6 +444,15 @@
  * purpose: a bare [data-state="ok"] would be a landmine in this app, because Radix drives
  * data-state on dialogs, checkboxes, tooltips and accordions throughout.
  */
+/* The one-row viewport the digit strip travels inside (see CodeInput.tsx). The mask fades the
+ * top and bottom few percent so a digit sliding through arrives and departs instead of being
+ * sliced off at a hard edge — at rest the settled digit sits in the clear middle and is the only
+ * thing legible, which is the point. */
+.lm-code-window {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+}
+
 .lm-code-box {
   box-shadow: inset 0 0 0 1px var(--base-700);
   transition:

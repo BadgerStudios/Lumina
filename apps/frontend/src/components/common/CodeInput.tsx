@@ -172,6 +172,16 @@ export function CodeInput({
             data-active={active}
             className="lm-code-box relative grid aspect-[3/4] min-w-0 flex-1 place-items-center overflow-hidden rounded-lg bg-base-900"
           >
+            {/* A window exactly one row tall.
+              *
+              * Without it the strip was clipped only by the box, which is about two and a half rows
+              * high — so the digits either side of the one you typed stayed on screen, at rest, not
+              * just while the strip was moving. Three numerals visible in a box that holds one is
+              * the whole reason a six-digit code was hard to read back.
+              *
+              * The strip still travels the full distance inside it, so the motion is unchanged; the
+              * mask just softens the two edges so a digit arrives and leaves rather than being cut. */}
+            <span className="lm-code-window block h-[1em] overflow-hidden">
             <span
               ref={(el) => {
                 boxRefs.current[i] = el;
@@ -185,6 +195,7 @@ export function CodeInput({
                   {d}
                 </i>
               ))}
+            </span>
             </span>
           </div>
         );
