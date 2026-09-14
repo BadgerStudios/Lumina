@@ -41,6 +41,7 @@ import { ForgotPassword } from "./routes/ForgotPassword";
 import { ResetPassword } from "./routes/ResetPassword";
 import { LandingRoute } from "./routes/LandingRoute";
 import { DeepLinkHandler } from "./components/common/DeepLinkHandler";
+import { ConfirmProvider } from "./components/common/ConfirmDialog";
 import { APP_HOME, CLIENT_TYPE } from "./lib/platform";
 
 /**
@@ -81,6 +82,7 @@ export function App() {
 
   return (
     <BrowserRouter>
+      <ConfirmProvider>
       {/* Rendered above the router: a ban can land on the login screen or mid-session, and both
           must end at the same explanation rather than a route-specific error. */}
       <BanScreen />
@@ -159,6 +161,7 @@ export function App() {
             way back. Lowest priority: react-router ranks "*" last regardless of order. */}
         <Route path="*" element={<Navigate to={APP_HOME} replace />} />
       </Routes>
+      </ConfirmProvider>
     </BrowserRouter>
   );
 }
