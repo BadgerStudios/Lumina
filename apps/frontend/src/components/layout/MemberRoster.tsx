@@ -15,6 +15,7 @@ import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
 import { PremiumBadge } from "../common/PremiumBadge";
 import { UserProfileCard } from "../common/UserProfileCard";
+import { useConfirm } from "../common/ConfirmDialog";
 import { can } from "../../lib/permissions";
 import { ApiError } from "../../lib/apiClient";
 import { cn } from "../../lib/cn";
@@ -80,6 +81,7 @@ function MemberRolesMenu({
   const kickMember = useKickMember(serverId);
   const banMember = useBanMember(serverId);
   const updateMember = useUpdateMember(serverId);
+  const { confirm, prompt } = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const assignableRoles = roles.filter((r) => !r.isDefault).sort((a, b) => b.position - a.position);
   const label = member.nickname ?? member.user.displayName ?? member.user.username;
@@ -108,7 +110,15 @@ function MemberRolesMenu({
   // Kick and ban are the two irreversible-feeling actions in this menu, so both confirm. Ban
   // especially: it is the only one that also prevents them coming back.
   async function kick() {
-    if (!window.confirm(`Remove ${label} from the server? They can rejoin with a new invite.`)) return;
+    if (
+      !(await confirm({
+        title: "Remove member?",
+        description: `Remove ${label} from the server? They can rejoin with a new invite.`,
+        confirmText: "Remove",
+        danger: true,
+      }))
+    )
+      return;
     setError(null);
     try {
       await kickMember.mutateAsync(member.userId);
@@ -118,18 +128,37 @@ function MemberRolesMenu({
   }
 
   async function ban() {
-    if (!window.confirm(`Ban ${label}? They'll be removed and can't rejoin until the ban is lifted.`)) return;
+    if (
+      !(await confirm({
+        title: `Ban ${label}?`,
+        description: "They'll be removed and can't rejoin until the ban is lifted.",
+        confirmText: "Ban",
+        danger: true,
+      }))
+    )
+      return;
     setError(null);
     try {
-      const reason = window.prompt("Reason (optional, shown in the audit log):") ?? undefined;
-      await banMember.mutateAsync({ userId: member.userId, reason: reason || undefined });
+      // The reason stays optional: dismissing this still bans, with no reason, exactly as
+      // cancelling the old prompt did.
+      const reason = await prompt({
+        title: "Ban reason",
+        description: "Optional — shown in the audit log.",
+        placeholder: "Reason (optional)",
+      });
+      await banMember.mutateAsync({ userId: member.userId, reason: reason?.trim() || undefined });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to ban them");
     }
   }
 
   async function rename() {
-    const next = window.prompt("Nickname in this server (leave empty to clear):", member.nickname ?? "");
+    const next = await prompt({
+      title: member.nickname ? "Change nickname" : "Set nickname",
+      description: "Nickname in this server. Leave it empty to clear.",
+      placeholder: "Nickname",
+      defaultValue: member.nickname ?? "",
+    });
     if (next === null) return;
     setError(null);
     try {
@@ -306,17 +335,30 @@ function MemberRow({
   onMessage: (userId: string) => void;
 }) {
   const label = member.nickname ?? member.user.displayName ?? member.user.username;
+  // A custom status was settable and then visible nowhere but the profile card, which is a
+  // deliberate click away. The member list is where people actually look.
+  const statusText = member.user.statusText?.trim();
+  const statusEmoji = member.user.statusEmoji?.trim();
+  const hasStatus = Boolean(statusText || statusEmoji);
   return (
     <div className="lx-row group">
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
             <UserAvatar avatarUrl={member.user.avatarUrl} name={label} size={32} presence={presence} />
-            <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-medium" style={{ color }}>
-              <span className="truncate">{label}</span>
-              {member.user.isOfficial ? <OfficialBadge compact /> : null}
-              {member.user.isPremium ? <PremiumBadge compact /> : null}
-              {member.user.isBot ? <BotBadge /> : null}
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium" style={{ color }}>
+                <span className="truncate">{label}</span>
+                {member.user.isOfficial ? <OfficialBadge compact /> : null}
+                {member.user.isPremium ? <PremiumBadge compact /> : null}
+                {member.user.isBot ? <BotBadge /> : null}
+              </span>
+              {hasStatus && (
+                <span className="min-w-0 truncate text-xs text-signal-faint">
+                  {statusEmoji ? `${statusEmoji} ` : ""}
+                  {statusText}
+                </span>
+              )}
             </span>
           </button>
         </DropdownMenu.Trigger>

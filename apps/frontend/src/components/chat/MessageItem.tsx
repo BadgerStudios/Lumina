@@ -364,7 +364,18 @@ export function MessageItem({
                     : "border-hairline bg-base-900/40 text-signal-dim hover:border-signal-faint hover:text-signal",
                 )}
               >
-                <span>{r.emoji}</span>
+                {(() => {
+                  // A custom-emoji reaction is stored as its `:name:` token; resolve it against the
+                  // same map the message body uses so the pill shows the emoji rather than the
+                  // literal text. Unicode and unknown tokens fall through unchanged.
+                  const custom =
+                    r.emoji.startsWith(":") && r.emoji.endsWith(":") ? emojiMap.get(r.emoji.slice(1, -1)) : undefined;
+                  return custom ? (
+                    <img src={resolveAssetUrl(custom)} alt={r.emoji} className="h-4 w-4 object-contain" />
+                  ) : (
+                    <span>{r.emoji}</span>
+                  );
+                })()}
                 <span className="font-mono text-[10px]">{r.count}</span>
               </button>
             ))}
