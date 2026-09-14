@@ -413,6 +413,18 @@ if grep -q '^OPS_AGENT_SECRET=.\+' .env; then
   echo
 fi
 
+# ── snapshot what was just published ─────────────────────────────────────────
+# After the deploy rather than before it, so the archive always holds the last three builds that
+# actually shipped — which is what you want to roll back TO. A failure here must not fail a deploy
+# that already succeeded (the site is live either way), but it is reported loudly rather than
+# swallowed: backups that quietly stop happening are only discovered when one is needed.
+if ! ./scripts/release-backup.sh "$NEW_ANDROID_VERSION"; then
+  echo
+  echo "WARNING: the deploy succeeded but the release backup FAILED." >&2
+  echo "         Run ./scripts/release-backup.sh $NEW_ANDROID_VERSION by hand before deploying again," >&2
+  echo "         or this build will have no restore point." >&2
+fi
+
 echo
 echo "Deploy complete."
 echo "  Build ${NEW_ANDROID_VERSION} is published, but its version bumps are NOT committed (this script never commits):"
