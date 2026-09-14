@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Bookmark,
+import { Newspaper, Bookmark,
   Bell,
   ChevronRight,
   Compass,
@@ -296,6 +296,7 @@ export function NavDeck() {
           { key: "store", to: "/store", label: "Store", icon: Store },
         ]
       : []),
+    { key: "feed", to: "/feed", label: "Feed", icon: Newspaper },
     { key: "saved", to: "/saved", label: "Saved", icon: Bookmark },
     ...(isStaff ? [{ key: "staff", to: "/staff", label: "Staff", icon: ShieldCheck }] : []),
     ...(isOwner ? [{ key: "owner", to: "/owner", label: "Owner", icon: Crown }] : []),

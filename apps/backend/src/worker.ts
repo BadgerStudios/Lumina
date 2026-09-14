@@ -22,6 +22,7 @@ import { releaseMaturedEarnings } from "./modules/economy/service.js";
 import { purgeExpiredReviewDocuments } from "./modules/verification/service.js";
 import { sweepBarrierLeaks } from "./modules/age/barrierAudit.js";
 import { sweepReminders } from "./modules/keep/service.js";
+import { sweepOrphanPostMedia } from "./modules/posts/routes.js";
 import { sweepAdPools } from "./modules/economy/pools.js";
 import { sweepEventReminders } from "./modules/events/service.js";
 import { rotatePqKeys } from "./modules/pq/service.js";
@@ -360,6 +361,25 @@ async function main() {
   void reminderTick();
   const reminderTimer = setInterval(() => void reminderTick(), 60 * 1000);
   reminderTimer.unref();
+
+  // Photos picked in the composer and then abandoned leave a file with no row pointing at it.
+  // Hourly, and only files older than six hours — anything newer belongs to a composer someone
+  // is still typing in, and deleting it would pull the picture out from under them.
+  const postMediaTick = async () => {
+    try {
+      const removed = await sweepOrphanPostMedia();
+      if (removed > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[worker] post media: removed ${removed} orphaned upload(s)`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] post media sweep failed", err);
+    }
+  };
+  void postMediaTick();
+  const postMediaTimer = setInterval(() => void postMediaTick(), 60 * 60 * 1000);
+  postMediaTimer.unref();
 
   void identityDocTick();
   const identityDocTimer = setInterval(() => void identityDocTick(), 15 * 60 * 1000);

@@ -15,6 +15,7 @@ import { FriendsRoute } from "./routes/FriendsRoute";
 import { InviteRoute } from "./routes/InviteRoute";
 import { OAuthAuthorizeRoute } from "./routes/OAuthAuthorizeRoute";
 import { FeedRoute } from "./routes/FeedRoute";
+import { PostsRoute } from "./routes/PostsRoute";
 import { DiscoverRoute } from "./routes/DiscoverRoute";
 import { StudioRoute } from "./routes/StudioRoute";
 import StoreRoute from "./routes/StoreRoute";
@@ -136,6 +137,7 @@ export function App() {
             <Route path="/channels/:serverId/:channelId" element={<ChannelRoute />} />
             <Route path="/dm/:conversationId" element={<DMRoute />} />
             <Route path="/friends" element={<FriendsRoute />} />
+            <Route path="/feed" element={<PostsRoute />} />
             <Route path="/foryou" element={<FeedRoute />} />
             <Route path="/discover" element={<DiscoverRoute />} />
             <Route path="/studio" element={<StudioRoute />} />

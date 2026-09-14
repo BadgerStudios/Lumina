@@ -1,6 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { Bell, Clapperboard, CircleUserRound, MessageSquare, PanelLeft } from "lucide-react";
-import { APP_HOME } from "../../lib/platform";
+import { Bell, Clapperboard, CircleUserRound, Newspaper, PanelLeft } from "lucide-react";
 import { useUIStore } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import { useInboxUnread } from "../../queries/inbox";
@@ -28,8 +27,8 @@ export function MobileBottomNav() {
   const unreadCount = unread?.count ?? 0;
 
   const atRest = mobileDrawer === null;
-  const isMessages = atRest && (location.pathname === "/" || location.pathname === "/app" || location.pathname.startsWith("/dm") || location.pathname === "/friends");
-  const isFeed = atRest && location.pathname.startsWith("/foryou");
+  const isFeed = atRest && location.pathname.startsWith("/feed");
+  const isForYou = atRest && location.pathname.startsWith("/foryou");
   // Hidden unless the account is a confirmed adult — the feed routes refuse anyone else, and a tab
   // that always errors is worse than no tab.
   const canUseFeed = useAuthStore((s) => s.user?.ageVerified === true && s.user?.isMinor === false);
@@ -50,22 +49,24 @@ export function MobileBottomNav() {
       onClick: () => openMobileDrawer(mobileDrawer === "deck" ? null : "deck"),
     },
     {
-      key: "messages",
-      label: "Messages",
-      icon: MessageSquare,
-      active: isMessages,
+      // Messages is still one tap away — the Menu tab opens the deck, which IS the server and DM
+      // navigation. What changed is which of the two holds the permanent slot.
+      key: "feed",
+      label: "Feed",
+      icon: Newspaper,
+      active: isFeed,
       onClick: () => {
         openMobileDrawer(null);
-        navigate(APP_HOME);
+        navigate("/feed");
       },
     },
     ...(canUseFeed
       ? [
           {
-            key: "feed",
+            key: "foryou",
             label: "For You",
             icon: Clapperboard,
-            active: isFeed,
+            active: isForYou,
             onClick: () => {
               openMobileDrawer(null);
               navigate("/foryou");
