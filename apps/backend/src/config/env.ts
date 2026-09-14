@@ -132,6 +132,15 @@ const envSchema = z.object({
    */
   DIDIT_AGE_WORKFLOW_ID: z.string().optional(),
   /**
+   * Firebase service-account key, for notifications the phone renders itself rather than the
+   * browser. Raw JSON or base64 of it — base64 is what anyone will actually paste, because a PEM
+   * private key has newlines and a .env line cannot carry them.
+   *
+   * Unset, nothing changes: web push keeps delivering to every device exactly as before, and the
+   * only thing missing is the app's own notification sound on Android.
+   */
+  FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /**
    * Whether anyone can actually start an age check. OFF by default, and off deliberately rather
    * than by omission: the workflow exists and the plumbing works, but the decision to put a face
    * scan in front of people is a product decision, not a consequence of having configured a

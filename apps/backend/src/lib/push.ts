@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { prisma } from "../db/prisma.js";
 import { env } from "../config/env.js";
+import { isFcmConfigured, sendFcmToToken } from "./fcm.js";
 
 const enabled = !!env.VAPID_PUBLIC_KEY && !!env.VAPID_PRIVATE_KEY;
 
@@ -28,6 +29,38 @@ export interface PushPayload {
  * the user's other devices.
  */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
+  // Both transports, independently. A phone usually holds an FCM token AND a web-push
+  // subscription; the native one is what can play the app's own sound, and web push is what still
+  // reaches every desktop and browser. Failing at one must never stop the other.
+  await Promise.all([sendWebPush(userId, payload), sendNativePush(userId, payload)]);
+}
+
+/**
+ * The native half: notifications Android renders itself, on a channel carrying the app's sound.
+ *
+ * Tokens that come back dead are deleted rather than retried forever — an uninstalled app leaves
+ * its token behind, and without pruning every later notification pays for it.
+ */
+async function sendNativePush(userId: string, payload: PushPayload): Promise<void> {
+  if (!isFcmConfigured()) return;
+  const tokens = await prisma.deviceToken.findMany({ where: { userId }, select: { id: true, token: true } });
+  if (tokens.length === 0) return;
+
+  await Promise.all(
+    tokens.map(async (row) => {
+      const alive = await sendFcmToToken(row.token, {
+        title: payload.title,
+        body: payload.body,
+        url: payload.url,
+        tag: payload.tag,
+        urgent: payload.urgent,
+      });
+      if (!alive) await prisma.deviceToken.delete({ where: { id: row.id } }).catch(() => {});
+    }),
+  );
+}
+
+async function sendWebPush(userId: string, payload: PushPayload): Promise<void> {
   if (!enabled) return;
   const subs = await prisma.pushSubscription.findMany({ where: { userId } });
   if (subs.length === 0) return;

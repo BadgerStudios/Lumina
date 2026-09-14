@@ -1,10 +1,13 @@
 import { api } from "./apiClient";
 
-// Service worker + Push API aren't available in every environment this app runs in — notably
-// Capacitor's Android WebView doesn't reliably support background Push delivery the way a real
-// browser tab does (that needs Firebase Cloud Messaging, not built yet — see
-// lumina_roadmap.md). Feature-detect rather than assuming, so calling these on an unsupported
-// client is just a silent no-op instead of a crash.
+// Service worker + Push API aren't available in every environment this app runs in, so
+// feature-detect rather than assuming: calling these on an unsupported client is then a silent
+// no-op instead of a crash.
+//
+// The packaged Android app does not use this path at all any more. Its WebView never supported
+// background Push delivery reliably, and it could never play anything but the system tone; it now
+// registers with FCM instead (lib/nativePush.ts). Nothing should enable BOTH on one device — the
+// server sends to each transport, so that device would be notified twice for every message.
 export function isWebPushSupported(): boolean {
   return typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
 }

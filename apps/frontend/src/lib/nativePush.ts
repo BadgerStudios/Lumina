@@ -1,0 +1,178 @@
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { api } from "./apiClient";
+import { CLIENT_TYPE } from "./platform";
+
+/**
+ * Notifications the phone renders itself, through Firebase Cloud Messaging.
+ *
+ * ## Why this exists next to webPush.ts
+ *
+ * Web push reaches the Capacitor WebView, but it always plays the system notification tone: Chrome
+ * dropped `Notification.sound`, and there is no way to ask for anything else. A sound belongs to an
+ * Android notification channel, and only an FCM message can name a channel. So the app's own tone,
+ * icon and colour are only reachable this way.
+ *
+ * ## Exactly one transport per device
+ *
+ * The server sends to both (see backend lib/push.ts), so a phone holding an FCM token AND a
+ * web-push subscription would be notified twice for every message. The settings UI therefore treats
+ * these as one switch with two implementations, and picks this one wherever it works.
+ *
+ * ## Talking to the plugin without depending on it
+ *
+ * Addressed through `registerPlugin` rather than importing `@capacitor/push-notifications`, the same
+ * way ageSignals.ts reaches its plugin. This bundle is also the web and desktop build, and neither
+ * should carry a Firebase-flavoured dependency to call something that isn't there. It also means an
+ * older installed APK running a newer web bundle degrades to "unsupported" rather than crashing.
+ */
+
+type PermissionState = "prompt" | "prompt-with-rationale" | "granted" | "denied";
+
+interface PushNotificationsShape {
+  checkPermissions(): Promise<{ receive: PermissionState }>;
+  requestPermissions(): Promise<{ receive: PermissionState }>;
+  register(): Promise<void>;
+  addListener(event: "registration", cb: (token: { value: string }) => void): Promise<PluginListenerHandle>;
+  addListener(event: "registrationError", cb: (err: { error: string }) => void): Promise<PluginListenerHandle>;
+}
+
+const PushNotifications = registerPlugin<PushNotificationsShape>("PushNotifications");
+
+/**
+ * The token this device last registered.
+ *
+ * Kept only so unregistering knows what to delete — the server's row is keyed by the token itself.
+ * Losing it (cleared site data, reinstall) costs nothing permanent: the token is reassigned the next
+ * time this device registers, and a genuinely dead one is pruned server-side when a send to it fails.
+ */
+const TOKEN_KEY = "lumina.nativePushToken";
+
+function rememberedToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberToken(token: string | null): void {
+  try {
+    if (token === null) localStorage.removeItem(TOKEN_KEY);
+    else localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    // Private mode or blocked storage: registration still works, only the local record is lost.
+  }
+}
+
+/** Android only. iOS is browser/PWA here, and the web and desktop builds have no plugin at all. */
+export function isNativePushSupported(): boolean {
+  return (
+    CLIENT_TYPE === "mobile" &&
+    Capacitor.getPlatform() === "android" &&
+    Capacitor.isPluginAvailable("PushNotifications")
+  );
+}
+
+/**
+ * Ask the plugin for a token.
+ *
+ * `register()` returns before the token exists — it arrives on the `registration` event — so both
+ * listeners are attached BEFORE registering. Attaching them afterwards is a race the device
+ * sometimes wins, and losing it means hanging until the timeout for no reason.
+ *
+ * The timeout matters because a missing google-services.json produces neither event: Firebase never
+ * initialises, and without it this would wait forever behind a spinner.
+ */
+async function requestToken(timeoutMs = 20_000): Promise<string> {
+  let resolveToken!: (token: string) => void;
+  let rejectToken!: (err: Error) => void;
+  const token = new Promise<string>((resolve, reject) => {
+    resolveToken = resolve;
+    rejectToken = reject;
+  });
+
+  const handles: PluginListenerHandle[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    handles.push(await PushNotifications.addListener("registration", (t) => resolveToken(t.value)));
+    handles.push(
+      await PushNotifications.addListener("registrationError", (e) =>
+        rejectToken(new Error(e.error || "This device could not be registered for notifications")),
+      ),
+    );
+    await PushNotifications.register();
+    return await Promise.race([
+      token,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Registering this device for notifications timed out")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    await Promise.all(handles.map((h) => h.remove().catch(() => {})));
+  }
+}
+
+export type NativePushStatus = "unsupported" | "denied" | "subscribed" | "unsubscribed";
+
+export async function getNativePushStatus(): Promise<NativePushStatus> {
+  if (!isNativePushSupported()) return "unsupported";
+  try {
+    const { receive } = await PushNotifications.checkPermissions();
+    if (receive === "denied") return "denied";
+    // Permission alone isn't enough to call it on: Android 12 and earlier grant it implicitly, so
+    // every such device would claim to be subscribed before it had ever registered.
+    return receive === "granted" && rememberedToken() ? "subscribed" : "unsubscribed";
+  } catch {
+    return "unsupported";
+  }
+}
+
+export async function enableNativePush(): Promise<void> {
+  if (!isNativePushSupported()) throw new Error("Native notifications aren't available on this device");
+
+  let { receive } = await PushNotifications.checkPermissions();
+  if (receive !== "granted") ({ receive } = await PushNotifications.requestPermissions());
+  if (receive !== "granted") throw new Error("Notification permission was not granted");
+
+  const token = await requestToken();
+  await api.post("/push/device", { token, platform: "android" });
+  rememberToken(token);
+}
+
+export async function disableNativePush(): Promise<void> {
+  const token = rememberedToken();
+  if (!token) return;
+  // Server first, then forget it locally — the same ordering as unsubscribeFromPush, and for the
+  // same reason: forgetting first would leave a failed call with no token to retry with, and the
+  // device would keep being notified with no way left to turn it off.
+  await api.delete("/push/device", { token, platform: "android" });
+  rememberToken(null);
+}
+
+/**
+ * Keep an already-enabled device registered, quietly.
+ *
+ * FCM rotates tokens on its own schedule — a restore to a new device, an app-data clear, a Google
+ * Play Services update — and a rotated token is simply dead. Re-registering at startup is what keeps
+ * notifications working past that, and since the row is upserted on the token it is also what moves
+ * a device to whoever is signed in now.
+ *
+ * Never prompts, and never throws: this runs on startup where there is nobody to show an error to.
+ */
+export async function syncNativePushRegistration(): Promise<void> {
+  if (!isNativePushSupported()) return;
+  try {
+    const { receive } = await PushNotifications.checkPermissions();
+    if (receive !== "granted" || !rememberedToken()) return;
+    const token = await requestToken();
+    await api.post("/push/device", { token, platform: "android" });
+    rememberToken(token);
+  } catch {
+    // An expired session, no network, Firebase not configured — all of them are things the next
+    // startup can retry. Nothing here is worth interrupting the app for.
+  }
+}

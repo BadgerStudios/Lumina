@@ -19,6 +19,7 @@ import { BiometricGate } from "../common/BiometricGate";
 import { AgeGateModal } from "../AgeGateModal";
 import { IdentityVerificationGate } from "../IdentityVerificationGate";
 import { useSocketEvents } from "../../socket/useSocketEvents";
+import { syncNativePushRegistration } from "../../lib/nativePush";
 import { useRoleSync } from "../../hooks/useRoleSync";
 import { useUIStore } from "../../store/uiStore";
 import { useVoiceStore } from "../../store/voiceStore";
@@ -73,6 +74,15 @@ export function AppShell() {
   const networkBusy = useSlowNetwork();
   // Picks up a role or age change made elsewhere without needing a sign-out (see useRoleSync).
   useRoleSync();
+
+  // Re-register this device with FCM if it is already opted in. Firebase rotates tokens on its own
+  // schedule — a restore onto a new phone, an app-data clear, a Play Services update — and a
+  // rotated token is simply dead, so without this notifications stop one day and never resume.
+  // Silent and best-effort: it never prompts and never throws (see lib/nativePush.ts), and it is a
+  // no-op on every client that isn't the packaged Android app.
+  useEffect(() => {
+    void syncNativePushRegistration();
+  }, []);
   const mobileDrawer = useUIStore((s) => s.mobileDrawer);
 
   // Keybinds (UserSettingsModal.tsx's Voice & Video section) — a top-level listener rather than

@@ -331,6 +331,7 @@ model User {
   giftsSent              GiftSend[]               @relation("GiftsSent")
   giftsReceived          GiftSend[]               @relation("GiftsReceived")
   motdsPublished         Motd[]                   @relation("MotdAuthor")
+  deviceTokens           DeviceToken[]
 
   /// Which message of the day this member last dismissed, and when.
   ///
@@ -3034,4 +3035,26 @@ model Motd {
   createdBy   User?    @relation("MotdAuthor", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([active, createdAt])
+}
+
+/// An Android device registered for native notifications.
+///
+/// Separate from PushSubscription, which is the web-push equivalent, because they are different
+/// transports with different lifecycles — a browser subscription dies when site data is cleared, an
+/// FCM token when the app is reinstalled — and a device commonly has both. Sending to both is how a
+/// phone gets the app's own sound while every other client keeps working unchanged.
+model DeviceToken {
+  id         String   @id @default(cuid())
+  userId     String
+  /// FCM registration token. Unique: the same token must never be attributed to two accounts, and
+  /// re-registering after a sign-out is how it moves.
+  token      String   @unique
+  platform   String   @default("android")
+  createdAt  DateTime @default(now())
+  /// Refreshed on every registration, so a token nothing has renewed in months is identifiable as
+  /// dead without waiting for a send to fail.
+  lastSeenAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

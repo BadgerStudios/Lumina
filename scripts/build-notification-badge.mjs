@@ -63,3 +63,42 @@ await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 }
   .toFile(DEST);
 
 console.log(`wrote ${path.relative(ROOT, DEST)} — ${SIZE}x${SIZE}, ${coverage.toFixed(1)}% opaque`);
+
+/**
+ * The same silhouette again, as Android's status-bar icon.
+ *
+ * Android applies exactly the same rule to a notification's small icon as the web does to a badge:
+ * the alpha is the shape and the colour is discarded. So it is the same cut at the densities
+ * Android wants, rather than a second asset that could drift from this one.
+ *
+ * Both apps get it — the chat app and the owner console are separate Gradle projects with no shared
+ * resources, so a file has to exist in each.
+ */
+const DENSITIES = [
+  ["mdpi", 24],
+  ["hdpi", 36],
+  ["xhdpi", 48],
+  ["xxhdpi", 72],
+  ["xxxhdpi", 96],
+];
+const ANDROID_APPS = ["apps/mobile", "apps/owner-mobile"];
+
+for (const app of ANDROID_APPS) {
+  for (const [density, px] of DENSITIES) {
+    const out = path.join(ROOT, app, `android/app/src/main/res/drawable-${density}/ic_stat_notify.png`);
+    await sharp(SRC)
+      .resize(px, px, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+      .then(async ({ data: d, info: i }) => {
+        for (let n = 0; n < d.length; n += 4) {
+          d[n] = 255;
+          d[n + 1] = 255;
+          d[n + 2] = 255;
+        }
+        await sharp(d, { raw: { width: i.width, height: i.height, channels: 4 } }).png().toFile(out);
+      });
+  }
+  console.log(`wrote ${app}/…/drawable-*/ic_stat_notify.png — ${DENSITIES.length} densities`);
+}

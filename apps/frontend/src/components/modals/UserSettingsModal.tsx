@@ -48,6 +48,12 @@ import type { PresenceStatus } from "@lumina/shared";
 import { cn } from "../../lib/cn";
 import { ApiError, resolveAssetUrl } from "../../lib/apiClient";
 import { isWebPushSupported, getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "../../lib/webPush";
+import {
+  isNativePushSupported,
+  getNativePushStatus,
+  enableNativePush,
+  disableNativePush,
+} from "../../lib/nativePush";
 import { BillingSection } from "./BillingSection";
 import { AdvertisingSection } from "./AdvertisingSection";
 import { FamilySection } from "../parental/FamilySection";
@@ -1157,23 +1163,33 @@ function NotificationsSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // One switch, two transports. The packaged Android app registers with FCM, so Android draws the
+  // notification itself with the app's own sound and mark; everywhere else uses web push, which
+  // can only ever play the system tone. Never both on one device: the server sends to each, so a
+  // phone holding a token and a subscription would be notified twice for every message.
+  const native = isNativePushSupported();
+
   useEffect(() => {
+    if (native) {
+      void getNativePushStatus().then(setStatus);
+      return;
+    }
     if (!isWebPushSupported()) {
       setStatus("unsupported");
       return;
     }
-    getPushSubscriptionStatus().then(setStatus);
-  }, []);
+    void getPushSubscriptionStatus().then(setStatus);
+  }, [native]);
 
   async function toggle() {
     setBusy(true);
     setError(null);
     try {
       if (status === "subscribed") {
-        await unsubscribeFromPush();
+        await (native ? disableNativePush() : unsubscribeFromPush());
         setStatus("unsubscribed");
       } else {
-        await subscribeToPush();
+        await (native ? enableNativePush() : subscribeToPush());
         setStatus("subscribed");
       }
     } catch (e) {
@@ -1195,7 +1211,9 @@ function NotificationsSection() {
           <p className="text-sm text-signal-faint">Not supported in this browser.</p>
         ) : status === "denied" ? (
           <p className="text-sm text-dnd">
-            Notifications are blocked for this site — enable them in your browser's site settings, then reopen this page.
+            {native
+              ? "Notifications are turned off for Lumina — turn them back on in Android's app settings, then reopen this page."
+              : "Notifications are blocked for this site — enable them in your browser's site settings, then reopen this page."}
           </p>
         ) : (
           <ToggleRow
