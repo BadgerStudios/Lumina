@@ -44,6 +44,30 @@ export function useStoreCatalogue() {
 // disagree. `GET /store/inventory` still exists server-side for anything that needs the acquisition
 // dates; when a "My items" view is built, add the hook back with the component that uses it.
 
+export interface InventoryItem {
+  sku: string;
+  kind: StoreItemKind;
+  name: string;
+  payload: Record<string, unknown>;
+  /** ISO timestamp. The catalogue's `owned` flag has no date attached, which is the whole reason
+   * "My items" needs this endpoint rather than reusing the catalogue response. */
+  acquiredAt: string;
+}
+
+export interface Inventory {
+  items: InventoryItem[];
+  balance: number;
+}
+
+/** Everything this account owns. Distinct from useStoreCatalogue's `owned` flag: that decides
+ * which buy buttons to grey out, this is the acquisition record itself. */
+export function useInventory() {
+  return useQuery<Inventory>({
+    queryKey: ["store", "inventory"],
+    queryFn: () => api.get("/store/inventory"),
+  });
+}
+
 export function usePurchaseItem() {
   const qc = useQueryClient();
   return useMutation({

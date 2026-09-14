@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import {
   useStoreCatalogue,
   usePurchaseItem,
   useTopUp,
+  useInventory,
   type StoreItem,
   type StoreItemKind,
 } from "../queries/store";
@@ -25,7 +27,10 @@ const KIND_LABEL: Record<StoreItemKind, string> = {
 
 const KIND_ORDER: StoreItemKind[] = ["THEME", "ACCENT", "BADGE", "PROFILE_EFFECT"];
 
+type View = "shop" | "mine";
+
 export default function StoreRoute() {
+  const [view, setView] = useState<View>("shop");
   const { data, isLoading, error } = useStoreCatalogue();
   const purchase = usePurchaseItem();
   const topUp = useTopUp();
@@ -63,80 +68,97 @@ export default function StoreRoute() {
         </div>
       </header>
 
-      <section className="mb-10">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-signal-faint">
-          Top up
-        </h2>
-        {!data.topUpAvailable && (
-          <p className="mb-3 rounded-lg border border-hairline bg-base-800/40 px-4 py-3 text-sm text-signal-dim">
-            Payments aren&apos;t set up on this server yet, so sparks can&apos;t be bought. Everything
-            else in the store works — an operator can still grant sparks.
-          </p>
-        )}
-        <div className="grid gap-3 sm:grid-cols-3">
-          {data.bundles.map((b) => (
-            <button
-              key={b.key}
-              type="button"
-              disabled={!data.topUpAvailable || topUp.isPending}
-              onClick={() => topUp.mutate(b.key)}
-              className="rounded-xl border border-hairline bg-base-800/60 px-4 py-4 text-left transition-colors hover:bg-base-700/60 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <div className="text-base font-semibold text-signal">{b.label}</div>
-              <div className="mt-0.5 text-xs text-signal-faint">
-                {data.topUpAvailable ? "Buy with card" : "Unavailable"}
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
+      {/* Shop against the account's own acquisitions: two views of the same domain, one
+          at a time. */}
+      <div className="mb-8 flex items-center gap-1 border-b border-hairline/40 pb-3">
+        <TabButton active={view === "shop"} onClick={() => setView("shop")}>
+          Shop
+        </TabButton>
+        <TabButton active={view === "mine"} onClick={() => setView("mine")}>
+          My items
+        </TabButton>
+      </div>
 
-      {grouped.map((group) => (
-        <section key={group.kind} className="mb-10">
+      {view === "mine" ? (
+        <InventorySection />
+      ) : (
+        <>
+        <section className="mb-10">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-signal-faint">
-            {KIND_LABEL[group.kind]}
+            Top up
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {group.items.map((item) => {
-              const affordable = data.balance >= item.priceCoins;
-              return (
-                <div
-                  key={item.id}
-                  className="flex flex-col justify-between rounded-xl border border-hairline bg-base-800/60 p-4"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="font-semibold text-signal">{item.name}</h3>
-                      {item.owned && (
-                        <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
-                          Owned
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-sm leading-relaxed text-signal-dim">{item.description}</p>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-signal">
-                      {item.priceCoins.toLocaleString()} sparks
-                    </span>
-                    <button
-                      type="button"
-                      disabled={item.owned || !affordable || purchase.isPending}
-                      onClick={() => setConfirming(item)}
-                      // Not `disabled:opacity-40`: fading white-on-accent to 40% measured 2.13:1,
-                      // which is a label you cannot read telling you why you cannot buy. A disabled
-                      // control gets its own flat, legible treatment instead.
-                      className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:border disabled:border-hairline disabled:bg-transparent disabled:text-signal-dim"
-                    >
-                      {item.owned ? "Owned" : affordable ? "Buy" : "Not enough"}
-                    </button>
-                  </div>
+          {!data.topUpAvailable && (
+            <p className="mb-3 rounded-lg border border-hairline bg-base-800/40 px-4 py-3 text-sm text-signal-dim">
+              Payments aren&apos;t set up on this server yet, so sparks can&apos;t be bought. Everything
+              else in the store works — an operator can still grant sparks.
+            </p>
+          )}
+          <div className="grid gap-3 sm:grid-cols-3">
+            {data.bundles.map((b) => (
+              <button
+                key={b.key}
+                type="button"
+                disabled={!data.topUpAvailable || topUp.isPending}
+                onClick={() => topUp.mutate(b.key)}
+                className="rounded-xl border border-hairline bg-base-800/60 px-4 py-4 text-left transition-colors hover:bg-base-700/60 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <div className="text-base font-semibold text-signal">{b.label}</div>
+                <div className="mt-0.5 text-xs text-signal-faint">
+                  {data.topUpAvailable ? "Buy with card" : "Unavailable"}
                 </div>
-              );
-            })}
+              </button>
+            ))}
           </div>
         </section>
-      ))}
+
+        {grouped.map((group) => (
+          <section key={group.kind} className="mb-10">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-signal-faint">
+              {KIND_LABEL[group.kind]}
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {group.items.map((item) => {
+                const affordable = data.balance >= item.priceCoins;
+                return (
+                  <div
+                    key={item.id}
+                    className="flex flex-col justify-between rounded-xl border border-hairline bg-base-800/60 p-4"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="font-semibold text-signal">{item.name}</h3>
+                        {item.owned && (
+                          <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
+                            Owned
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed text-signal-dim">{item.description}</p>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium text-signal">
+                        {item.priceCoins.toLocaleString()} sparks
+                      </span>
+                      <button
+                        type="button"
+                        disabled={item.owned || !affordable || purchase.isPending}
+                        onClick={() => setConfirming(item)}
+                        // Not `disabled:opacity-40`: fading white-on-accent to 40% measured 2.13:1,
+                        // which is a label you cannot read telling you why you cannot buy. A disabled
+                        // control gets its own flat, legible treatment instead.
+                        className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:border disabled:border-hairline disabled:bg-transparent disabled:text-signal-dim"
+                      >
+                        {item.owned ? "Owned" : affordable ? "Buy" : "Not enough"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+        </>
+      )}
 
       {/* Confirmation step, because a spend is not undoable and a mis-tap on a phone should not
           cost someone their balance. */}
@@ -180,5 +202,81 @@ export default function StoreRoute() {
       )}
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition ${
+        active ? "bg-base-600 text-signal" : "text-signal-dim hover:text-signal"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Everything this account owns, grouped the way the shop groups its catalogue, but showing when
+ * each item was acquired instead of a price and a buy button. */
+function InventorySection() {
+  const { data, isLoading, error } = useInventory();
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-signal-faint" />
+      </div>
+    );
+  }
+  if (error || !data) {
+    return <p className="py-12 text-center text-signal-dim">Your items couldn&apos;t be loaded right now.</p>;
+  }
+  if (data.items.length === 0) {
+    return (
+      <p className="py-12 text-center text-signal-dim">
+        Nothing here yet — anything you buy from the shop shows up here.
+      </p>
+    );
+  }
+
+  const grouped = KIND_ORDER.map((kind) => ({
+    kind,
+    items: data.items.filter((i) => i.kind === kind),
+  })).filter((g) => g.items.length > 0);
+
+  return (
+    <>
+      {grouped.map((group) => (
+        <section key={group.kind} className="mb-10">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-signal-faint">
+            {KIND_LABEL[group.kind]}
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {group.items.map((item) => (
+              <div
+                key={item.sku}
+                className="flex flex-col justify-between rounded-xl border border-hairline bg-base-800/60 p-4"
+              >
+                <h3 className="font-semibold text-signal">{item.name}</h3>
+                <p className="mt-1 text-xs text-signal-faint">
+                  Acquired {new Date(item.acquiredAt).toLocaleDateString()}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
   );
 }
