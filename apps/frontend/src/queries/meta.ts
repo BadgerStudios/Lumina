@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, resolveAssetUrl } from "../lib/apiClient";
+import { getSigningInfo, PLAY_STORE_PACKAGE } from "../lib/appUpdater";
 import { APP_VARIANT, CLIENT_TYPE } from "../lib/platform";
 import { useAuthStore } from "../store/authStore";
 
@@ -13,6 +14,33 @@ export interface ReleaseInfo {
   url: string;
   sizeBytes: number;
   sha256: string;
+  /** SHA-256 of the certificate the published APK is signed with, read out of the file itself by
+   * the backend. Null when it could not be read, which means "unknown", not "mismatch". */
+  signingSha256?: string | null;
+}
+
+/**
+ * Why an available update cannot be installed in place.
+ *
+ * - `play` — installed from Google Play, which re-signs with its own key. Play is the thing that
+ *   updates it; offering a sideload would be both futile and against Play's policy.
+ * - `signature` — installed from a package signed with a different certificate than the one we
+ *   publish now. Android will refuse to replace it, so the only way forward is a one-time
+ *   uninstall and reinstall. Installs from before the signing key was fixed are all in this state
+ *   and cannot leave it by updating.
+ */
+export type UpdateBlock = "play" | "signature";
+
+/** The running install's signature. Constant for the life of the process, so it is fetched once. */
+export function useInstalledSigningInfo() {
+  return useQuery({
+    queryKey: ["meta", "signingInfo"],
+    queryFn: () => getSigningInfo(),
+    enabled: CLIENT_TYPE === "mobile",
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
 }
 
 export interface VersionManifest {
@@ -31,7 +59,7 @@ export interface VersionManifest {
  * two APKs are different applicationIds: handing the owner console the chat app's download would
  * pass its checksum check and then be refused by the OS at install time, which is a confusing
  * place to discover the mistake. */
-export function useAndroidUpdate(): { available: boolean; release: ReleaseInfo | null } {
+export function useAndroidUpdate(): { available: boolean; release: ReleaseInfo | null; blocked: UpdateBlock | null } {
   const { data } = useQuery({
     queryKey: ["meta", "version"],
     queryFn: () => api.get<VersionManifest>("/meta/version"),
@@ -44,19 +72,40 @@ export function useAndroidUpdate(): { available: boolean; release: ReleaseInfo |
     // moment an occasional-use app is most likely to be running something old.
     refetchOnWindowFocus: APP_VARIANT === "owner",
   });
+  const { data: signing } = useInstalledSigningInfo();
 
-  if (CLIENT_TYPE !== "mobile" || !data) return { available: false, release: null };
+  if (CLIENT_TYPE !== "mobile" || !data) return { available: false, release: null, blocked: null };
 
   const published = APP_VARIANT === "owner" ? data.owner : data.android;
   // `owner` is optional: an installed owner APK talking to a backend that predates the field would
   // otherwise read `undefined` as "no update", which is the correct answer, but only by accident.
   // Being explicit means the version comparison below is never run against the wrong app's build.
-  if (!published) return { available: false, release: null };
-  if (published.versionCode <= BUNDLED_ANDROID_VERSION_CODE) return { available: false, release: null };
+  if (!published) return { available: false, release: null, blocked: null };
+  if (published.versionCode <= BUNDLED_ANDROID_VERSION_CODE) return { available: false, release: null, blocked: null };
 
   // The manifest carries an app-relative path; the installed APK talks to an absolute API origin
   // compiled into it, so it has to be resolved the same way every other server-side path is.
-  return { available: true, release: { ...published, url: resolveAssetUrl(published.url) } };
+  const release = { ...published, url: resolveAssetUrl(published.url) };
+
+  // Can this install actually accept the package? Android refuses to replace an app with one
+  // signed by a different certificate, and until this check the only way to find out was to
+  // download 8MB and watch the system installer refuse it with a message the app never sees.
+  //
+  // Only a DEFINITE mismatch blocks. If either side's digest is unknown — an APK built before
+  // getSigningInfo existed, a backend that does not publish the field, an unreadable signature —
+  // the update is offered exactly as it was before. A wrong "you must reinstall" is worse than
+  // the download that fails.
+  if (signing?.installer === PLAY_STORE_PACKAGE) {
+    return { available: true, release, blocked: "play" };
+  }
+  const installedDigests = signing?.sha256List?.length ? signing.sha256List : signing?.sha256 ? [signing.sha256] : [];
+  const publishedDigest = published.signingSha256;
+  if (publishedDigest && installedDigests.length > 0) {
+    const matches = installedDigests.some((d) => d.toLowerCase() === publishedDigest.toLowerCase());
+    if (!matches) return { available: true, release, blocked: "signature" };
+  }
+
+  return { available: true, release, blocked: null };
 }
 
 /**

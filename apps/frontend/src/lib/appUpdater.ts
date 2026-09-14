@@ -18,13 +18,49 @@ export interface AppUpdaterPlugin {
   downloadAndInstall(options: { url: string; sha256?: string }): Promise<void>;
   /** The installed app's real version, read from the package at runtime (always current). */
   getVersion(): Promise<{ versionName: string | null; versionCode: number }>;
+  /** The certificate this install is signed with, and the package that installed it. */
+  getSigningInfo(): Promise<SigningInfo>;
   addListener(
     eventName: "downloadProgress",
     listener: (progress: { loaded: number; total: number }) => void,
   ): Promise<PluginListenerHandle>;
 }
 
+/** What the running install is signed with. Every field is nullable on purpose: an older APK
+ * running a newer web bundle has no getSigningInfo at all, and some OEM builds refuse to name the
+ * installer. Unknown must read as "carry on", never as "mismatch". */
+export interface SigningInfo {
+  /** SHA-256 of the first signer's certificate, lowercase hex. */
+  sha256: string | null;
+  /** Every signer, for a multi-signer or rotated install. */
+  sha256List: string[];
+  /** The installing package — "com.android.vending" for Google Play, null when sideloaded. */
+  installer: string | null;
+}
+
 export const AppUpdater = registerPlugin<AppUpdaterPlugin>("AppUpdater");
+
+/** Google Play's package name. A Play install is re-signed with Play's own key, so no APK we
+ * publish can ever update it — and Play is already updating it anyway. */
+export const PLAY_STORE_PACKAGE = "com.android.vending";
+
+/**
+ * The running install's signature, or null off-native / on an APK built before this method existed.
+ * Cannot change while the process is alive, so callers cache it indefinitely.
+ */
+export async function getSigningInfo(): Promise<SigningInfo | null> {
+  if (CLIENT_TYPE !== "mobile") return null;
+  try {
+    const info = await AppUpdater.getSigningInfo();
+    return {
+      sha256: info?.sha256 ?? null,
+      sha256List: Array.isArray(info?.sha256List) ? info.sha256List : [],
+      installer: info?.installer ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The installed app's real version from the native package, or null off-native / if the plugin isn't

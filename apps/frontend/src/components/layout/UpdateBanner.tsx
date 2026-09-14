@@ -39,14 +39,14 @@ export function UpdateBanner() {
     };
   }, []);
 
-  // A Google Play build must never offer to update itself: Play's Device and Network Abuse
-  // policy reserves updating to Play's own mechanism, and the Play flavor strips both the
-  // AppUpdater plugin and REQUEST_INSTALL_PACKAGES. The flag is set by MainActivity before the
-  // web layer renders. Play delivers app updates; the web-stale prompt is equally pointless
-  // there, since the assets are bundled in the APK rather than fetched.
-  if (typeof window !== "undefined" && (window as unknown as { __LUMINA_PLAY_BUILD__?: boolean }).__LUMINA_PLAY_BUILD__) {
-    return null;
-  }
+  // An install that came from Google Play must never be offered a sideload update: Play re-signs
+  // with its own key, so no APK we publish can replace it, and Play's Device and Network Abuse
+  // policy reserves updating to Play anyway. This used to be a `window.__LUMINA_PLAY_BUILD__` flag
+  // that no build ever set — there is no Play product flavor, and the manifest declares
+  // REQUEST_INSTALL_PACKAGES unconditionally — so the guard had never once fired. Asking the
+  // package manager who installed us is the same intent, answered at runtime where it cannot be
+  // forgotten. The web-stale prompt goes with it: a Play build's assets ship inside the APK.
+  if (android.blocked === "play") return null;
 
   const available = android.available || webStale;
   if (!available || dismissed) return null;
@@ -88,6 +88,47 @@ export function UpdateBanner() {
   };
 
   const downloading = progress !== null;
+
+  /**
+   * The one case an update can be available and still be impossible to install in place: this
+   * install is signed with a different certificate than the build we publish, so Android will
+   * refuse to replace it. Every install from before the signing key was fixed is in this state,
+   * and no amount of updating gets it out — the package has to be removed once.
+   *
+   * Shown instead of the Update button rather than alongside it. Offering a tap that downloads
+   * 8MB and ends at the installer's "App not installed" is how this looked before, and that
+   * message names neither the cause nor the way out.
+   */
+  if (android.blocked === "signature") {
+    return (
+      <div className="flex items-center gap-2 bg-amber px-3 py-2 text-sm font-medium text-black">
+        <Download size={16} className="shrink-0" />
+        <span className="min-w-0 flex-1">
+          An update is ready, but this copy was installed with a different signing key, so it can't
+          be replaced in place. Download the new build, then uninstall this one and open it — once.
+        </span>
+        <button
+          type="button"
+          onClick={() => android.release && window.open(android.release.url, "_blank")}
+          className="shrink-0 rounded bg-black/15 px-2 py-1 text-xs font-semibold hover:bg-black/25"
+        >
+          Download
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            localStorage.setItem(DISMISS_KEY, String(Date.now()));
+            setDismissed(true);
+          }}
+          className="shrink-0 text-black/60 hover:text-black"
+          aria-label="Dismiss the update notice"
+          title="Dismiss"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex items-center gap-2 overflow-hidden bg-accent px-3 py-2 text-sm font-medium text-white">
