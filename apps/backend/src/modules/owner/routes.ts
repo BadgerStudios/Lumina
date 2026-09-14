@@ -16,6 +16,7 @@ import { banUser, liftBan, resolveAppeal } from "../bans/service.js";
 import { getTranscodeQueue } from "../videos/queue.js";
 import { getBandwidthSeries, getDownloadStats, getRevenueStats } from "../metrics/service.js";
 import { isBillingConfigured } from "../billing/stripe.js";
+import { listLinkedAccounts } from "./duplicates.js";
 
 const banSchema = z.object({
   reason: z.string().min(1).max(500),
@@ -231,6 +232,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       openUserReports,
       sharedDeviceSignups,
       underageAttempts,
+      barrierLeaks,
     ] = await Promise.all([
       prisma.video.count({ where: { status: "PENDING_REVIEW" } }),
       prisma.videoReport.count({ where: { status: "OPEN" } }),
@@ -242,13 +244,18 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       // Signups from a device that already had an account. Never blocked — the owner decides, and
       // an unresolved row is what "still to decide" means here. `resolvedAt` rather than `active`
       // because this flag is INFO and deliberately never marks itself as blocking anything.
-      prisma.accountFlag.count({ where: { reasonCode: "DEVICE_MULTI_ACCOUNT", resolvedAt: null } }),
+      prisma.accountFlag.count({
+        where: { reasonCode: { in: ["DEVICE_MULTI_ACCOUNT", "IP_MULTI_ACCOUNT"] }, resolvedAt: null },
+      }),
       // Under-18 signup attempts this week. Nothing to decide — they were refused automatically and
       // the device is on its cooldown — but the rate is worth seeing, which it is not if it is only
       // ever a row in a table nobody opens.
       prisma.accountFlag.count({
         where: { reasonCode: { in: ["AGE_UNDER_MINIMUM", "AGE_MISMATCH"] }, createdAt: { gte: weekAgo } },
       }),
+      // Contact across the age line that happened despite the separation. Rare by construction —
+      // parent-approved pairs and unrecorded ages are excluded — so any number here is real.
+      prisma.accountFlag.count({ where: { reasonCode: "AGE_BARRIER_LEAK", resolvedAt: null } }),
     ]);
 
     /**
@@ -308,13 +315,23 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         severity: "warn",
       });
     }
+    if (barrierLeaks > 0) {
+      items.push({
+        kind: "barrier_leak",
+        label: `${barrierLeaks} case${barrierLeaks === 1 ? "" : "s"} of an adult and a minor able to interact`,
+        count: barrierLeaks,
+        href: "/owner",
+        section: "reasons",
+        severity: "urgent",
+      });
+    }
     if (sharedDeviceSignups > 0) {
       items.push({
         kind: "shared_device",
-        label: `${sharedDeviceSignups} signup${sharedDeviceSignups === 1 ? "" : "s"} from a device that already had an account`,
+        label: `${sharedDeviceSignups} signup${sharedDeviceSignups === 1 ? "" : "s"} linked to an existing account`,
         count: sharedDeviceSignups,
         href: "/owner",
-        section: "reasons",
+        section: "duplicates",
         severity: "action",
       });
     }
@@ -420,6 +437,17 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       getBandwidthSeries(30),
     ]);
     return { revenue, downloads, bandwidth };
+  });
+
+  /**
+   * Accounts sharing a device or an address, grouped with enough of each profile to decide.
+   *
+   * Not paginated: the whole point is to see a group at once, and the query is already capped at a
+   * hundred groups with the larger ones truncated. A page boundary through the middle of a pair
+   * would defeat the only thing this view is for.
+   */
+  fastify.get("/duplicates", { preHandler: [requireAuth, requireOwner] }, async () => {
+    return { groups: await listLinkedAccounts() };
   });
 
   /** Paginated user directory with search. */

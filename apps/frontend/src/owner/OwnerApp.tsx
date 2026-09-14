@@ -48,6 +48,7 @@ import { OwnerActivityPanel } from "./OwnerActivityPanel";
 // is how "the app is missing things the website has" starts.
 import { OwnerAdsPanel } from "./OwnerAdsPanel";
 import { OwnerMotdPanel } from "./OwnerMotdPanel";
+import { OwnerDuplicatesPanel } from "./OwnerDuplicatesPanel";
 import { OwnerInfrastructurePanel } from "./OwnerInfrastructurePanel";
 import { OwnerOfficialAccountsPanel } from "./OwnerOfficialAccountsPanel";
 // The staff review queue, mounted as-is: one component for both consoles, so the owner reviews
@@ -92,7 +93,8 @@ type Section =
   | "official"
   | "videos"
   | "motd"
-  | "reports";
+  | "reports"
+  | "duplicates";
 
 /**
  * Navigation, grouped by what you'd be doing rather than as one flat list.
@@ -135,6 +137,7 @@ const NAV_GROUPS: Array<{
       { key: "videos", label: "Videos", icon: Film },
       { key: "reports", label: "Reports", icon: Flag },
       { key: "bans", label: "Bans & appeals", icon: Gavel },
+      { key: "duplicates", label: "Linked accounts", icon: Users },
       { key: "ageReviews", label: "Age reviews", icon: ShieldCheck },
       { key: "team", label: "Team & access", icon: UserCog },
       // Staff-visible: they are the ones answering "why am I blocked".
@@ -179,6 +182,7 @@ const SECTION_LABELS: Record<Section, string> = {
   videos: "Videos — review queue",
   motd: "Message of the day",
   reports: "Reports — user & message queue",
+  duplicates: "Linked accounts — shared device or address",
 };
 
 export function OwnerApp() {
@@ -415,6 +419,7 @@ export function OwnerApp() {
               {section === "activity" && <OwnerActivityPanel />}
               {section === "ads" && <OwnerAdsPanel />}
               {section === "motd" && <OwnerMotdPanel />}
+              {section === "duplicates" && <OwnerDuplicatesPanel />}
               {section === "infrastructure" && <OwnerInfrastructurePanel />}
               {section === "official" && isMaster && (
                 <OwnerOfficialAccountsPanel />

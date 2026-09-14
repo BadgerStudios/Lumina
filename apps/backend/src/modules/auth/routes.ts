@@ -341,6 +341,37 @@ export default async function authRoutes(fastify: FastifyInstance) {
         })();
       }
 
+      // The same question for the network address. Deliberately capped and deduplicated: an
+      // address behind carrier NAT can front thousands of accounts, and a flag naming all of them
+      // would be unreadable as well as useless. The cap is what keeps this a signal rather than a
+      // dump, and the count is reported so a genuinely crowded address is visible as one.
+      if (request.ip) {
+        void (async () => {
+          try {
+            const sharing = await prisma.refreshToken.findMany({
+              where: { ipAddress: request.ip, userId: { not: user.id } },
+              select: { userId: true },
+              distinct: ["userId"],
+              take: 26,
+            });
+            if (sharing.length === 0) return;
+            const shown = sharing.slice(0, 25);
+            await recordFlag({
+              userId: user.id,
+              email: user.email,
+              ipAddress: request.ip,
+              deviceFingerprint: fingerprint,
+              reasonCode: "IP_MULTI_ACCOUNT",
+              detail:
+                `shares an address with ${sharing.length > 25 ? "25+" : sharing.length} existing account(s): ` +
+                shown.map((s) => s.userId).join(", "),
+            });
+          } catch {
+            /* context only — never worth failing or delaying a signup for */
+          }
+        })();
+      }
+
       // Fire-and-forget, severity INFO: using a VPN is not misconduct, and this is only ever
       // context for a later decision. Never awaited — a signup must not get slower, or fail,
       // because a reputation lookup was slow.

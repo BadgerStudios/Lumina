@@ -40,6 +40,20 @@ export const BLOCK_REASONS: BlockReason[] = [
     selfResolvable: false,
   },
   {
+    code: "AGE_BARRIER_LEAK",
+    title: "Adult and minor were able to interact",
+    category: "age",
+    // INFO because it blocks nothing by itself. It is a finding about the SYSTEM rather than a
+    // judgement about either account, and the two people involved have usually done nothing wrong —
+    // the point is that a path existed which should not have.
+    severity: "INFO",
+    userMessage:
+      "Nothing is wrong with your account and nothing has changed. This is a note for our own safety review.",
+    staffNote:
+      "An adult and a minor account were found in contact that the age separation should have prevented — the detail names the surface (dm_message, dm_conversation, group_dm, friendship) and both accounts. Parent-approved pairs and accounts with no recorded age are NOT reported here, so anything that appears is a genuine gap. Read it as a bug report about the barrier first and a safeguarding matter second; check how the pair got there before acting on either account.",
+    selfResolvable: false,
+  },
+  {
     code: "AGE_SUSPECTED_MINOR",
     title: "Age check came back inconclusive",
     category: "age",
@@ -51,6 +65,21 @@ export const BLOCK_REASONS: BlockReason[] = [
       "Thanks — we couldn't confirm your age from that check. Nothing has changed on your account. Someone will take a look, and you can email support if you'd rather sort it out directly.",
     staffNote:
       "An age-estimation check returned a figure close to or below 18 — see the flag detail for the number. NOT proof of anything: published error for these models runs several years either way, which is exactly why it did not act on its own. Treat it as a prompt to look, alongside the account's other signals, not as a finding.",
+    selfResolvable: false,
+  },
+  {
+    code: "IP_MULTI_ACCOUNT",
+    title: "Other accounts have signed in from this address",
+    category: "device",
+    // Blocks nothing, and is the WEAKEST of the linking signals by some distance. A household, an
+    // office, a school, a café and an entire mobile carrier behind CGNAT all look identical from
+    // here — a single mobile IP can front thousands of unrelated people. It is recorded because a
+    // shared address alongside other signals is worth seeing, never because it means anything alone.
+    severity: "INFO",
+    userMessage:
+      "Other accounts have used this internet connection. That's completely normal — nothing is blocked and there's nothing to do.",
+    staffNote:
+      "A new account signed up from an IP that other accounts have sessions from. Far weaker evidence than a shared device: home broadband, offices, schools and especially mobile carrier NAT put large numbers of unrelated people behind one address. Only meaningful in combination — a shared IP AND a shared device AND correlated behaviour. Acting on this alone will hit families and phone users.",
     selfResolvable: false,
   },
   {
