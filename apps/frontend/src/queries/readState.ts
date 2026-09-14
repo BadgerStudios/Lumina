@@ -18,6 +18,20 @@ export function useUnread(serverId: string | undefined) {
   });
 }
 
+/** Marks every channel in a space read (the space menu's "Mark as read"). Empties that space's
+ * per-channel unread cache outright rather than refetching — the server just set every channel's
+ * read position to its latest message, so there is nothing left to count. */
+export function useMarkServerRead(serverId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ ok: true }>(`/servers/${serverId}/read`),
+    onSuccess: () => {
+      if (serverId) queryClient.setQueryData<UnreadDTO[]>(queryKeys.unread(serverId), []);
+    },
+    onError: (e) => reportError(e, "Couldn't mark the space as read"),
+  });
+}
+
 export function useMarkChannelRead(serverId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({

@@ -4,6 +4,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Bell,
   CalendarDays,
+  Check,
   ChevronDown,
   ChevronUp,
   FolderPlus,
@@ -28,7 +29,7 @@ import { useThreads } from "../../../queries/threads";
 import { useServerFolders, useSetServerFolder, useCreateFolder } from "../../../queries/serverFolders";
 import { useMinecraftStatus } from "../../../queries/game";
 import { useVoiceRoster } from "../../../queries/voice";
-import { useUnread } from "../../../queries/readState";
+import { useUnread, useMarkServerRead } from "../../../queries/readState";
 import { useUIStore } from "../../../store/uiStore";
 import { useAuthStore } from "../../../store/authStore";
 import { useVoiceStore } from "../../../store/voiceStore";
@@ -283,6 +284,7 @@ export function SpaceMenu({ serverId }: { serverId: string }) {
   const canManageChannels = can("MANAGE_CHANNELS", { userId: user?.id, server, member: me, roles });
   const isOwner = server?.ownerId === user?.id;
   const leaveServer = useLeaveServer(serverId);
+  const markServerRead = useMarkServerRead(serverId);
 
   const { data: folders } = useServerFolders();
   const setFolder = useSetServerFolder();
@@ -307,6 +309,9 @@ export function SpaceMenu({ serverId }: { serverId: string }) {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="start" sideOffset={6} className="lx-raised z-50 w-56 p-1.5">
+          <DropdownMenu.Item onSelect={() => markServerRead.mutate()} className={item}>
+            <Check size={15} /> Mark as read
+          </DropdownMenu.Item>
           <DropdownMenu.Item onSelect={() => openModalWith("invite", { serverId })} className={item}>
             <UserPlus size={15} /> Invite people
           </DropdownMenu.Item>

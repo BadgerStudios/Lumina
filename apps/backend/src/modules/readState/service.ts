@@ -49,6 +49,31 @@ export async function markChannelUnread(params: { userId: string; channelId: str
   });
 }
 
+/** Marks every text channel in a server read up to its latest message — the "mark space as read"
+ * action. A channel with no messages is skipped. Unlike markChannelRead it never needs the
+ * pre-read cursor, because nothing anchors an unread divider off a bulk mark. */
+export async function markServerRead(params: { userId: string; serverId: string }): Promise<void> {
+  const channels = await prisma.channel.findMany({
+    where: { serverId: params.serverId, type: "TEXT" },
+    select: { id: true },
+  });
+  await Promise.all(
+    channels.map(async (c) => {
+      const latest = await prisma.message.findFirst({
+        where: { channelId: c.id, deletedAt: null },
+        orderBy: { id: "desc" },
+        select: { id: true },
+      });
+      if (!latest) return;
+      await prisma.channelReadState.upsert({
+        where: { userId_channelId: { userId: params.userId, channelId: c.id } },
+        create: { userId: params.userId, channelId: c.id, lastReadMessageId: latest.id, lastReadAt: new Date() },
+        update: { lastReadMessageId: latest.id, lastReadAt: new Date() },
+      });
+    }),
+  );
+}
+
 /** Per-TEXT-channel unread counts for the caller within a server. A channel with no
  * ChannelReadState row is treated as fully unread (every non-deleted message counts) — matches
  * a user who has never opened the channel. Only channels with unreadCount > 0 are returned. */
