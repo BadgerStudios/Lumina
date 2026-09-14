@@ -96,6 +96,17 @@ export default {
         body: ["var(--font-body)"],
         mono: ["var(--font-mono)"],
       },
+      // Container radii were defined once in index.css (--pane-radius / --row-radius) but no
+      // utility mapped to them, so cards near a .lx-pane picked ad-hoc rounded-lg/xl and clashed.
+      borderRadius: {
+        pane: "var(--pane-radius)",
+        row: "var(--row-radius)",
+      },
+      // The two "meta voice" sizes, so components stop hand-rolling text-[9px]/text-[10px].
+      fontSize: {
+        micro: ["0.5625rem", "0.875rem"], // 9px — eyebrows, tiny badges
+        meta: ["0.625rem", "0.9375rem"], //  10px — gutter/meta labels
+      },
     },
   },
   plugins: [
