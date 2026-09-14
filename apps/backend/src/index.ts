@@ -92,6 +92,7 @@ import soundboardRoutes from "./modules/soundboard/routes.js";
 import pollRoutes from "./modules/polls/routes.js";
 import interactionRoutes from "./modules/interactions/routes.js";
 import templateRoutes from "./modules/templates/routes.js";
+import motdRoutes from "./modules/motd/routes.js";
 import { registerMetricsHooks, registerMetricsRoute } from "./modules/metrics/prometheus.js";
 
 async function main() {
@@ -445,6 +446,7 @@ async function main() {
   await fastify.register(pollRoutes, { prefix: "/api/polls" });
   await fastify.register(interactionRoutes, { prefix: "/api/interactions" });
   await fastify.register(templateRoutes, { prefix: "/api/templates" });
+  await fastify.register(motdRoutes, { prefix: "/api/motd" });
 
   await fastify.ready();
 

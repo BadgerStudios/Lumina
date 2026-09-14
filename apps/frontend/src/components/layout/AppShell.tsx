@@ -10,6 +10,7 @@ import { IncomingCallBanner } from "./IncomingCallBanner";
 import { CommandPalette } from "./CommandPalette";
 import { UpdateBanner } from "./UpdateBanner";
 import { ModalRoot } from "../modals/ModalRoot";
+import { MotdModal } from "../MotdModal";
 import { ToastHost } from "../common/ToastHost";
 import { ConnectionBanner } from "../common/ConnectionBanner";
 import { IOSInstallHint } from "../common/IOSInstallHint";
@@ -221,6 +222,9 @@ export function AppShell() {
       {/* Runs after AgeGateModal: age on record first, then identity. */}
       <IdentityVerificationGate />
       <ModalRoot />
+      {/* The owner's notice, once on the first load of the day. Renders nothing on every
+          other load — the server decides whether there is anything to show. */}
+      <MotdModal />
       <VoiceVideoGrid />
       <VoiceDock />
       <IncomingCallBanner />

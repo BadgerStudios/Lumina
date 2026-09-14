@@ -46,6 +46,7 @@ import { OwnerActivityPanel } from "./OwnerActivityPanel";
 // panel components precisely so they can't drift — a feature that exists in one and not the other
 // is how "the app is missing things the website has" starts.
 import { OwnerAdsPanel } from "./OwnerAdsPanel";
+import { OwnerMotdPanel } from "./OwnerMotdPanel";
 import { OwnerInfrastructurePanel } from "./OwnerInfrastructurePanel";
 import { OwnerOfficialAccountsPanel } from "./OwnerOfficialAccountsPanel";
 // The staff review queue, mounted as-is: one component for both consoles, so the owner reviews
@@ -87,7 +88,8 @@ type Section =
   | "infrastructure"
   | "ageReviews"
   | "official"
-  | "videos";
+  | "videos"
+  | "motd";
 
 /**
  * Navigation, grouped by what you'd be doing rather than as one flat list.
@@ -119,6 +121,7 @@ const NAV_GROUPS: Array<{
     items: [
       { key: "revenue", label: "Revenue", icon: DollarSign },
       { key: "ads", label: "Ads", icon: Megaphone },
+      { key: "motd", label: "Message of the day", icon: Megaphone },
       { key: "downloads", label: "Downloads", icon: Download },
     ],
   },
@@ -170,6 +173,7 @@ const SECTION_LABELS: Record<Section, string> = {
   ageReviews: "Age reviews",
   official: "Official accounts",
   videos: "Videos — review queue",
+  motd: "Message of the day",
 };
 
 export function OwnerApp() {
@@ -404,6 +408,7 @@ export function OwnerApp() {
               {section === "reasons" && <OwnerReasonsPanel />}
               {section === "activity" && <OwnerActivityPanel />}
               {section === "ads" && <OwnerAdsPanel />}
+              {section === "motd" && <OwnerMotdPanel />}
               {section === "infrastructure" && <OwnerInfrastructurePanel />}
               {section === "official" && isMaster && (
                 <OwnerOfficialAccountsPanel />

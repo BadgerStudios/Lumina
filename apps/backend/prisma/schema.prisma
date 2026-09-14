@@ -330,6 +330,15 @@ model User {
   payouts                Payout[]
   giftsSent              GiftSend[]               @relation("GiftsSent")
   giftsReceived          GiftSend[]               @relation("GiftsReceived")
+  motdsPublished         Motd[]                   @relation("MotdAuthor")
+
+  /// Which message of the day this member last dismissed, and when.
+  ///
+  /// Both are needed and they answer different questions. The id is what makes a NEWLY published
+  /// notice appear straight away rather than waiting for tomorrow; the timestamp is what makes an
+  /// unchanged one come back the next day. Either alone gets one of the two cases wrong.
+  motdSeenId             String?
+  motdSeenAt             DateTime?
 }
 
 // A "dev portal" app a human user owns. Each Application has exactly one bot User (see
@@ -2996,4 +3005,25 @@ model ContentReport {
   @@index([reporterId])
   @@index([targetUserId])
   @@index([targetMessageId])
+}
+
+/// The owner's message of the day.
+///
+/// Rows rather than one mutable record: an edit is a new message with its own identity, which is
+/// precisely what lets "once per person per day" and "a new notice shows immediately" both hold
+/// without a second timestamp to reason about. Retiring is `active = false` rather than a delete,
+/// so what was shown, when, and by whom stays answerable after the fact.
+model Motd {
+  id          String   @id @default(cuid())
+  /// Optional heading. A short notice often reads better without one.
+  title       String?
+  body        String
+  /// At most one row is active; publishing a new notice retires the previous one in the same
+  /// transaction, so there is never a moment with two.
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  createdById String?
+  createdBy   User?    @relation("MotdAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([active, createdAt])
 }
