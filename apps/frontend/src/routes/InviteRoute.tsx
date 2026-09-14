@@ -48,6 +48,11 @@ export function InviteRoute() {
                 "You've been invited to join a server"
               )}
             </h1>
+            {invite.server?.description ? (
+              <p className="mx-auto mb-4 max-w-sm whitespace-pre-wrap text-sm text-signal-dim">
+                {invite.server.description}
+              </p>
+            ) : null}
             <p className="mb-6 text-sm text-signal-dim">
               {invite.uses} join{invite.uses === 1 ? "" : "s"} so far
               {invite.maxUses ? ` · ${invite.maxUses - invite.uses} remaining` : ""}

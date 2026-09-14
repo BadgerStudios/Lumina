@@ -30,6 +30,10 @@ export function GiftSheet({ creatorId, creatorName, contentRef, onClose }: {
   const [flash, setFlash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tipBusy, setTipBusy] = useState(false);
+  // The tip endpoint has always accepted $1–$500; the sheet offered exactly one $5 button. Presets
+  // cover the amounts people actually pick without a free-form field, which invites a $500 typo.
+  const TIP_PRESETS = [1, 5, 10, 20, 50];
+  const [tipDollars, setTipDollars] = useState(5);
 
   const balance = coins?.balance ?? 0;
 
@@ -78,12 +82,29 @@ export function GiftSheet({ creatorId, creatorName, contentRef, onClose }: {
             You have {balance} sparks · top up in Settings → Billing
           </p>
 
+          <div className="mt-3 flex items-center gap-1.5">
+            {TIP_PRESETS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setTipDollars(d)}
+                className={cn(
+                  "flex-1 rounded-lg py-1.5 text-sm font-medium ring-1 transition",
+                  tipDollars === d
+                    ? "bg-accent/15 text-accent ring-accent"
+                    : "text-signal-dim ring-base-600 hover:ring-signal-faint",
+                )}
+              >
+                ${d}
+              </button>
+            ))}
+          </div>
           <button
             onClick={async () => {
               setError(null);
               setTipBusy(true);
               try {
-                const { checkoutUrl } = await sendTip.mutateAsync({ creatorId, amountMinor: 500, contentRef });
+                const { checkoutUrl } = await sendTip.mutateAsync({ creatorId, amountMinor: tipDollars * 100, contentRef });
                 window.location.href = checkoutUrl;
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Tipping isn't available right now.");
@@ -91,10 +112,10 @@ export function GiftSheet({ creatorId, creatorName, contentRef, onClose }: {
               }
             }}
             disabled={tipBusy}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {tipBusy ? <Loader2 size={15} className="animate-spin" /> : <HandCoins size={15} />}
-            Tip $5 by card
+            Tip ${tipDollars} by card
           </button>
 
           {tierView?.tier && !tierView.myMembership && (

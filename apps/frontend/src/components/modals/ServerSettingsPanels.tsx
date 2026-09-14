@@ -237,12 +237,9 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
           checked={server.sysLeaveMessages}
           onChange={(v) => save({ sysLeaveMessages: v })}
         />
-        <Toggle
-          label="Celebrate server boosts"
-          hint="Posts when someone boosts the server."
-          checked={server.sysBoostMessages}
-          onChange={(v) => save({ sysBoostMessages: v })}
-        />
+        {/* No "Celebrate server boosts" toggle: boosting is not a feature, so nothing can ever
+            post a boost message and the switch promised something that could never happen. The
+            sysBoostMessages field stays in the schema for whenever boosting is actually built. */}
       </div>
 
       <div className="border-t border-hairline pt-5">

@@ -528,7 +528,10 @@ type InviteLike = {
   createdAt: Date;
 };
 
-export function serializeInvite(invite: InviteLike, server?: { id: string; name: string; iconUrl: string | null }): InviteDTO {
+export function serializeInvite(
+  invite: InviteLike,
+  server?: { id: string; name: string; iconUrl: string | null; description: string | null },
+): InviteDTO {
   return {
     ...(server ? { server } : {}),
     code: invite.code,

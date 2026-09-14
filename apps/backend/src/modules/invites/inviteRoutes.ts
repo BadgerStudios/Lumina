@@ -26,13 +26,13 @@ const memberInclude = { user: true, roles: { select: { roleId: true } } } as con
 async function resolveInviteCode(code: string) {
   const invite = await prisma.invite.findUnique({
     where: { code },
-    include: { server: { select: { id: true, name: true, iconUrl: true } } },
+    include: { server: { select: { id: true, name: true, iconUrl: true, description: true } } },
   });
   if (invite) return { invite, server: invite.server, isVanity: false as const };
 
   const server = await prisma.server.findUnique({
     where: { vanityCode: code.toLowerCase() },
-    select: { id: true, name: true, iconUrl: true },
+    select: { id: true, name: true, iconUrl: true, description: true },
   });
   if (!server) return null;
 
