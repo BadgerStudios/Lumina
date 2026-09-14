@@ -97,15 +97,20 @@ export async function refreshMinorStatus(userId: string): Promise<boolean> {
     select: { isMinor: true, birthDate: true },
   });
   if (!user || user.birthDate === null) return user?.isMinor ?? false;
-  const shouldBeMinor = ageFromBirthDate(user.birthDate) < ADULT_AGE;
-  if (shouldBeMinor === user.isMinor) return shouldBeMinor;
 
-  await prisma.user.update({ where: { id: userId }, data: { isMinor: shouldBeMinor } });
-  if (!shouldBeMinor) {
-    // Aged into adulthood — end any parental supervision (cascades ParentApprovedContact).
-    await prisma.parentLink.deleteMany({ where: { childUserId: userId } });
-  }
-  return shouldBeMinor;
+  // PROMOTES ONLY. A birthday that says "adult" still lifts minor status automatically — that is
+  // the whole point of running this on login, and a 17-year-old turning 18 should not have to ask.
+  //
+  // It no longer does the reverse. Since 2026-09-14 the age an account carries is the one its owner
+  // stated, not one re-derived from their birthday (see checkAge); demoting here would quietly undo
+  // that on the next login and leave someone locked out with nothing on screen explaining why.
+  const birthDateSaysAdult = ageFromBirthDate(user.birthDate) >= ADULT_AGE;
+  if (!user.isMinor || !birthDateSaysAdult) return user.isMinor;
+
+  await prisma.user.update({ where: { id: userId }, data: { isMinor: false } });
+  // Aged into adulthood — end any parental supervision (cascades ParentApprovedContact).
+  await prisma.parentLink.deleteMany({ where: { childUserId: userId } });
+  return false;
 }
 
 /** Throws if the account is a minor with no responsible adult. Adults pass straight through. */

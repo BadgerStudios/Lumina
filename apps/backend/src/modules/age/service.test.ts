@@ -85,11 +85,14 @@ describe("checkAge", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("refuses someone one day short of 18", () => {
-    // The boundary itself, not a comfortable distance from it.
+  it("takes the stated bracket even a day short of 18 by birth date", () => {
+    // Changed 2026-09-14: the stated bracket decides. A birthday a day short of the boundary used
+    // to refuse the account outright, before one existed to correct — which caught mistyped years
+    // far more often than anyone dishonest, since lying is a question of which box you tick.
     const result = checkAge("AGE_18_24", bornYearsAgo(18, -1), NOW);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+    expect(result.ok).toBe(true);
+    expect(result.bracket).toBe("AGE_18_24");
+    expect(result.isMinor).toBe(false);
   });
 
   it("admits someone on their 18th birthday", () => {
@@ -112,10 +115,23 @@ describe("checkAge", () => {
     if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
   });
 
-  it("refuses an adult bracket with a minor birth date", () => {
+  it("takes an adult bracket even when the birth date disagrees", () => {
+    // The birth date is still stored — it is what lets an account age into adulthood by itself —
+    // but it no longer overrules the answer to the question actually asked.
     const result = checkAge("AGE_18_24", bornYearsAgo(16), NOW);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+    expect(result.ok).toBe(true);
+    expect(result.bracket).toBe("AGE_18_24");
+    expect(result.isMinor).toBe(false);
+  });
+
+  it("still refuses anyone who says they are under 18", () => {
+    // The one refusal left, and it is a direct answer rather than a computed one. Guards against
+    // the self-declaration path being widened until nothing refuses at all.
+    for (const born of [bornYearsAgo(16), bornYearsAgo(30)]) {
+      const result = checkAge("UNDER_18", born, NOW);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+    }
   });
 
   it("has no gap between the minimum age and adulthood", () => {

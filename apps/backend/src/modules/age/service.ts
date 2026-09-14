@@ -72,40 +72,35 @@ export type AgeCheckResult =
   | { ok: false; reasonCode: "AGE_UNDER_MINIMUM" | "AGE_MISMATCH"; bracket: AgeBracket; isMinor: boolean };
 
 /**
- * Reconciles the selected bracket against the birth date.
+ * Takes the age somebody states.
  *
- * The birth date is treated as authoritative wherever the two merely disagree about which ADULT
- * band someone falls in — picking "25-34" the year you turn 35 is an honest mistake, and blocking
- * an account over it would punish a precision the question never asked for.
+ * The stated bracket is authoritative. The birth date is still collected and stored — it is what
+ * lets an account age into adulthood on its own (see refreshMinorStatus) — but it no longer
+ * overrules the answer to the question actually asked.
  *
- * A disagreement that CROSSES the 18 boundary is different in kind: one answer claims an adult and
- * the other a minor, and that is the single distinction this whole system exists to get right. Those
- * are held for a human rather than silently resolved, because guessing wrong is harmful in both
- * directions — wrongly treating an adult as a minor is an annoyance, wrongly treating a minor as an
- * adult is the exact thing this is meant to prevent.
+ * Owner decision, 2026-09-14. The previous behaviour refused anyone whose typed birthday worked out
+ * younger than the band they picked, which meant a mistyped year read as a minor and there was no
+ * way for the person to correct it: the refusal happened before an account existed, so there was
+ * nothing to edit. That misfires on honest people far more often than it catches anyone, because
+ * lying is a question of which box you tick, not which date you type.
+ *
+ * What still refuses: SELECTING under-18. That is not a derivation or an inference — it is the
+ * person answering the eligibility question with "no", and an 18+ platform has to take that answer.
  */
 export function checkAge(selected: AgeBracket, birthDate: Date, now = new Date()): AgeCheckResult {
   const age = ageFromBirthDate(birthDate, now);
   const derived = bracketFromAge(age);
-  const derivedMinor = age < ADULT_AGE;
 
-  // Either answer saying "under 18" is decisive on an 18+ platform: the person has told us they
-  // are not eligible, and there is nothing to reconcile. Refused before any account row exists.
-  if (age < MINIMUM_AGE || isMinorBracket(selected)) {
-    return { ok: false, reasonCode: "AGE_UNDER_MINIMUM", bracket: derived, isMinor: true };
+  // The one refusal left, and it is a direct answer rather than a computed one.
+  if (isMinorBracket(selected)) {
+    return { ok: false, reasonCode: "AGE_UNDER_MINIMUM", bracket: selected, isMinor: true };
   }
 
-  // Both answers claim an adult; they can still disagree with each other about the 18 boundary
-  // only if the derived age is a minor, which the check above already refused. Kept as the
-  // documented outcome for a future bracket/date disagreement rather than silently resolving one.
-  if (isMinorBracket(selected) !== derivedMinor) {
-    // Held for a human rather than silently resolved: one answer claims an adult and the other a
-    // minor, and that is the single distinction this whole system exists to get right. Guessing
-    // wrong is harmful in both directions, so neither reading is taken.
-    return { ok: false, reasonCode: "AGE_MISMATCH", bracket: derived, isMinor: true };
-  }
-
-  return { ok: true, bracket: derived, isMinor: derivedMinor };
+  // The stated bracket is what the account carries. `derived` is computed only so a caller that
+  // wants to notice a large disagreement still can — nothing here acts on it.
+  void derived;
+  void age;
+  return { ok: true, bracket: selected, isMinor: false };
 }
 
 /**
