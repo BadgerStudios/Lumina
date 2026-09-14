@@ -73,7 +73,9 @@ export function useRemoveDMParticipant(conversationId: string) {
  * update too, not just the caller. */
 export function useMarkDMRead(conversationId: string) {
   return useMutation({
-    mutationFn: () => api.patch<void>(`/dm/${conversationId}/read`),
+    // Returns the pre-read cursor, which DMRoute anchors the "new messages" divider on — the
+    // same contract the channel read route follows.
+    mutationFn: () => api.patch<{ previousLastReadMessageId: string | null }>(`/dm/${conversationId}/read`),
   });
 }
 

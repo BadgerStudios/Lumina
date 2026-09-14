@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChatPane } from "../components/layout/ChatPane";
 import { ForumView } from "../components/chat/ForumView";
@@ -42,12 +42,24 @@ export function ChannelRoute() {
 
   const markRead = useMarkChannelRead(serverId);
 
+  // The read position captured on entry — where the "new messages" divider sits. Frozen for the
+  // length of the visit (reset only when the channel changes) so it does not walk down the page
+  // as the auto-read below advances the real cursor while you read.
+  const [unreadBoundaryId, setUnreadBoundaryId] = useState<string | null>(null);
+
   // Tracks which channel is currently open (read by socket/useSocketEvents.ts's
   // message:create handler for mark-as-read-as-you-go) and marks it read the moment it
   // becomes active, so the Signal panel's badge clears without requiring a manual action.
   useEffect(() => {
     setActiveChannel(validChannelId ?? null);
-    if (validChannelId) markRead.mutate(validChannelId);
+    setUnreadBoundaryId(null);
+    if (validChannelId) {
+      // The mark-read response carries the pre-read cursor, which seeds the divider boundary.
+      void markRead
+        .mutateAsync(validChannelId)
+        .then((res) => setUnreadBoundaryId(res?.previousLastReadMessageId ?? null))
+        .catch(() => undefined);
+    }
     return () => setActiveChannel(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [validChannelId]);
@@ -125,6 +137,7 @@ export function ChannelRoute() {
           target={{ channelId: validChannelId }}
           canManageMessages={canManageMessages}
           composerDisabledReason={composerDisabledReason}
+          lastReadMessageId={unreadBoundaryId ?? undefined}
           focusMessageId={focusMessageId}
           focusNonce={focusNonce}
           onOpenThread={(threadId) => setOpenThreadId(threadId)}

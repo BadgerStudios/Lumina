@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ChatPane } from "../components/layout/ChatPane";
 import { useDMs, useMarkDMRead } from "../queries/dms";
@@ -24,11 +24,28 @@ export function DMRoute() {
   const sendRich = useSendDMMessageRich(conversationId ?? "");
   const markRead = useMarkDMRead(conversationId ?? "");
 
+  // The read position captured when this DM was opened — where the "new messages" divider sits.
+  // Frozen for the visit, reset when the conversation changes.
+  const [unreadBoundaryId, setUnreadBoundaryId] = useState<string | null>(null);
+  const boundaryConvRef = useRef<string | undefined>(undefined);
+
   // Marks read whenever the conversation is open and its last message changes (a new message
   // arriving while you're already viewing the DM should still advance your read position, not
   // just the initial open).
+  // Only the FIRST mark of a conversation seeds the divider boundary; the later marks that new
+  // messages trigger advance the cursor without moving the divider out from under you.
   useEffect(() => {
-    if (conversationId) markRead.mutate();
+    if (!conversationId) return;
+    if (boundaryConvRef.current !== conversationId) {
+      boundaryConvRef.current = conversationId;
+      setUnreadBoundaryId(null);
+      void markRead
+        .mutateAsync()
+        .then((res) => setUnreadBoundaryId(res?.previousLastReadMessageId ?? null))
+        .catch(() => undefined);
+    } else {
+      markRead.mutate();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, conversation?.lastMessage?.id]);
 
@@ -64,6 +81,7 @@ export function DMRoute() {
       canManageMessages={false}
       dmReadStates={conversation?.readStates}
       dmParticipants={conversation?.participants}
+      lastReadMessageId={unreadBoundaryId ?? undefined}
       focusMessageId={focusMessageId}
       focusNonce={focusNonce}
     />

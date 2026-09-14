@@ -15,6 +15,7 @@ export const queryKeys = {
   dmMessages: (conversationId: string) => ["messages", "dm", conversationId] as const,
   dms: () => ["dms"] as const,
   unread: (serverId: string) => ["unread", serverId] as const,
+  globalUnread: () => ["unread", "global"] as const,
   search: (serverId: string, q: string) => ["search", serverId, q] as const,
   me: () => ["me"] as const,
   invitePreview: (code: string) => ["invitePreview", code] as const,

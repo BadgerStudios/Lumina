@@ -49,6 +49,7 @@ export function ChatPane({
   focusMessageId,
   focusNonce,
   composerDisabledReason,
+  lastReadMessageId,
 }: {
   title: string;
   topic?: string | null;
@@ -76,6 +77,9 @@ export function ChatPane({
   /** When set, the composer is replaced by a read-only notice (e.g. an announcement channel a
    * non-moderator can read but not post in). The backend enforces this regardless. */
   composerDisabledReason?: string | null;
+  /** The reader's last-read message id at entry — anchors the "new messages" divider in the list.
+   * Absent (a room never left unread) means no divider. */
+  lastReadMessageId?: string | null;
 }) {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const editMessage = useEditMessage();
@@ -149,6 +153,7 @@ export function ChatPane({
         onStartThread={onStartThread}
         dmReadStates={dmReadStates}
         dmParticipants={dmParticipants}
+        lastReadMessageId={lastReadMessageId}
         focusMessageId={focusMessageId}
         focusNonce={focusNonce}
       />
