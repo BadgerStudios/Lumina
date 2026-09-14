@@ -1,6 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { BarChart3, EyeOff, Mic, Plus, Send, Square, X } from "lucide-react";
-import { ClientEvents } from "@lumina/shared";
+import { ClientEvents, MAX_MESSAGE_LENGTH } from "@lumina/shared";
 import { getSocket } from "../../socket/socketClient";
 import { StickerPicker } from "./StickerPicker";
 import { PollBuilder, type PollDraft } from "./PollBuilder";
@@ -337,6 +337,8 @@ export function Composer({
           aria-label={placeholder}
           value={value}
           onChange={(e) => {
+            // Refuse the keystroke rather than let them type a message the server rejects.
+            if (e.target.value.length > MAX_MESSAGE_LENGTH) return;
             setValue(e.target.value);
             setError(null);
             setCommandIndex(0);

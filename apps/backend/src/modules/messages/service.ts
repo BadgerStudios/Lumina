@@ -1,4 +1,4 @@
-import { Permissions, ServerEvents } from "@lumina/shared";
+import { Permissions, ServerEvents, MAX_MESSAGE_LENGTH } from "@lumina/shared";
 import type { MessageDTO, MentionFeedItemDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { serializeMessage } from "../../lib/serialize.js";
@@ -71,6 +71,12 @@ function assertHasContent(
   attachments?: CreateMessageAttachmentInput[],
   extras?: { stickerId?: string | null; pollId?: string | null },
 ): void {
+  // Length cap first, and unconditionally: the composer enforces it too, but the server
+  // cannot trust that - a crafted request could otherwise persist an arbitrarily large
+  // body, even alongside a sticker or a poll.
+  if (content.length > MAX_MESSAGE_LENGTH) {
+    throw new BadRequestError(`Message is too long (max ${MAX_MESSAGE_LENGTH} characters).`);
+  }
   // A sticker or a poll is a message body in its own right — requiring text alongside one would
   // make "send a sticker" impossible, which is the entire feature.
   if (extras?.stickerId || extras?.pollId) return;
@@ -471,6 +477,10 @@ export async function editMessage(params: { userId: string; messageId: string; c
   }
 
   if (!params.content.trim()) throw new BadRequestError("Message content cannot be empty");
+  // Enforce on edit too, or the cap is trivially bypassed by sending short then editing long.
+  if (params.content.length > MAX_MESSAGE_LENGTH) {
+    throw new BadRequestError(`Message is too long (max ${MAX_MESSAGE_LENGTH} characters).`);
+  }
 
   // AutoMod runs on edits too, not just creates — otherwise the filter is trivially defeated by
   // sending clean content and then editing it to the blocked term, which then broadcasts live via

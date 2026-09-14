@@ -670,3 +670,7 @@ export interface VideoDTO {
    * Owner/staff form only, same as status itself. */
   progressPct?: number;
 }
+
+/** Longest message body we accept. Shared so the composer and the server cannot drift;
+ * the server enforces it too, because a crafted client can simply ignore the composer. */
+export const MAX_MESSAGE_LENGTH = 4000;
