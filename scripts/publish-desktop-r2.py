@@ -11,6 +11,10 @@ deploy.sh used to only copy the versioned AppImage into downloads/desktop/, wher
 it: the manifest would advertise a version whose binary 404s, and every desktop client would fail
 to auto-update. Uploading here is what makes the copy on disk more than a local archive.
 
+The Windows installer rides the same path: versioned, immutable, ~130MB per auto-update. It is
+optional — a build that produced no installer (no wine, or a targets change) publishes Linux and
+says so, rather than failing the deploy.
+
 Usage: publish-desktop-r2.py <version>          e.g. publish-desktop-r2.py 1.0.45
 """
 import base64
@@ -53,17 +57,45 @@ def main(version: str) -> int:
         region_name="auto",
     )
     cfg = TransferConfig(multipart_threshold=64 * 1024 * 1024, multipart_chunksize=32 * 1024 * 1024)
-    for path, key, ctype in (
+    uploads = [
         (appimage, f"desktop/Lumina-{version}.AppImage", "application/octet-stream"),
         (manifest, "desktop/latest-linux.yml", "text/yaml"),
-    ):
+    ]
+
+    # Windows, when this build produced it. Same manifest/binary cross-check as above: an installer
+    # that does not match the sha512 in its own feed puts every Windows client into a
+    # download-then-checksum-fail loop, which is worse than having no feed at all.
+    setup = release / f"Lumina-Setup-{version}.exe"
+    win_manifest = release / "latest.yml"
+    if setup.is_file() and win_manifest.is_file():
+        want_win = re.search(r"^sha512: (.+)$", win_manifest.read_text(), re.M).group(1)
+        got_win = base64.b64encode(hashlib.sha512(setup.read_bytes()).digest()).decode()
+        if got_win != want_win:
+            print(f"latest.yml sha512 does not match the installer\n  manifest {want_win}\n  file     {got_win}", file=sys.stderr)
+            return 1
+        uploads += [
+            (setup, f"desktop/Lumina-Setup-{version}.exe", "application/octet-stream"),
+            (win_manifest, "desktop/latest.yml", "text/yaml"),
+        ]
+        blockmap = release / f"Lumina-Setup-{version}.exe.blockmap"
+        if blockmap.is_file():
+            # electron-updater fetches this to work out which parts of the installer it already has;
+            # unlike the AppImage, whose block map lives in the file's own tail, NSIS publishes it
+            # as a sidecar and a missing one costs a full 130MB download every time.
+            uploads.append((blockmap, f"desktop/Lumina-Setup-{version}.exe.blockmap", "application/octet-stream"))
+    else:
+        print("no Windows installer in this build — publishing Linux only")
+
+    for path, key, ctype in uploads:
         s3.upload_file(str(path), BUCKET, key, ExtraArgs={"ContentType": ctype}, Config=cfg)
         size = s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
+        # Every artifact, not just the AppImage: a truncated upload is discovered by the client as a
+        # sha512 failure with nothing on the server to explain it, and that is a bad way to find out.
+        if size != path.stat().st_size:
+            print(f"uploaded size does not match the local file: {key} ({size:,} vs {path.stat().st_size:,})", file=sys.stderr)
+            return 1
         print(f"R2: {key} ({size:,} bytes)")
 
-    if s3.head_object(Bucket=BUCKET, Key=f"desktop/Lumina-{version}.AppImage")["ContentLength"] != appimage.stat().st_size:
-        print("uploaded size does not match the local file", file=sys.stderr)
-        return 1
     return 0
 
 

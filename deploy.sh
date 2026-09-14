@@ -244,11 +244,14 @@ build_owner_apk() {
 }
 
 build_desktop() {
-  # Builds BOTH the Linux AppImage and a portable Windows zip in one electron-builder run. The
+  # Builds the Linux AppImage, the Windows installer and the portable Windows zip in one
+  # electron-builder run. The installer needs wine, which IS on this box (wine-10.0) — the note
+  # that used to say otherwise predated it, and its absence is why Windows had no update feed and
+  # the site linked an installer from August. The
   # Windows *installer* (nsis) needs wine, which isn't on this box — but the `zip` target packages
   # the Windows electron binaries with no wine at all (electron-builder 26 bundles its own
   # signtool/rcedit). Passing --win zip overrides the config's nsis target for exactly this reason.
-  (cd apps/desktop && npm run build && npm run build:renderer && npx electron-builder --linux AppImage --win zip)
+  (cd apps/desktop && npm run build && npm run build:renderer && npx electron-builder --linux AppImage --win nsis zip)
 }
 
 echo "== 3+4+5: building chat APK, owner APK and desktop AppImage IN PARALLEL =="
@@ -344,6 +347,34 @@ echo "Update feed: https://lumina.badgerstudios.net/downloads/desktop/latest-lin
 # Windows: a PORTABLE build (extract the zip, run Lumina.exe) — not an .exe installer, because the
 # nsis installer needs wine, which isn't on this box. The zip is built by build_desktop above with
 # no wine at all. Published under a stable name so the site link never changes across versions.
+# The INSTALLER and its feed, published exactly like the AppImage: versioned binary to R2 first
+# (via publish-desktop-r2.py above, which uploads it when the build produced one), manifest last,
+# from origin disk. Until latest.yml exists there, an installed Windows client has no feed to read
+# at all — which is why every Windows install sat on whatever version it was first given.
+echo "== publishing Windows installer =="
+if [[ -f "apps/desktop/release/Lumina-Setup-${DESKTOP_VERSION}.exe" ]]; then
+  cp "apps/desktop/release/Lumina-Setup-${DESKTOP_VERSION}.exe" downloads/desktop/
+  [[ -f "apps/desktop/release/Lumina-Setup-${DESKTOP_VERSION}.exe.blockmap" ]] &&
+    cp "apps/desktop/release/Lumina-Setup-${DESKTOP_VERSION}.exe.blockmap" downloads/desktop/
+  # A stable name for the site to link, so the download page can never again point at a version
+  # that stopped being built months ago.
+  cp "apps/desktop/release/Lumina-Setup-${DESKTOP_VERSION}.exe" downloads/lumina-windows-setup.exe
+  cp apps/desktop/release/latest.yml downloads/desktop/
+  echo "Published: https://lumina.luxffa.com/downloads/lumina-windows-setup.exe"
+  echo "Update feed: https://lumina.badgerstudios.net/downloads/desktop/latest.yml"
+  # Same trim as the AppImages, and for the same reason: a client mid-download during a deploy is
+  # still fetching the previous one. Sorted by mtime, deleted by exact name.
+  ls -1t downloads/desktop/Lumina-Setup-*.exe 2>/dev/null | tail -n +4 | while read -r stale; do
+    echo "Removing superseded Windows build: $(basename "$stale")"
+    rm -f -- "$stale" "$stale.blockmap"
+  done
+  ls -1t apps/desktop/release/Lumina-Setup-*.exe 2>/dev/null | tail -n +3 | while read -r stale; do
+    rm -f -- "$stale" "$stale.blockmap"
+  done
+else
+  echo "WARN: Windows installer not found — skipping (the rest of the publish already succeeded)."
+fi
+
 echo "== publishing Windows portable zip =="
 if [[ -f "apps/desktop/release/Lumina-${DESKTOP_VERSION}-win.zip" ]]; then
   cp "apps/desktop/release/Lumina-${DESKTOP_VERSION}-win.zip" downloads/lumina-windows.zip

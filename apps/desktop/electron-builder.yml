@@ -37,3 +37,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # No spaces. electron-builder's default ("Lumina Setup 1.0.45.exe") goes into latest.yml verbatim
+  # and has to survive URL encoding, a CDN and an nginx regex on the way back; the versioned
+  # AppImage next to it has never had spaces and has never had the problem.
+  artifactName: Lumina-Setup-${version}.exe
