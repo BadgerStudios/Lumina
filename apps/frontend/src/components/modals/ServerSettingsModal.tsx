@@ -467,12 +467,20 @@ export function ServerSettingsModal() {
             <div className="flex flex-col gap-2">
               {bans?.length ? (
                 bans.map((ban) => (
-                  <div key={ban.userId} className="flex items-center justify-between rounded bg-base-900 px-3 py-2 text-sm">
-                    <div>
-                      <div className="text-signal">{ban.userId}</div>
+                  <div key={ban.userId} className="flex items-center justify-between gap-3 rounded bg-base-900 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate text-signal">
+                        {ban.user ? (ban.user.displayName ?? ban.user.username) : ban.userId}
+                        {ban.user ? <span className="text-signal-faint"> @{ban.user.username}</span> : null}
+                      </div>
                       {ban.reason ? <div className="text-xs text-signal-faint">{ban.reason}</div> : null}
+                      {ban.bannedBy ? (
+                        <div className="text-[11px] text-signal-faint">
+                          Banned by {ban.bannedBy.displayName ?? ban.bannedBy.username}
+                        </div>
+                      ) : null}
                     </div>
-                    <button onClick={() => unbanMember.mutate(ban.userId)} className="text-xs text-accent hover:underline">
+                    <button onClick={() => unbanMember.mutate(ban.userId)} className="shrink-0 text-xs text-accent hover:underline">
                       Unban
                     </button>
                   </div>
@@ -500,8 +508,9 @@ export function ServerSettingsModal() {
                   <div key={entry.id} className="rounded bg-base-900 px-3 py-2 text-xs text-signal-dim">
                     <div className="font-medium text-signal">{entry.actionType}</div>
                     <div className="text-signal-faint">
-                      by {entry.actorId ?? "[deleted]"} · {new Date(entry.createdAt).toLocaleString()}
-                      {entry.targetType ? ` · ${entry.targetType}:${entry.targetId}` : ""}
+                      by {entry.actor ? (entry.actor.displayName ?? entry.actor.username) : "[deleted]"} ·{" "}
+                      {new Date(entry.createdAt).toLocaleString()}
+                      {entry.targetType ? ` · ${entry.targetType}: ${entry.targetName ?? entry.targetId}` : ""}
                     </div>
                   </div>
                 ))

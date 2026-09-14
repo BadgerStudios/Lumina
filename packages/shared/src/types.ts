@@ -481,9 +481,14 @@ export interface AuditLogEntryDTO {
   // bot — see backend schema.prisma AuditLogEntry.actorId — humans never actually get their
   // User row deleted, only their server Membership).
   actorId: string | null;
+  /** The resolved actor (null when the actor's User row is gone), so the log can show a name. */
+  actor: UserDTO | null;
   actionType: string;
   targetId: string | null;
   targetType: string | null;
+  /** Resolved display name of the target for user/role/channel targets; null for every other
+   * target type, where the client falls back to the type label plus the raw id. */
+  targetName: string | null;
   metadata: unknown;
   createdAt: string;
 }

@@ -3,12 +3,22 @@ import type { AuditLogEntryDTO, MemberDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { queryKeys } from "../lib/queryKeys";
 
+interface UserChip {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
 export interface BanDTO {
   serverId: string;
   userId: string;
   reason: string | null;
   bannedById?: string;
   createdAt: string;
+  /** Resolved identities so the ban list shows names, not raw ids (null if the account is gone). */
+  user?: UserChip | null;
+  bannedBy?: UserChip | null;
 }
 
 export function useAuditLog(serverId: string | undefined) {

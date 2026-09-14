@@ -19,6 +19,9 @@ const timeoutSchema = z.object({
   until: z.string().datetime().nullable(),
 });
 
+// The minimal identity a moderation panel needs to show a person instead of a raw cuid.
+const userChip = { id: true, username: true, displayName: true, avatarUrl: true } as const;
+
 export default async function moderationRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/:id/bans",
@@ -80,8 +83,22 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
       getIO().to(`user:${body.userId}`).emit(ServerEvents.SERVER_DELETE, { id: request.serverId! });
       await evictUserFromServer(body.userId, request.serverId!);
 
+      // Resolve both identities so the row the client inserts optimistically shows names too,
+      // rather than a cuid that turns into a name only after the next refetch.
+      const [bannedUser, actor] = await Promise.all([
+        prisma.user.findUnique({ where: { id: ban.userId }, select: userChip }),
+        prisma.user.findUnique({ where: { id: ban.bannedById }, select: userChip }),
+      ]);
       reply.code(201);
-      return { serverId: ban.serverId, userId: ban.userId, reason: ban.reason, createdAt: ban.createdAt.toISOString() };
+      return {
+        serverId: ban.serverId,
+        userId: ban.userId,
+        reason: ban.reason,
+        bannedById: ban.bannedById,
+        createdAt: ban.createdAt.toISOString(),
+        user: bannedUser,
+        bannedBy: actor,
+      };
     },
   );
 
@@ -132,12 +149,21 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
         orderBy: { createdAt: "desc" },
         take: 500,
       });
+      // Ban has no user relation, so resolve the banned users AND whoever banned them in one
+      // batched query — the list is otherwise a wall of opaque cuids no admin can read.
+      const ids = [...new Set(bans.flatMap((b) => [b.userId, b.bannedById]))];
+      const users = ids.length
+        ? await prisma.user.findMany({ where: { id: { in: ids } }, select: userChip })
+        : [];
+      const byId = new Map(users.map((u) => [u.id, u]));
       return bans.map((b) => ({
         serverId: b.serverId,
         userId: b.userId,
         reason: b.reason,
         bannedById: b.bannedById,
         createdAt: b.createdAt.toISOString(),
+        user: byId.get(b.userId) ?? null,
+        bannedBy: byId.get(b.bannedById) ?? null,
       }));
     },
   );
@@ -191,9 +217,37 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
       const entries = await prisma.auditLogEntry.findMany({
         where: { serverId: request.serverId! },
         orderBy: { createdAt: "desc" },
+        include: { actor: true },
         take: 100,
       });
-      return entries.map(serializeAuditLogEntry);
+
+      // Resolve target ids to readable names for the target types worth showing (a member/user, a
+      // role, a channel). Batched by type — one query each — so a log of 100 mixed entries reads as
+      // names instead of cuid:cuid. Other target types (invite/emoji/sticker/...) keep their raw
+      // id and the client shows the type label beside it.
+      const idsOfType = (types: string[]) =>
+        [...new Set(entries.filter((e) => e.targetId && types.includes(e.targetType ?? "")).map((e) => e.targetId!))];
+      const userIds = idsOfType(["member", "user"]);
+      const roleIds = idsOfType(["role"]);
+      const channelIds = idsOfType(["channel"]);
+      const [tUsers, tRoles, tChannels] = await Promise.all([
+        userIds.length
+          ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, username: true, displayName: true } })
+          : [],
+        roleIds.length ? prisma.role.findMany({ where: { id: { in: roleIds } }, select: { id: true, name: true } }) : [],
+        channelIds.length ? prisma.channel.findMany({ where: { id: { in: channelIds } }, select: { id: true, name: true } }) : [],
+      ]);
+      const userName = new Map(tUsers.map((u) => [u.id, u.displayName ?? u.username]));
+      const roleName = new Map(tRoles.map((r) => [r.id, r.name]));
+      const channelName = new Map(tChannels.map((c) => [c.id, c.name]));
+      const targetNameFor = (e: (typeof entries)[number]): string | null => {
+        if (!e.targetId) return null;
+        if (e.targetType === "member" || e.targetType === "user") return userName.get(e.targetId) ?? null;
+        if (e.targetType === "role") return roleName.get(e.targetId) ?? null;
+        if (e.targetType === "channel") return channelName.get(e.targetId) ?? null;
+        return null;
+      };
+      return entries.map((e) => serializeAuditLogEntry(e, targetNameFor(e)));
     },
   );
 }

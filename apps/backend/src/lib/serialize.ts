@@ -537,15 +537,20 @@ type AuditLogEntryLike = {
   targetType: string | null;
   metadata: unknown;
   createdAt: Date;
+  actor?: UserLike | null;
 };
 
-export function serializeAuditLogEntry(entry: AuditLogEntryLike): AuditLogEntryDTO {
+/** `targetName` is resolved by the caller — it needs a batch lookup keyed on targetType, which
+ * only the audit-log route can do efficiently (see modules/moderation/routes.ts). */
+export function serializeAuditLogEntry(entry: AuditLogEntryLike, targetName: string | null = null): AuditLogEntryDTO {
   return {
     id: entry.id,
     actorId: entry.actorId,
+    actor: entry.actor ? serializeUser(entry.actor) : null,
     actionType: entry.actionType,
     targetId: entry.targetId,
     targetType: entry.targetType,
+    targetName,
     metadata: entry.metadata,
     createdAt: entry.createdAt.toISOString(),
   };
