@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { toSnowflake } from "./ids.js";
 
 /**
@@ -25,18 +26,41 @@ export async function mapUser(u: LuminaUserish) {
   };
 }
 
-const CHANNEL_TYPE: Record<string, number> = { TEXT: 0, VOICE: 2, CATEGORY: 4, ANNOUNCEMENT: 5, THREAD: 11, FORUM: 15 };
+const CHANNEL_TYPE: Record<string, number> = { TEXT: 0, VOICE: 2, CATEGORY: 4, ANNOUNCEMENT: 5, THREAD: 11, STAGE: 13, FORUM: 15 };
 
 export async function mapChannel(c: { id: string; name: string; type: string; serverId: string; topic?: string | null; parentId?: string | null; position?: number }) {
+  const type = CHANNEL_TYPE[c.type] ?? 0;
   return {
     id: await toSnowflake("channel", c.id),
     guild_id: await toSnowflake("guild", c.serverId),
     name: c.name,
-    type: CHANNEL_TYPE[c.type] ?? 0,
+    type,
     topic: c.topic ?? null,
     parent_id: c.parentId ? await toSnowflake("channel", c.parentId) : null,
     position: c.position ?? 0,
+    // Lumina overwrites are exposed per-request through the permissions module; the channel
+    // object carries the fields libraries construct from, not the effective decision.
+    permission_overwrites: [],
+    nsfw: false,
+    rate_limit_per_user: 0,
+    last_message_id: null,
+    // discord.py's VocalGuildChannel hard-indexes bitrate and user_limit (channel.py _update);
+    // GUILD_CREATE with a voice channel lacking them killed Red-DiscordBot with KeyError: 'bitrate'.
+    ...(isVocal(type) ? { bitrate: 64000, user_limit: 0, rtc_region: null, video_quality_mode: 1 } : {}),
   };
+}
+
+/**
+ * Fields every guild-member object carries whatever built it. discord.py's Member.__init__
+ * hard-indexes `flags` (member.py) — a member without it is a KeyError while parsing
+ * GUILD_CREATE, i.e. the bot never sees the guild. Lumina has no member flags or onboarding
+ * gate, so these are the truthful constants, spread into each of the member builders.
+ */
+export const MEMBER_DEFAULTS = { deaf: false, mute: false, flags: 0, pending: false } as const;
+
+/** Discord channel types 2 (voice) and 13 (stage) — the ones libraries model as vocal. */
+export function isVocal(discordType: number): boolean {
+  return discordType === 2 || discordType === 13;
 }
 
 /**
@@ -265,5 +289,44 @@ export async function mapMessage(m: {
     pinned: m.pinned,
     type: m.replyToId ? 19 : 0,
     ...(m.replyToId ? { message_reference: { message_id: m.replyToId, channel_id: m.channelId ? await toSnowflake("channel", m.channelId) : "0" } } : {}),
+  };
+}
+
+/**
+ * discord.py (2.x, `http.json_or_text`) parses a body as JSON only when the Content-Type header is
+ * *exactly* `application/json`; Fastify's default is `application/json; charset=utf-8`, which
+ * discord.py hands back as a plain string and then indexes as a dict — Red-DiscordBot crashed at
+ * login with "string indices must be integers". The charset is redundant for JSON (RFC 8259 §11:
+ * always UTF-8), so the compat layer sends the bare type. Anything that is not JSON passes through.
+ */
+export function compatContentType(header: unknown): unknown {
+  return typeof header === "string" && /^application\/json\b/i.test(header) ? "application/json" : header;
+}
+
+/**
+ * Discord's "current application" object, with every key discord.py's AppInfo hard-indexes
+ * (id, name, description, icon, bot_public, bot_require_code_grant, owner, verify_key). Red
+ * derives its owner set from `owner`/`team`: no team here, so the Lumina account that created
+ * the application is the bot's owner — which is exactly who ran the installer.
+ * `verify_key` is Discord's Ed25519 interaction-signing key; Lumina delivers interactions over
+ * the gateway rather than signed webhooks, so a stable per-application digest fills the slot.
+ */
+export async function mapApplication(
+  app: { id: string; name: string; description: string | null; iconUrl?: string | null; owner: LuminaUserish },
+  botUserId: string,
+) {
+  return {
+    id: await toSnowflake("user", botUserId),
+    name: app.name,
+    description: app.description ?? "",
+    icon: null,
+    rpc_origins: [],
+    bot_public: true,
+    bot_require_code_grant: false,
+    owner: await mapUser(app.owner),
+    team: null,
+    verify_key: createHash("sha256").update(`lumina-verify-key:${app.id}`).digest("hex"),
+    flags: 0,
+    summary: "",
   };
 }

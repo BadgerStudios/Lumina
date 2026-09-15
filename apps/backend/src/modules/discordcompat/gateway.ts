@@ -5,7 +5,7 @@ import { prisma } from "../../db/prisma.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { env } from "../../config/env.js";
 import { toSnowflake } from "./ids.js";
-import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord } from "./shapes.js";
+import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS } from "./shapes.js";
 import { computeEffectiveChannelPermissions } from "../../permissions/permissionService.js";
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
@@ -116,8 +116,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
         nick: membership?.nickname ?? null,
         roles: [],
         joined_at: (membership?.joinedAt ?? new Date(0)).toISOString(),
-        deaf: false,
-        mute: false,
+        ...MEMBER_DEFAULTS,
       },
     ] as never;
     guild.member_count = await prisma.membership.count({ where: { serverId } });
@@ -238,7 +237,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
             ...(i.serverId
               ? {
                   guild_id: await toSnowflake("guild", i.serverId),
-                  member: { user: mappedUser, roles: [], joined_at: new Date(0).toISOString(), deaf: false, mute: false, permissions: luminaPermsToDiscord(invokerEff) },
+                  member: { user: mappedUser, roles: [], joined_at: new Date(0).toISOString(), ...MEMBER_DEFAULTS, permissions: luminaPermsToDiscord(invokerEff) },
                 }
               : { user: mappedUser }),
             // Component interactions carry the message they sit on — discord.js's

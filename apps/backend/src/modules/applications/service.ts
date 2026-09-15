@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { toSnowflake } from "../discordcompat/ids.js";
 import type { ApplicationDTO, ApplicationWithClientSecretDTO, ApplicationWithTokenDTO } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { generateRefreshToken, hashRefreshToken } from "../../lib/jwt.js";
@@ -41,6 +42,23 @@ export async function listMyApplications(ownerId: string): Promise<ApplicationDT
   return apps.filter((a) => a.botUser).map((a) => serializeApplication(a, a.botUser!.id, a.botUser!.username));
 }
 
+/**
+ * A bot token shaped like Discord's: three dot-separated base64url segments — the bot's snowflake,
+ * a timestamp, a secret — around seventy characters. Lumina only ever stores a hash and compares
+ * hashes, so the shape is free; what is not free is ignoring it. Red-DiscordBot's launcher refuses
+ * a token that "doesn't look a valid Discord bot token" before it tries it, and Discord.Net warns
+ * that anything under 58 characters looks like a client secret. Both were reacting to the old
+ * 43-character opaque string, not to anything Lumina did with it.
+ */
+function generateBotToken(botSnowflake: string): string {
+  const b64 = (v: Buffer | string) => Buffer.from(v).toString("base64url");
+  const stamp = Buffer.from(Math.floor(Date.now() / 1000).toString(16).padStart(8, "0"), "hex");
+  // Discord ids are 17-19 digits, and Red-DiscordBot's token regex wants the first segment 23-28
+  // characters long. Lumina's snowflakes are small numbers, so the digits are left-padded: the
+  // same id to anything that decodes it, the same shape to anything that measures it.
+  return `${b64(botSnowflake.padStart(18, "0"))}.${b64(stamp)}.${b64(crypto.randomBytes(32))}`;
+}
+
 export async function createApplication(params: {
   ownerId: string;
   name: string;
@@ -48,8 +66,6 @@ export async function createApplication(params: {
 }): Promise<ApplicationWithTokenDTO> {
   const name = params.name.trim();
   const username = await uniqueBotUsername(name);
-  const botToken = generateRefreshToken();
-  const botTokenHash = hashRefreshToken(botToken);
   // Never a valid login: a real argon2 hash of an unguessable, never-stored secret — not a
   // malformed string, so login's verifyPassword() just returns false normally instead of
   // throwing on a bad hash format if someone ever tries the bot's placeholder email/username.
@@ -58,7 +74,7 @@ export async function createApplication(params: {
 
   const { app, botUser } = await prisma.$transaction(async (tx) => {
     const createdApp = await tx.application.create({
-      data: { ownerId: params.ownerId, name, description: params.description?.trim() || null, botTokenHash },
+      data: { ownerId: params.ownerId, name, description: params.description?.trim() || null },
     });
     const createdBotUser = await tx.user.create({
       data: {
@@ -73,8 +89,10 @@ export async function createApplication(params: {
     });
     return { app: createdApp, botUser: createdBotUser };
   });
-
-  return { ...serializeApplication(app, botUser.id, botUser.username), botToken };
+  // The token's first segment is the bot's snowflake, which exists only once the bot user does.
+  const botToken = generateBotToken(await toSnowflake("user", botUser.id));
+  const withToken = await prisma.application.update({ where: { id: app.id }, data: { botTokenHash: hashRefreshToken(botToken) } });
+  return { ...serializeApplication(withToken, botUser.id, botUser.username), botToken };
 }
 
 async function requireOwnedApplication(ownerId: string, applicationId: string) {
@@ -86,14 +104,9 @@ async function requireOwnedApplication(ownerId: string, applicationId: string) {
 
 export async function regenerateBotToken(params: { ownerId: string; applicationId: string }): Promise<ApplicationWithTokenDTO> {
   const app = await requireOwnedApplication(params.ownerId, params.applicationId);
-  const botToken = generateRefreshToken();
-  const botTokenHash = hashRefreshToken(botToken);
-
-  const [updated, botUser] = await Promise.all([
-    prisma.application.update({ where: { id: app.id }, data: { botTokenHash } }),
-    prisma.user.findUniqueOrThrow({ where: { applicationId: app.id }, select: { id: true, username: true } }),
-  ]);
-
+  const botUser = await prisma.user.findUniqueOrThrow({ where: { applicationId: app.id }, select: { id: true, username: true } });
+  const botToken = generateBotToken(await toSnowflake("user", botUser.id));
+  const updated = await prisma.application.update({ where: { id: app.id }, data: { botTokenHash: hashRefreshToken(botToken) } });
   return { ...serializeApplication(updated, botUser.id, botUser.username), botToken };
 }
 

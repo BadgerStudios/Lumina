@@ -4,7 +4,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, componentsToLumina, flattenEmbeds, luminaPermsToDiscord } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS } from "./shapes.js";
 import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
@@ -74,6 +74,12 @@ async function assertCanViewChannel(userId: string, channel: { id: string; serve
 }
 
 export default async function discordCompatRest(fastify: FastifyInstance) {
+  // Bare `application/json` on every reply (success and error alike) — see compatContentType.
+  fastify.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("content-type", compatContentType(reply.getHeader("content-type")));
+    return payload;
+  });
+
   // ---- gateway discovery (discord.js calls this before connecting)
   const gatewayUrl = `${env.PUBLIC_APP_URL.split(",")[0].trim().replace(/^http/, "ws")}/discord/gateway`;
   fastify.get("/gateway", async () => ({ url: gatewayUrl }));
@@ -96,11 +102,16 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   });
 
   // Applications/@me — discord.js fetches this during READY handling for slash-command support.
-  fastify.get("/applications/@me", { preHandler: [requireAuth] }, async (request) => {
-    const app = await prisma.application.findFirst({ where: { botUser: { id: request.userId! } } });
+  // Two paths for one answer: discord.js asks /applications/@me, Discord.Net (NadekoBot) asks
+  // /oauth2/applications/@me. Serving only the first left the second with a 404 and a warning
+  // on every boot.
+  const applicationMe = async (request: FastifyRequest) => {
+    const app = await prisma.application.findFirst({ where: { botUser: { id: request.userId! } }, include: { owner: true } });
     if (!app) throw new NotFoundError("Not a bot token");
-    return { id: await toSnowflake("user", request.userId!), name: app.name, description: app.description ?? "", flags: 0, bot_public: true };
-  });
+    return mapApplication(app, request.userId!);
+  };
+  fastify.get("/applications/@me", { preHandler: [requireAuth] }, applicationMe);
+  fastify.get("/oauth2/applications/@me", { preHandler: [requireAuth] }, applicationMe);
 
   // ---- guilds
   fastify.get("/guilds/:id", { preHandler: [requireAuth] }, async (request) => {
@@ -160,8 +171,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
         nick: m.nickname ?? null,
         roles: [],
         joined_at: m.joinedAt.toISOString(),
-        deaf: false,
-        mute: false,
+        ...MEMBER_DEFAULTS,
       })),
     );
   });
@@ -183,8 +193,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       nick: membership.nickname ?? null,
       roles: [],
       joined_at: membership.joinedAt.toISOString(),
-      deaf: false,
-      mute: false,
+      ...MEMBER_DEFAULTS,
       permissions: luminaPermsToDiscord(await computeEffectivePermissions(userLumina, guildLumina).catch(() => 0n)),
     };
   });
