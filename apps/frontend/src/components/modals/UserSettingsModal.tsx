@@ -46,7 +46,7 @@ import {
 import { UserAvatar } from "../common/UserAvatar";
 import type { PresenceStatus } from "@lumina/shared";
 import { cn } from "../../lib/cn";
-import { ApiError, resolveAssetUrl } from "../../lib/apiClient";
+import { api, ApiError, resolveAssetUrl } from "../../lib/apiClient";
 import { SupportSection } from "./SupportSection";
 import { isWebPushSupported, getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush } from "../../lib/webPush";
 import {
@@ -1164,6 +1164,8 @@ function NotificationsSection() {
   const [status, setStatus] = useState<"loading" | "unsupported" | "denied" | "subscribed" | "unsubscribed">("loading");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
 
   // One switch, two transports. The packaged Android app registers with FCM, so Android draws the
   // notification itself with the app's own sound and mark; everywhere else uses web push, which
@@ -1201,6 +1203,36 @@ function NotificationsSection() {
     }
   }
 
+  /**
+   * Everything else here is a setting. This is the one thing that answers a question: the switch
+   * being on only means this device registered, not that a notification can reach it. A token can
+   * be stale, permission can have been revoked in Android's own settings, a battery optimiser can
+   * be holding messages. None of that is visible from in here, and all of it looks identical to
+   * working until the moment someone expects a notification and doesn't get one.
+   */
+  async function sendTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const { targeted, delivered } = await api.post<{ targeted: number; delivered: number }>("/push/test");
+      const devices = (n: number) => `${n} device${n === 1 ? "" : "s"}`;
+      if (targeted === 0) {
+        setTestResult("No devices are registered yet.");
+      } else if (delivered === 0) {
+        // Every registration came back dead and has been cleared, so the switch is now lying.
+        setTestResult("This device's registration had expired and has been cleared. Turn the switch off and on again.");
+      } else if (delivered < targeted) {
+        setTestResult(`Sent to ${devices(delivered)}. ${devices(targeted - delivered)} had expired and were cleared.`);
+      } else {
+        setTestResult(`Sent to ${devices(delivered)}.`);
+      }
+    } catch (e) {
+      setTestResult(e instanceof Error ? e.message : "Could not send a test notification");
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <div>
@@ -1227,6 +1259,20 @@ function NotificationsSection() {
           />
         )}
         {error ? <p className="mt-2 text-xs text-dnd">{error}</p> : null}
+
+        {status === "subscribed" ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void sendTest()}
+              disabled={testing}
+              className="shrink-0 rounded bg-base-700 px-3 py-1.5 text-xs font-medium text-signal hover:bg-base-600 disabled:opacity-50"
+            >
+              {testing ? "Sending..." : "Send a test notification"}
+            </button>
+            {testResult ? <span className="text-xs text-signal-faint">{testResult}</span> : null}
+          </div>
+        ) : null}
       </div>
 
       <NotificationSoundToggle />

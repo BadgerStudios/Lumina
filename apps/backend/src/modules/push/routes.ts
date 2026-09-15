@@ -9,6 +9,7 @@ const deviceSchema = z.object({
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { requireAuth } from "../../plugins/authenticate.js";
+import { sendPushToUser } from "../../lib/push.js";
 
 const subscribeSchema = z.object({
   endpoint: z.string().url(),
@@ -78,4 +79,51 @@ export default async function pushRoutes(fastify: FastifyInstance) {
     await prisma.deviceToken.deleteMany({ where: { token: body.token, userId: request.userId! } });
     return { ok: true };
   });
+
+  /** Its own tag so a repeated test replaces the last one instead of stacking up. */
+  const TEST_TAG = "lumina-test-notification";
+
+  /**
+   * Send yourself a notification, to prove the path works.
+   *
+   * Everything up to the device can be checked from the server — the credential signs, FCM accepts
+   * the call, the channel ids match the ones the app creates. What none of that shows is whether a
+   * phone in someone's pocket actually lights up, and that is the only part that matters. This is
+   * the one step that can't be inferred, so it is worth a button.
+   *
+   * Only ever to the caller's own devices: no id is accepted, so this can't be pointed at anyone
+   * else. Rate-limited because each call fans out to real push services.
+   *
+   * The counts are taken either side of the send because sendPushToUser prunes registrations that
+   * come back dead. Reporting what survived is more honest than reporting what was attempted: a
+   * phone that has been wiped or had the app removed leaves a token behind that will never ring
+   * again, and saying "sent to 2 devices" when one of them stopped existing is how someone ends up
+   * debugging a phone that was never going to receive anything.
+   */
+  fastify.post(
+    "/test",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } }, preHandler: [requireAuth] },
+    async (request) => {
+      const userId = request.userId!;
+      const count = async () =>
+        Promise.all([
+          prisma.pushSubscription.count({ where: { userId } }),
+          prisma.deviceToken.count({ where: { userId } }),
+        ]);
+
+      const [webBefore, nativeBefore] = await count();
+      const targeted = webBefore + nativeBefore;
+      if (targeted === 0) return { targeted: 0, delivered: 0 };
+
+      await sendPushToUser(userId, {
+        title: "Lumina",
+        body: "Notifications are working on this device.",
+        url: "/",
+        tag: TEST_TAG,
+      });
+
+      const [webAfter, nativeAfter] = await count();
+      return { targeted, delivered: webAfter + nativeAfter };
+    },
+  );
 }
