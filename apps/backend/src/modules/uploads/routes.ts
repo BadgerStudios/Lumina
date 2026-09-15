@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { extractMediaUserId } from "../../lib/mediaAuth.js";
+import { isStaff } from "../../lib/platformRole.js";
 import { sendFileWithRange } from "../../lib/sendFile.js";
 import { recordBandwidth } from "../metrics/service.js";
 import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
@@ -55,7 +56,20 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
     // image quietly fetchable by anyone who kept the id.
     if (attachment.reviewStatus === "REMOVED") throw new NotFoundError("Attachment not found");
 
-    if (message.channelId && message.channel) {
+    // Staff reviewing reported media are not members of the server it was posted in, and are not
+    // participants in the DM — that is the normal case, not the exception, and the membership check
+    // below refused them every image the review queue had just listed for them. This grants nothing
+    // new: the same people can already see these attachments listed, with filename, size and
+    // reporter, through /api/owner/images. It only makes the bytes agree with the listing.
+    const reviewer = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { platformRole: true },
+    });
+    const reviewing = isStaff(reviewer?.platformRole);
+
+    if (reviewing) {
+      // no membership requirement — see above
+    } else if (message.channelId && message.channel) {
       const membership = await prisma.membership.findUnique({
         where: { userId_serverId: { userId, serverId: message.channel.serverId } },
       });

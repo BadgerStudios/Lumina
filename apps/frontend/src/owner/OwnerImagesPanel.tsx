@@ -11,6 +11,9 @@ import { UserAvatar } from "../components/common/UserAvatar";
 import { Badge, EmptyState, Toolbar } from "./OwnerChrome";
 import { cn } from "../lib/cn";
 import { BanOptions, DEFAULT_REMOVAL_BAN, type RemovalBan } from "../components/common/BanOptions";
+// Media auth differs per platform — a cookie on the web, ?token= inside a native WebView,
+// which can carry neither a header nor our cookie. attachmentUrl is what knows the difference.
+import { attachmentUrl } from "../lib/apiClient";
 
 /**
  * Image review.
@@ -135,7 +138,7 @@ function ImageCard({
           </div>
         ) : (
           <img
-            src={image.url}
+            src={attachmentUrl(image.url)}
             alt={image.fileName}
             loading="lazy"
             className="h-full w-full object-contain"
