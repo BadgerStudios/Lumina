@@ -90,6 +90,10 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
       resume_gateway_url: `${env.PUBLIC_APP_URL.replace(/^http/, "ws")}/discord/gateway`,
       application: { id: await toSnowflake("user", botUser.id), flags: 0 },
       guilds: guildSnows.map((id) => ({ id, unavailable: true })),
+      // Always present on Discord's READY, empty for a bot. Discord.Net (NadekoBot) walks it
+      // without a null check and died on "Processing READY failed" when it was absent — the
+      // first thing a real .NET bot did against this gateway.
+      private_channels: [],
       shard: [0, 1],
     },
     "READY",
