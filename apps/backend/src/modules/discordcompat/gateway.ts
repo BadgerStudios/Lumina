@@ -5,7 +5,7 @@ import { prisma } from "../../db/prisma.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { env } from "../../config/env.js";
 import { toSnowflake } from "./ids.js";
-import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS } from "./shapes.js";
+import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor } from "./shapes.js";
 import { computeEffectiveChannelPermissions } from "../../permissions/permissionService.js";
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
@@ -87,7 +87,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
       v: 10,
       user: { ...(await mapUser(botUser)), bot: true },
       session_id: `lumina-${Date.now().toString(36)}`,
-      resume_gateway_url: `${env.PUBLIC_APP_URL.replace(/^http/, "ws")}/discord/gateway`,
+      resume_gateway_url: gatewayUrlFor(env.PUBLIC_APP_URL),
       application: { id: await toSnowflake("user", botUser.id), flags: 0 },
       guilds: guildSnows.map((id) => ({ id, unavailable: true })),
       // Always present on Discord's READY, empty for a bot. Discord.Net (NadekoBot) walks it

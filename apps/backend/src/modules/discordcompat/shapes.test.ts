@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -85,5 +85,16 @@ describe("guild members", () => {
     expect(MEMBER_DEFAULTS).toHaveProperty("flags", 0);
     expect(MEMBER_DEFAULTS).toHaveProperty("deaf", false);
     expect(MEMBER_DEFAULTS).toHaveProperty("mute", false);
+  });
+});
+
+describe("gateway url", () => {
+  // READY's resume_gateway_url is what libraries reconnect to after a drop. Built from the raw
+  // multi-origin PUBLIC_APP_URL it contained a comma, Discord.Net could not parse the host, and
+  // NadekoBot never came back after a backend restart until it was restarted by hand.
+  it("uses only the first public origin, as a websocket URL", () => {
+    expect(gatewayUrlFor("https://lumina.example, https://lumina.other")).toBe("wss://lumina.example/discord/gateway");
+    expect(gatewayUrlFor("https://lumina.example/")).toBe("wss://lumina.example/discord/gateway");
+    expect(gatewayUrlFor("http://localhost:4000")).toBe("ws://localhost:4000/discord/gateway");
   });
 });

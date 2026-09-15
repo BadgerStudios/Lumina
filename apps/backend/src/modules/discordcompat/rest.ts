@@ -4,7 +4,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS, gatewayUrlFor } from "./shapes.js";
 import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
@@ -81,7 +81,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   });
 
   // ---- gateway discovery (discord.js calls this before connecting)
-  const gatewayUrl = `${env.PUBLIC_APP_URL.split(",")[0].trim().replace(/^http/, "ws")}/discord/gateway`;
+  const gatewayUrl = gatewayUrlFor(env.PUBLIC_APP_URL);
   fastify.get("/gateway", async () => ({ url: gatewayUrl }));
   fastify.get("/gateway/bot", { preHandler: [requireAuth] }, async () => ({
     url: gatewayUrl,

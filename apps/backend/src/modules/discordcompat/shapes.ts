@@ -330,3 +330,16 @@ export async function mapApplication(
     summary: "",
   };
 }
+
+/**
+ * The public gateway URL a bot should connect (and RE-connect) to. PUBLIC_APP_URL may list several
+ * origins, comma-separated; READY's resume_gateway_url once used the raw value, so after a backend
+ * restart Discord.Net (NadekoBot) rebuilt "wss://a.example,https://b.example/discord/gateway" and
+ * failed every reconnect for ten minutes with "Invalid URI: The hostname could not be parsed",
+ * while a fresh start (which asks /gateway, already split) worked — an asymmetry that only shows
+ * on the second connection.
+ */
+export function gatewayUrlFor(publicAppUrl: string): string {
+  const origin = publicAppUrl.split(",")[0].trim().replace(/\/+$/, "");
+  return `${origin.replace(/^http/, "ws")}/discord/gateway`;
+}
