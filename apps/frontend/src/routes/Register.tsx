@@ -13,6 +13,8 @@ import { getNativeAgeSignal } from "../lib/ageSignals";
 /** Five bands, matching AgeBracket on the server. Coarse on purpose: the platform only needs to
  * know whether an account is a minor, and a band is far less identifying to store than an age. */
 const AGE_BRACKETS: Array<{ value: AgeBracket; label: string }> = [
+  // Offered, not hidden: an account under 18 is a minor account, with the adult parts closed.
+  { value: "UNDER_18", label: "Under 18" },
   { value: "AGE_18_24", label: "18–24" },
   { value: "AGE_25_34", label: "25–34" },
   { value: "AGE_35_49", label: "35–49" },

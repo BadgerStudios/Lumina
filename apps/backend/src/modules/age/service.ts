@@ -22,7 +22,7 @@ import type { AgeBracket } from "@prisma/client";
  * If this is ever lowered again, that is a legal question (GDPR digital-consent ages, COPPA
  * below 13) before it is an engineering one.
  */
-export const MINIMUM_AGE = 18;
+export const MINIMUM_AGE = 13;
 export const ADULT_AGE = 18;
 
 /**
@@ -84,22 +84,28 @@ export type AgeCheckResult =
  * nothing to edit. That misfires on honest people far more often than it catches anyone, because
  * lying is a question of which box you tick, not which date you type.
  *
- * What still refuses: SELECTING under-18. That is not a derivation or an inference — it is the
- * person answering the eligibility question with "no", and an 18+ platform has to take that answer.
+ * What still refuses: a birth date under MINIMUM_AGE. Selecting under-18 is accepted and makes the
+ * account a minor — see the owner decision inside.
  */
 export function checkAge(selected: AgeBracket, birthDate: Date, now = new Date()): AgeCheckResult {
   const age = ageFromBirthDate(birthDate, now);
   const derived = bracketFromAge(age);
 
-  // The one refusal left, and it is a direct answer rather than a computed one.
-  if (isMinorBracket(selected)) {
-    return { ok: false, reasonCode: "AGE_UNDER_MINIMUM", bracket: selected, isMinor: true };
+  // Under MINIMUM_AGE is refused whatever bracket was picked. That is a legal floor, not a doubt
+  // to resolve in the person's favour, so it is the one place the birth date overrules the answer.
+  if (age < MINIMUM_AGE) {
+    return { ok: false, reasonCode: "AGE_UNDER_MINIMUM", bracket: derived, isMinor: true };
   }
 
-  // The stated bracket is what the account carries. `derived` is computed only so a caller that
-  // wants to notice a large disagreement still can — nothing here acts on it.
-  void derived;
-  void age;
+  // Owner decision, 2026-09-15: Lumina admits minors. Saying "under 18" is an answer, not a
+  // refusal — the account is created as a minor, and everything adult stays closed to it: the
+  // adult-only surfaces (isMinor / requireAdult), 18+ spaces, and contact across the age line
+  // (checkContact). Before this the platform was 18+ and there was no minor tier at all.
+  if (isMinorBracket(selected)) {
+    return { ok: true, bracket: "UNDER_18", isMinor: true };
+  }
+
+  // The stated bracket is what an adult account carries.
   return { ok: true, bracket: selected, isMinor: false };
 }
 

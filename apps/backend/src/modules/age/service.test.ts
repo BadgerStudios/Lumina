@@ -74,15 +74,24 @@ describe("checkAge", () => {
     return d;
   };
 
-  it("refuses a 16 year old — there is no minor tier", () => {
+  it("admits a 16 year old as a minor", () => {
     const result = checkAge("UNDER_18", bornYearsAgo(16), NOW);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+    expect(result.ok).toBe(true);
+    expect(result.isMinor).toBe(true);
+    expect(result.bracket).toBe("UNDER_18");
+  });
+  it("refuses a 12 year old whatever bracket they pick — that is the legal floor", () => {
+    for (const bracket of ["UNDER_18", "AGE_18_24"] as const) {
+      const result = checkAge(bracket, bornYearsAgo(12), NOW);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+    }
   });
 
-  it("refuses a 17 year old", () => {
+  it("admits a 17 year old as a minor", () => {
     const result = checkAge("UNDER_18", bornYearsAgo(17), NOW);
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true);
+    expect(result.isMinor).toBe(true);
   });
 
   it("takes the stated bracket even a day short of 18 by birth date", () => {
@@ -107,12 +116,13 @@ describe("checkAge", () => {
     expect(result.isMinor).toBe(false);
   });
 
-  it("refuses a self-declared minor even with an adult birth date", () => {
-    // Someone who says they are under 18 is taken at their word; a mis-tap is corrected by
-    // registering again, not by the platform guessing the more permissive answer.
+  it("takes a self-declared minor at their word even with an adult birth date", () => {
+    // The answer is what it is: someone who says "under 18" gets a minor account, whatever the
+    // typed date says. Wrongly treating an adult as a minor costs them the adult surfaces until
+    // they fix it; the other error is the one this whole module exists to prevent.
     const result = checkAge("UNDER_18", bornYearsAgo(30), NOW);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
+    expect(result.ok).toBe(true);
+    expect(result.isMinor).toBe(true);
   });
 
   it("takes an adult bracket even when the birth date disagrees", () => {
@@ -124,18 +134,13 @@ describe("checkAge", () => {
     expect(result.isMinor).toBe(false);
   });
 
-  it("still refuses anyone who says they are under 18", () => {
-    // The one refusal left, and it is a direct answer rather than a computed one. Guards against
-    // the self-declaration path being widened until nothing refuses at all.
-    for (const born of [bornYearsAgo(16), bornYearsAgo(30)]) {
-      const result = checkAge("UNDER_18", born, NOW);
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.reasonCode).toBe("AGE_UNDER_MINIMUM");
-    }
+  it("admits anyone at least the minimum age who says they are under 18, as a minor", () => {
+    const result = checkAge("UNDER_18", bornYearsAgo(MINIMUM_AGE), NOW);
+    expect(result.ok).toBe(true);
+    expect(result.isMinor).toBe(true);
   });
 
-  it("has no gap between the minimum age and adulthood", () => {
-    // Guards the constants: a minor tier would exist only while MINIMUM_AGE < ADULT_AGE.
-    expect(MINIMUM_AGE).toBe(ADULT_AGE);
+  it("keeps a minor tier between the minimum age and adulthood", () => {
+    expect(MINIMUM_AGE).toBeLessThan(ADULT_AGE);
   });
 });

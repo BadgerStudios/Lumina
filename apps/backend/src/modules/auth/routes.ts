@@ -190,7 +190,7 @@ async function assertNotBanned(params: {
  * automated way to tell that apart from a real under-age attempt, so it goes to a human instead of
  * being guessed — and the person is told exactly who to write to, rather than being stonewalled.
  *
- * AGE_UNDER_MINIMUM is a straight answer to a straight question: the platform is 18+, and the
+ * AGE_UNDER_MINIMUM is a straight answer to a straight question: the platform is 13+, and the
  * device cannot start a new signup for 30 days. Saying so plainly is kinder than a bare refusal,
  * and it is the honest thing to tell someone who will otherwise just try again.
  */
@@ -198,7 +198,7 @@ function ageBlockMessage(reasonCode: string): string {
   if (reasonCode === "AGE_MISMATCH") {
     return `The date of birth and the age range you picked don't agree about whether you're 18 or over. If that was a typo, email ${SUPPORT_EMAIL} and a person will sort it out. If the account is for someone under 18, a parent or guardian can set up a linked account instead.`;
   }
-  return `Lumina is for people aged 18 and over. This device can't start a new sign-up for ${UNDERAGE_SIGNUP_COOLDOWN_DAYS} days. If you're 18 or over and got here by mistyping your date of birth, email ${SUPPORT_EMAIL}.`;
+  return `Lumina is for people aged 13 and over. This device can't start a new sign-up for ${UNDERAGE_SIGNUP_COOLDOWN_DAYS} days. If you're 18 or over and got here by mistyping your date of birth, email ${SUPPORT_EMAIL}.`;
 }
 
 export default async function authRoutes(fastify: FastifyInstance) {
