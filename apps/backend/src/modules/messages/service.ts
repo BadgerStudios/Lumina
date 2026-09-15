@@ -534,6 +534,7 @@ export async function createDMMessage(params: {
       body: params.content.slice(0, 150) || "Sent an attachment",
       url: `/dm/${params.conversationId}`,
       tag: `dm-${params.conversationId}`,
+      kind: "direct",
     });
   }
   return dto;

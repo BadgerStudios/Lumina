@@ -54,7 +54,10 @@ import {
   getNativePushStatus,
   enableNativePush,
   disableNativePush,
+  currentDeviceToken,
 } from "../../lib/nativePush";
+import { NOTIFICATION_SOUNDS, PUSH_KINDS, PUSH_KIND_LABELS, type DeviceTones, type SoundId } from "@lumina/shared";
+import { previewTone, rememberedTones, saveTones } from "../../lib/nativeTones";
 import { BillingSection } from "./BillingSection";
 import { AdvertisingSection } from "./AdvertisingSection";
 import { FamilySection } from "../parental/FamilySection";
@@ -1273,9 +1276,88 @@ function NotificationsSection() {
             {testResult ? <span className="text-xs text-signal-faint">{testResult}</span> : null}
           </div>
         ) : null}
+
+        {native && status === "subscribed" ? <TonePicker /> : null}
       </div>
 
       <NotificationSoundToggle />
+    </div>
+  );
+}
+
+/**
+ * One tone per kind of notification, chosen from the fifty the app ships with.
+ *
+ * A select per kind rather than a list of fifty rows with four buttons each: fifty rows is a page
+ * to scroll, four selects is a glance, and the numbers in the options are the same numbers people
+ * use when they talk about a tone. "Play" plays the tone through the notification stream, so what
+ * is heard here respects the same volume and Do Not Disturb the real thing will.
+ */
+function TonePicker() {
+  const [tones, setTones] = useState<DeviceTones>(() => rememberedTones());
+  const [saving, setSaving] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const token = currentDeviceToken();
+
+  async function save() {
+    if (!token) {
+      setNote("Turn notifications on first.");
+      return;
+    }
+    setSaving(true);
+    setNote(null);
+    try {
+      setTones(await saveTones(token, tones));
+      setNote("Saved. The next notification of each kind plays its new tone.");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Could not save tones");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <span className="text-xs font-bold uppercase text-signal-dim">Tones</span>
+      <p className="text-sm text-signal-faint">One for each kind of notification. Play a tone before you choose it.</p>
+      {PUSH_KINDS.map((kind) => (
+        <div key={kind} className="flex items-center gap-2">
+          <label htmlFor={`tone-${kind}`} className="w-32 shrink-0 text-sm text-signal">
+            {PUSH_KIND_LABELS[kind]}
+          </label>
+          <select
+            id={`tone-${kind}`}
+            value={tones[kind]}
+            onChange={(e) => setTones({ ...tones, [kind]: e.target.value as SoundId })}
+            className="min-w-0 flex-1 rounded bg-base-900 px-2 py-1.5 text-sm text-signal"
+          >
+            {NOTIFICATION_SOUNDS.map((sound) => (
+              <option key={sound.id} value={sound.id}>
+                #{sound.number} {sound.name} — {sound.family}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void previewTone(tones[kind])}
+            aria-label={`Play the ${PUSH_KIND_LABELS[kind]} tone`}
+            className="shrink-0 rounded bg-base-700 px-2.5 py-1.5 text-xs font-medium text-signal hover:bg-base-600"
+          >
+            Play
+          </button>
+        </div>
+      ))}
+      <div className="mt-1 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={saving}
+          className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save tones"}
+        </button>
+        {note ? <span className="text-xs text-signal-faint">{note}</span> : null}
+      </div>
     </div>
   );
 }

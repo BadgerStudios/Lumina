@@ -127,15 +127,17 @@ export async function syncMessageMentions(params: {
     // feed, which a notification mute shouldn't hide, only the OS push).
     void shouldNotify(userId, params.serverId, params.channelId, true).then((notify) => {
       if (!notify) return;
+      // Named directly, or swept up by a role or @everyone. A person in both is "mention": being
+      // named wins over being in the room, and the two get different tones on the phone.
+      const direct = mentionedUserIds.has(userId);
       void sendPushToUser(userId, {
-        title: `${authorName} mentioned you`,
+        title: direct ? `${authorName} mentioned you` : `${authorName} mentioned the channel`,
         body: params.content.slice(0, 150),
         url: `/channels/${params.serverId}/${params.channelId}`,
         // Per-message, not per-channel: two separate mentions are two things to answer, and
         // collapsing them would hide the second one entirely.
         tag: `mention-${params.messageId}`,
-        // Being named directly is the one notification worth feeling through a sleeve.
-        urgent: true,
+        kind: direct ? "mention" : "channel",
       });
     });
   }

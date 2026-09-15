@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { env } from "../config/env.js";
+import { channelIdFor, DEFAULT_TONES, type DeviceTones, type PushKind } from "@lumina/shared";
 
 /**
  * Firebase Cloud Messaging, for notifications the phone itself renders.
@@ -149,13 +150,10 @@ export interface FcmMessage {
   url: string;
   /** Collapses repeats into one notification per subject, the same way the web push `tag` does. */
   tag?: string;
-  /** A mention rather than an ordinary message: its own channel, and its own sound. */
-  urgent?: boolean;
+  /** Which of the person's tones this plays, and therefore which channel it names. Default "message". */
+  kind?: PushKind;
 }
 
-/** Channels are created on the device (see MainActivity); these ids must match the ones it makes. */
-export const CHANNEL_MESSAGES = "lumina_messages";
-export const CHANNEL_MENTIONS = "lumina_mentions";
 
 /**
  * Deliver to one device.
@@ -163,13 +161,15 @@ export const CHANNEL_MENTIONS = "lumina_mentions";
  * Returns false when the token is dead, so the caller can prune it — a device that has uninstalled
  * or reset its token otherwise stays in the table forever and is retried on every notification.
  */
-export async function sendFcmToToken(token: string, message: FcmMessage): Promise<boolean> {
+export async function sendFcmToToken(token: string, message: FcmMessage, tones: DeviceTones = DEFAULT_TONES): Promise<boolean> {
   const account = serviceAccount();
   if (!account) return true; // not configured: nothing was attempted, nothing to prune
   const bearer = await getAccessToken();
   if (!bearer) return true;
 
-  const channel = message.urgent ? CHANNEL_MENTIONS : CHANNEL_MESSAGES;
+  const kind: PushKind = message.kind ?? "message";
+  const sound = tones[kind];
+  const channel = channelIdFor(kind, sound);
   try {
     const res = await fetch(`https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`, {
       method: "POST",
@@ -184,7 +184,7 @@ export async function sendFcmToToken(token: string, message: FcmMessage): Promis
             // phone can be hours. HIGH is delivered immediately, and is reserved for the things a
             // person is waiting on — a mention, a DM — because an app that marks everything high
             // priority is one Google eventually starts rate-limiting.
-            priority: message.urgent ? "HIGH" : "NORMAL",
+            priority: kind === "direct" || kind === "mention" ? "HIGH" : "NORMAL",
             // Collapsing happens server-side too, so a phone that was off does not wake to forty
             // separate notifications from one conversation.
             ...(message.tag ? { collapse_key: message.tag } : {}),
@@ -192,7 +192,7 @@ export async function sendFcmToToken(token: string, message: FcmMessage): Promis
               channel_id: channel,
               // Pre-Android-8 devices have no channels, so the sound has to be named here as well.
               // On 8+ this is ignored and the channel's own sound is used.
-              sound: message.urgent ? "notify_mention" : "notify_message",
+              sound,
               ...(message.tag ? { tag: message.tag } : {}),
               icon: "ic_stat_notify",
               color: "#5b7cfa",

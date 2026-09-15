@@ -3160,6 +3160,13 @@ model DeviceToken {
   /// Refreshed on every registration, so a token nothing has renewed in months is identifiable as
   /// dead without waiting for a send to fail.
   lastSeenAt DateTime @default(now())
+  /// The tone this phone plays, as a resource name under res/raw/ in the app and the suffix of the
+  /// channel the push names. Per device, not per account: a tone belongs to a phone in a pocket.
+  /// Validated against the shared SOUND_IDS on write, never trusted from the client as-is.
+  messageSound String   @default("mist")
+  directSound  String   @default("mist")
+  mentionSound String   @default("mist")
+  channelSound String   @default("mist")
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])

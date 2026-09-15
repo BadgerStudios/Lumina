@@ -2,6 +2,7 @@ import webpush from "web-push";
 import { prisma } from "../db/prisma.js";
 import { env } from "../config/env.js";
 import { isFcmConfigured, sendFcmToToken } from "./fcm.js";
+import { tonesFrom, type PushKind } from "@lumina/shared";
 
 const enabled = !!env.VAPID_PUBLIC_KEY && !!env.VAPID_PRIVATE_KEY;
 
@@ -17,9 +18,9 @@ export interface PushPayload {
   /** Collapses repeats into one notification per conversation/subject rather than one per event.
    * On a watch this is the difference between a buzz per message and forty. */
   tag?: string;
-  /** A stronger vibration pattern on wearables. Reserved for things a person would want to feel
-   * through a sleeve — a direct mention, not a general channel message. */
-  urgent?: boolean;
+  /** Which tone this plays on Android — see PUSH_KINDS. Default "message". On the web the
+   * service worker uses it for a stronger vibration on a DM or a direct mention. */
+  kind?: PushKind;
 }
 
 /**
@@ -43,18 +44,19 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
  */
 async function sendNativePush(userId: string, payload: PushPayload): Promise<void> {
   if (!isFcmConfigured()) return;
-  const tokens = await prisma.deviceToken.findMany({ where: { userId }, select: { id: true, token: true } });
+  const tokens = await prisma.deviceToken.findMany({
+    where: { userId },
+    select: { id: true, token: true, messageSound: true, directSound: true, mentionSound: true, channelSound: true },
+  });
   if (tokens.length === 0) return;
 
   await Promise.all(
     tokens.map(async (row) => {
-      const alive = await sendFcmToToken(row.token, {
-        title: payload.title,
-        body: payload.body,
-        url: payload.url,
-        tag: payload.tag,
-        urgent: payload.urgent,
-      });
+      const alive = await sendFcmToToken(
+        row.token,
+        { title: payload.title, body: payload.body, url: payload.url, tag: payload.tag, kind: payload.kind },
+        tonesFrom(row),
+      );
       if (!alive) await prisma.deviceToken.delete({ where: { id: row.id } }).catch(() => {});
     }),
   );

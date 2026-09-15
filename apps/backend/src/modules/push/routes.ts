@@ -10,6 +10,7 @@ import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { sendPushToUser } from "../../lib/push.js";
+import { isSoundId } from "@lumina/shared";
 
 const subscribeSchema = z.object({
   endpoint: z.string().url(),
@@ -64,12 +65,39 @@ export default async function pushRoutes(fastify: FastifyInstance) {
    */
   fastify.post("/device", { schema: { body: deviceSchema }, preHandler: [requireAuth] }, async (request) => {
     const body = request.body as z.infer<typeof deviceSchema>;
-    await prisma.deviceToken.upsert({
+    // Returns the tones so the phone can reconcile its channels on every registration. A reinstall
+    // wipes the channels but not this row, and without this the server would keep naming a channel
+    // the phone no longer has — which Android drops without a sound or an error.
+    const row = await prisma.deviceToken.upsert({
       where: { token: body.token },
       create: { token: body.token, userId: request.userId!, platform: body.platform ?? "android" },
       update: { userId: request.userId!, lastSeenAt: new Date() },
+      select: { messageSound: true, directSound: true, mentionSound: true, channelSound: true },
     });
-    return { ok: true };
+    return { ok: true, ...row };
+  });
+
+  const soundsSchema = z.object({
+    token: z.string().min(10).max(4096),
+    messageSound: z.string().refine(isSoundId, "Unknown tone"),
+    directSound: z.string().refine(isSoundId, "Unknown tone"),
+    mentionSound: z.string().refine(isSoundId, "Unknown tone"),
+    channelSound: z.string().refine(isSoundId, "Unknown tone"),
+  });
+
+  /**
+   * Choose this phone's tones. Scoped to the caller's own token, so nobody can set someone else's;
+   * validated against the shared table, so a value here is always a resource the app actually has.
+   * The phone creates the matching channels itself after this succeeds — server first, so a failed
+   * native step is retried at the next registration rather than leaving the two out of step.
+   */
+  fastify.post("/device/sounds", { schema: { body: soundsSchema }, preHandler: [requireAuth] }, async (request) => {
+    const body = request.body as z.infer<typeof soundsSchema>;
+    const { count } = await prisma.deviceToken.updateMany({
+      where: { token: body.token, userId: request.userId! },
+      data: { messageSound: body.messageSound, directSound: body.directSound, mentionSound: body.mentionSound, channelSound: body.channelSound },
+    });
+    return { ok: count === 1, messageSound: body.messageSound, directSound: body.directSound, mentionSound: body.mentionSound, channelSound: body.channelSound };
   });
 
   /** Sign-out, or notifications turned off on this device. */

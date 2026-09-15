@@ -1,5 +1,7 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { api } from "./apiClient";
+import { tonesFrom } from "@lumina/shared";
+import { applyTonesOnDevice } from "./nativeTones";
 import { toast } from "../store/toastStore";
 import { CLIENT_TYPE } from "./platform";
 
@@ -65,6 +67,11 @@ const PushNotifications = registerPlugin<PushNotificationsShape>("PushNotificati
  * time this device registers, and a genuinely dead one is pruned server-side when a send to it fails.
  */
 const TOKEN_KEY = "lumina.nativePushToken";
+
+/** The token this phone registered with, for calls that are scoped to it. */
+export function currentDeviceToken(): string | null {
+  return rememberedToken();
+}
 
 function rememberedToken(): string | null {
   try {
@@ -158,7 +165,11 @@ export async function enableNativePush(): Promise<void> {
   if (receive !== "granted") throw new Error("Notification permission was not granted");
 
   const token = await requestToken();
-  await api.post("/push/device", { token, platform: "android" });
+  // The server holds this phone's tones; the phone re-creates their channels on every
+  // registration. A reinstall wipes the channels but not the row, and without this a push
+  // would name a channel the phone no longer has — which Android drops without a trace.
+  const registered = await api.post<Record<string, unknown>>("/push/device", { token, platform: "android" });
+  await applyTonesOnDevice(tonesFrom(registered)).catch(() => {});
   rememberToken(token);
 }
 
@@ -239,7 +250,11 @@ export async function syncNativePushRegistration(): Promise<void> {
     const { receive } = await PushNotifications.checkPermissions();
     if (receive !== "granted" || !rememberedToken()) return;
     const token = await requestToken();
-    await api.post("/push/device", { token, platform: "android" });
+    // The server holds this phone's tones; the phone re-creates their channels on every
+    // registration. A reinstall wipes the channels but not the row, and without this a push
+    // would name a channel the phone no longer has — which Android drops without a trace.
+    const registered = await api.post<Record<string, unknown>>("/push/device", { token, platform: "android" });
+    await applyTonesOnDevice(tonesFrom(registered)).catch(() => {});
     rememberToken(token);
   } catch {
     // An expired session, no network, Firebase not configured — all of them are things the next
