@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, useLocation, useParams } from "react-router-dom";
+import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useIsFetching } from "@tanstack/react-query";
 import { NavDeck } from "./NavDeck";
 import { MobileBottomNav } from "./MobileBottomNav";
@@ -20,7 +20,7 @@ import { BiometricGate } from "../common/BiometricGate";
 import { AgeGateModal } from "../AgeGateModal";
 import { IdentityVerificationGate } from "../IdentityVerificationGate";
 import { useSocketEvents } from "../../socket/useSocketEvents";
-import { syncNativePushRegistration } from "../../lib/nativePush";
+import { attachNativePushHandlers, syncNativePushRegistration } from "../../lib/nativePush";
 import { useRoleSync } from "../../hooks/useRoleSync";
 import { useUIStore } from "../../store/uiStore";
 import { useVoiceStore } from "../../store/voiceStore";
@@ -84,6 +84,11 @@ export function AppShell() {
   useEffect(() => {
     void syncNativePushRegistration();
   }, []);
+
+  // A push that lands while the app is open is handed to the app rather than drawn by Android, and
+  // a tap on one carries a deep link that nothing was reading. Both are this one listener pair.
+  const navigatePush = useNavigate();
+  useEffect(() => attachNativePushHandlers((url) => navigatePush(url)), [navigatePush]);
   const mobileDrawer = useUIStore((s) => s.mobileDrawer);
 
   // Keybinds (UserSettingsModal.tsx's Voice & Video section) — a top-level listener rather than

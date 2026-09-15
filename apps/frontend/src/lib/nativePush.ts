@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { api } from "./apiClient";
+import { toast } from "../store/toastStore";
 import { CLIENT_TYPE } from "./platform";
 
 /**
@@ -28,12 +29,30 @@ import { CLIENT_TYPE } from "./platform";
 
 type PermissionState = "prompt" | "prompt-with-rationale" | "granted" | "denied";
 
+/** What Android hands back for a delivered notification. Every field is optional: a data-only
+ * message carries no title or body at all. */
+interface PushPayload {
+  title?: string;
+  body?: string;
+  data?: Record<string, unknown>;
+}
+
 interface PushNotificationsShape {
   checkPermissions(): Promise<{ receive: PermissionState }>;
   requestPermissions(): Promise<{ receive: PermissionState }>;
   register(): Promise<void>;
   addListener(event: "registration", cb: (token: { value: string }) => void): Promise<PluginListenerHandle>;
   addListener(event: "registrationError", cb: (err: { error: string }) => void): Promise<PluginListenerHandle>;
+  /** Delivered to the app INSTEAD of being drawn, whenever the app is in the foreground. */
+  addListener(
+    event: "pushNotificationReceived",
+    cb: (notification: PushPayload) => void,
+  ): Promise<PluginListenerHandle>;
+  /** The app was opened by tapping a notification. */
+  addListener(
+    event: "pushNotificationActionPerformed",
+    cb: (action: { notification: PushPayload }) => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 const PushNotifications = registerPlugin<PushNotificationsShape>("PushNotifications");
@@ -151,6 +170,57 @@ export async function disableNativePush(): Promise<void> {
   // device would keep being notified with no way left to turn it off.
   await api.delete("/push/device", { token, platform: "android" });
   rememberToken(null);
+}
+
+/**
+ * React to a notification arriving, and to one being tapped.
+ *
+ * ## The foreground hole this closes
+ *
+ * Android does not draw a notification while the app that owns it is in the foreground. It hands
+ * the message to the app instead and expects the app to decide — which is correct, because a
+ * system notification for the screen you are already looking at is noise. But an app that attaches
+ * no listener does not get a choice: the message is delivered to nothing and disappears.
+ *
+ * That made the self-test in settings impossible to pass. Tapping "Send a test" guarantees the app
+ * is in the foreground, so the one notification a person deliberately asked for was the one
+ * notification Android would never draw. It looked exactly like a broken push pipeline, and it was
+ * a missing four-line listener.
+ *
+ * In-app, a toast is the right surface anyway. Someone looking at the app does not need the
+ * notification shade pulled over it.
+ *
+ * ## And the tap
+ *
+ * Every push carries a `url` — that is the whole point of a notification about a specific thing.
+ * On the web the service worker acts on it (public/sw.js, notificationclick). The native apps had
+ * no equivalent, so a tap opened the app at whatever screen it was last on and the deep link was
+ * discarded. `onOpen` is optional because the owner console navigates by internal state rather
+ * than by URL and has nothing sensible to do with a path.
+ *
+ * Returns a cleanup that detaches both listeners.
+ */
+export function attachNativePushHandlers(onOpen?: (url: string) => void): () => void {
+  if (!isNativePushSupported()) return () => {};
+
+  const pending: Promise<PluginListenerHandle>[] = [
+    PushNotifications.addListener("pushNotificationReceived", (n) => {
+      // title and body are what the server already decided is safe to show on a lock screen, so
+      // they are safe here. Either can be absent on a data-only message.
+      const text = [n.title, n.body].filter(Boolean).join(" — ");
+      if (text) toast.success(text);
+    }),
+    PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
+      const url = action.notification?.data?.url;
+      if (typeof url === "string" && url.startsWith("/")) onOpen?.(url);
+    }),
+  ];
+
+  return () => {
+    void Promise.all(pending).then((handles) =>
+      Promise.all(handles.map((h) => h.remove().catch(() => {}))),
+    );
+  };
 }
 
 /**

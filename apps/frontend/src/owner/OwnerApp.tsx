@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Crown,
   LayoutDashboard,
@@ -72,6 +72,7 @@ import { Sparkline, MiniBars } from "./Sparkline";
 import { UpdateBanner } from "../components/layout/UpdateBanner";
 import { OwnerBuildTag } from "./OwnerBuildTag";
 import { OwnerPushToggle } from "./OwnerPushToggle";
+import { attachNativePushHandlers } from "../lib/nativePush";
 import { ToastHost } from "../components/common/ToastHost";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { useAuthStore } from "../store/authStore";
@@ -210,6 +211,11 @@ const SECTION_LABELS: Record<Section, string> = {
 export function OwnerApp() {
   // Null until chosen, rather than defaulting to "overview": overview needs EXECUTIVE, so a
   // moderator or admin would otherwise open the console on the one page they cannot load.
+  // Without this, a notification arriving while the console is open is delivered to nothing and
+  // vanishes — including the one the self-test in the sidebar deliberately asks for. No onOpen:
+  // this console navigates by internal state, so a URL from a push has nowhere to go here.
+  useEffect(() => attachNativePushHandlers(), []);
+
   const [chosen, setChosen] = useState<Section | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);

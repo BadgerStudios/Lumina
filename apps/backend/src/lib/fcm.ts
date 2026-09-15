@@ -180,6 +180,11 @@ export async function sendFcmToToken(token: string, message: FcmMessage): Promis
           notification: { title: message.title, body: message.body },
           data: { url: message.url },
           android: {
+            // Doze batches NORMAL messages until the device next wakes, which for an overnight
+            // phone can be hours. HIGH is delivered immediately, and is reserved for the things a
+            // person is waiting on — a mention, a DM — because an app that marks everything high
+            // priority is one Google eventually starts rate-limiting.
+            priority: message.urgent ? "HIGH" : "NORMAL",
             // Collapsing happens server-side too, so a phone that was off does not wake to forty
             // separate notifications from one conversation.
             ...(message.tag ? { collapse_key: message.tag } : {}),
