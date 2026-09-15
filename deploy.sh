@@ -395,6 +395,34 @@ fi
 echo "== publishing releases to R2 =="
 node scripts/publish-release.mjs
 
+# Checksums for everything served at /downloads/.
+#
+# This file used to be written by hand, once, and then drifted. By build 100 every Lumina hash in
+# it was wrong and it still named Lumina-Setup-1.0.45.exe, a file that had not been built for
+# fifty-five releases. That is worse than publishing no checksums at all: the download page tells
+# people to verify against it, so everyone who actually did got a mismatch on every Lumina file —
+# which is precisely the signal of a tampered binary.
+#
+# Runs after publish-release.mjs because that step writes downloads/releases.json, and hashing
+# before it would leave exactly one line in here wrong on every single deploy.
+#
+# Generated from the files being served rather than maintained alongside them, so the two cannot
+# disagree again. Written to a temp name and moved, because this runs while the directory is public
+# and a half-written checksum file is worse than a stale one. Everything at the top level is
+# included, which means a new artifact is covered the day it is first published without anyone
+# remembering to add it; downloads/desktop/ is left out, since that is electron-updater's feed and
+# carries its own sha512 inside latest*.yml.
+echo "== writing downloads/SHA256SUMS.txt =="
+(
+  cd downloads
+  find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt*' -printf '%P\n' \
+    | sort \
+    | xargs -r sha256sum > SHA256SUMS.txt.tmp
+  mv SHA256SUMS.txt.tmp SHA256SUMS.txt
+)
+echo "Published: https://lumina.badgerstudios.net/downloads/SHA256SUMS.txt"
+
+
 # Record what the natives were built from, so a later --web-only can prove the UI is unchanged
 # (and escalate itself when it isn't — see the check at the top).
 frontend_hash > "$NATIVE_WEB_HASH_FILE"
