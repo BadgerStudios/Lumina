@@ -1,6 +1,7 @@
 import type { ReportReason, ReportTargetType } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
+import { notifyStaffOfQueueItem } from "../tickets/notifyStaff.js";
 
 /**
  * File a report against a USER or a MESSAGE.
@@ -57,5 +58,8 @@ export async function submitContentReport(params: {
     data: { reporterId, targetType, targetUserId, targetMessageId, reason, details: details ?? null },
     select: { id: true },
   });
+  // Only a genuinely new report: the duplicate path above returns early, so re-reporting the same
+  // thing stays as quiet in the notification as it is in the queue.
+  void notifyStaffOfQueueItem({ kind: "report", excludeUserId: reporterId });
   return { id: report.id };
 }

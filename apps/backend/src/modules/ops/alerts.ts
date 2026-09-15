@@ -90,7 +90,10 @@ export async function noteSnapshot(payload: OpsSnapshotPayload): Promise<void> {
       void sendPushToUser(owner.id, {
         title: change.health === "bad" ? "Lumina: something needs attention" : "Lumina: recovered",
         body: change.detail,
-        url: "/owner/infrastructure",
+        // "/owner/infrastructure" was not a route. The owner console is a single /owner route
+        // that picks its panel from component state, so that url matched nothing and react-router's
+        // catch-all sent every tap to the app home instead.
+        url: "/owner",
         tag: `ops-${change.key}`,
       });
     }

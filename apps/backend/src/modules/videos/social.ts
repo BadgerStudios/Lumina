@@ -3,6 +3,7 @@ import { pushInboxNotification } from "../inbox/service.js";
 import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
 import { isStaff } from "../../lib/platformRole.js";
+import { notifyStaffOfQueueItem } from "../tickets/notifyStaff.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { requireAdult } from "../age/guard.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
@@ -230,6 +231,9 @@ export default async function videoSocialRoutes(fastify: FastifyInstance) {
             details: parsed.data.details ?? null,
           },
         });
+        // Inside the try, after the insert succeeded: a duplicate throws P2002 and is handled below
+        // as a normal outcome, and that must not notify anyone a second time.
+        void notifyStaffOfQueueItem({ kind: "video", excludeUserId: userId });
       } catch (err) {
         // The unique constraint is the intended mechanism, so a duplicate is a normal outcome
         // rather than an error condition worth logging.

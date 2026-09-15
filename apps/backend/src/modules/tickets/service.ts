@@ -1,5 +1,6 @@
 import type { ReportStatus, TicketCategory } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
+import { notifyStaffOfQueueItem } from "./notifyStaff.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 
 /**
@@ -447,6 +448,7 @@ export async function openSupportTicket(params: {
       body: params.body.slice(0, 4000),
     },
   });
+  void notifyStaffOfQueueItem({ kind: "support", excludeUserId: params.userId });
   return { ref };
 }
 
@@ -468,5 +470,7 @@ export async function openSystemTicket(params: {
       status: "OPEN",
     },
   });
+  // No excludeUserId: the platform raised this one, so there is nobody whose own action it was.
+  void notifyStaffOfQueueItem({ kind: "system" });
   return { ref: `c:${ticket.id}` };
 }
