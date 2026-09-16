@@ -13,6 +13,7 @@ import { attachComponents } from "../interactions/service.js";
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude, editMessage, createChannelMessage, deleteMessage } from "../messages/service.js";
 import { parseBigIntId } from "../../lib/parseBigIntId.js";
+import { memberRoleSnowflakes, memberRoleSnowflakesBulk } from "./members.js";
 
 /**
  * Discord-shaped REST subset. Registered under BOTH /discord/api and /discord/api/v10 (libraries
@@ -181,11 +182,12 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       include: { user: true },
       take: limit,
     });
+    const rolesByUser = await memberRoleSnowflakesBulk(luminaId, memberships.map((m) => m.userId));
     return Promise.all(
       memberships.map(async (m) => ({
         user: await mapUser(m.user),
         nick: m.nickname ?? null,
-        roles: [],
+        roles: rolesByUser.get(m.userId) ?? [],
         joined_at: m.joinedAt.toISOString(),
         ...MEMBER_DEFAULTS,
       })),
@@ -207,7 +209,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     return {
       user: await mapUser(membership.user),
       nick: membership.nickname ?? null,
-      roles: [],
+      roles: await memberRoleSnowflakes(userLumina, guildLumina),
       joined_at: membership.joinedAt.toISOString(),
       ...MEMBER_DEFAULTS,
       permissions: luminaPermsToDiscord(await computeEffectivePermissions(userLumina, guildLumina).catch(() => 0n)),
@@ -263,12 +265,26 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const channel = await resolveChannel((request.params as { id: string }).id);
     const { messageId } = request.params as { messageId: string };
     const body = (await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes)).body as { content?: string; embeds?: unknown; components?: unknown };
-    const embedText = flattenEmbeds(body.embeds);
-    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
-    const res = await internal(request, "PATCH", `/messages/${messageId}`, { content });
-    reply.code(res.status);
-    if (res.status >= 400) return res.json;
-    const dto = res.json as Parameters<typeof mapMessage>[0];
+    let dto: Parameters<typeof mapMessage>[0];
+    if (body.content !== undefined || body.embeds !== undefined) {
+      const embedText = flattenEmbeds(body.embeds);
+      const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+      const res = await internal(request, "PATCH", `/messages/${messageId}`, { content });
+      reply.code(res.status);
+      if (res.status >= 400) return res.json;
+      dto = res.json as Parameters<typeof mapMessage>[0];
+    } else {
+      // Discord leaves omitted fields unchanged. A components-only edit (a bot removing its Cancel
+      // button) used to be sent on as "set the text to nothing", which Lumina rightly refuses.
+      const mid = parseBigIntId(messageId);
+      const row = mid === null ? null : await prisma.message.findUnique({ where: { id: mid }, include: messageInclude });
+      if (!row || row.channelId !== channel.id || row.deletedAt) throw new NotFoundError("Unknown message");
+      if (row.authorId !== request.userId) {
+        reply.code(403);
+        return { code: 50005, message: "Cannot edit a message authored by another user" };
+      }
+      dto = serializeMessage(row, null) as Parameters<typeof mapMessage>[0];
+    }
     const luminaComponents = componentsToLumina(body.components);
     if (luminaComponents) {
       await attachComponents(dto.id, luminaComponents, channel.id, null);

@@ -1,4 +1,5 @@
 import { discordVoiceServer, type VoiceSession, type VoiceStateRequest } from "./voice/server.js";
+import { memberRoleSnowflakes } from "./members.js";
 import { createDeflate, createZstdCompress, constants as zlibConstants, type Deflate, type ZstdCompress } from "node:zlib";
 import type { Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -121,7 +122,7 @@ async function humanVoiceState(guildSnow: string, serverId: string, channelSnow:
           member: {
             user: await mapUser(membership.user),
             nick: membership.nickname ?? null,
-            roles: [],
+            roles: await memberRoleSnowflakes(userId, serverId),
             joined_at: membership.joinedAt.toISOString(),
             ...MEMBER_DEFAULTS,
           },
@@ -173,7 +174,8 @@ async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<
     {
       user: { ...(await mapUser(botUser)), bot: true },
       nick: membership?.nickname ?? null,
-      roles: [],
+      // The bot's real roles: libraries resolve its permissions (and every BotPerm check) from them.
+      roles: await memberRoleSnowflakes(botUser.id, serverId),
       joined_at: (membership?.joinedAt ?? new Date(0)).toISOString(),
       ...MEMBER_DEFAULTS,
     },
@@ -485,7 +487,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
                   // data.optObject("guild")), never from guild_id; without it every guild
                   // interaction read as a DM and Ree6 threw "unexpected channel type TEXT".
                   guild: { id: await toSnowflake("guild", i.serverId), locale: "en-US", features: [] },
-                  member: { user: mappedUser, roles: [], joined_at: new Date(0).toISOString(), ...MEMBER_DEFAULTS, permissions: luminaPermsToDiscord(invokerEff) },
+                  member: { user: mappedUser, roles: await memberRoleSnowflakes(i.userId, i.serverId), joined_at: new Date(0).toISOString(), ...MEMBER_DEFAULTS, permissions: luminaPermsToDiscord(invokerEff) },
                 }
               : { user: mappedUser }),
             // Component interactions carry the message they sit on — discord.js's
