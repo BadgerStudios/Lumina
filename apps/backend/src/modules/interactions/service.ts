@@ -27,7 +27,8 @@ import { createChannelMessage, createDMMessage } from "../messages/service.js";
  */
 
 const RESPONSE_WINDOW_MS = 3_000;
-export const MAX_COMMANDS_PER_APPLICATION = 50;
+// Discord's own global-command ceiling. Real bots sit well above 50: Ree6 registers ~90.
+export const MAX_COMMANDS_PER_APPLICATION = 100;
 
 const NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 

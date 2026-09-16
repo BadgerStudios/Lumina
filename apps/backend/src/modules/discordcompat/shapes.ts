@@ -343,3 +343,24 @@ export function gatewayUrlFor(publicAppUrl: string): string {
   const origin = publicAppUrl.split(",")[0].trim().replace(/\/+$/, "");
   return `${origin.replace(/^http/, "ws")}/discord/gateway`;
 }
+
+/**
+ * Lumina error bodies are `{ error, code: "SOME_STRING" }`; Discord's are `{ code: <number>,
+ * message, errors? }`, and libraries parse `code` as an integer with no fallback — JDA (Ree6)
+ * died with NumberFormatException: "BAD_REQUEST" on the first 400 it met, so the bot never even
+ * learned what was wrong. Codes follow Discord's published table for the statuses this layer
+ * produces; 404s pick the specific "Unknown X" code from the message so a library's typed
+ * handlers (e.g. discord.js's UnknownMessage) keep working.
+ */
+const DISCORD_CODE_BY_STATUS: Record<number, number> = { 400: 50035, 401: 40001, 403: 50013, 429: 0 };
+const DISCORD_UNKNOWN_CODE: Record<string, number> = {
+  application: 10002, channel: 10003, guild: 10004, member: 10007, message: 10008, role: 10011, user: 10013, webhook: 10015, interaction: 10062,
+};
+export function toDiscordError(status: number, body: unknown): { code: number; message: string; errors?: unknown } {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const message = typeof b.error === "string" ? b.error : typeof b.message === "string" ? b.message : `HTTP ${status}`;
+  const unknown = status === 404 ? /unknown (application|channel|guild|member|message|role|user|webhook|interaction)/i.exec(message) : null;
+  const code = unknown ? DISCORD_UNKNOWN_CODE[unknown[1].toLowerCase()] : (DISCORD_CODE_BY_STATUS[status] ?? 0);
+  const errors = b.issues ?? b.details;
+  return { code, message, ...(errors !== undefined ? { errors } : {}) };
+}

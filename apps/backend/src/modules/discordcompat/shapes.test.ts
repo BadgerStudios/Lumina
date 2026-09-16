@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -96,5 +96,26 @@ describe("gateway url", () => {
     expect(gatewayUrlFor("https://lumina.example, https://lumina.other")).toBe("wss://lumina.example/discord/gateway");
     expect(gatewayUrlFor("https://lumina.example/")).toBe("wss://lumina.example/discord/gateway");
     expect(gatewayUrlFor("http://localhost:4000")).toBe("ws://localhost:4000/discord/gateway");
+  });
+});
+
+describe("error bodies", () => {
+  // JDA does Integer.parseInt(body.code); a string code is a NumberFormatException, not an error
+  // the bot can read.
+  it("always carries a numeric code and the message", () => {
+    const e = toDiscordError(400, { error: "At most 100 commands per application", code: "BAD_REQUEST" });
+    expect(typeof e.code).toBe("number");
+    expect(e).toEqual({ code: 50035, message: "At most 100 commands per application" });
+    expect(toDiscordError(401, { error: "Unauthorized", code: "UNAUTHORIZED" }).code).toBe(40001);
+    expect(toDiscordError(403, { error: "Missing permission", code: "FORBIDDEN" }).code).toBe(50013);
+  });
+  it("picks the specific Unknown-X code for 404s", () => {
+    expect(toDiscordError(404, { error: "Unknown Guild", code: "NOT_FOUND" }).code).toBe(10004);
+    expect(toDiscordError(404, { error: "Unknown channel", code: "NOT_FOUND" }).code).toBe(10003);
+    expect(toDiscordError(404, { error: "Nothing here", code: "NOT_FOUND" }).code).toBe(0);
+  });
+  it("survives bodies that are not Lumina errors", () => {
+    expect(toDiscordError(500, "boom")).toEqual({ code: 0, message: "HTTP 500" });
+    expect(toDiscordError(400, { error: "Validation failed", issues: [{ path: ["name"] }] }).errors).toEqual([{ path: ["name"] }]);
   });
 });

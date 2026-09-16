@@ -4,7 +4,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS, gatewayUrlFor } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError } from "./shapes.js";
 import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
@@ -77,6 +77,14 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   // Bare `application/json` on every reply (success and error alike) — see compatContentType.
   fastify.addHook("onSend", async (_request, reply, payload) => {
     reply.header("content-type", compatContentType(reply.getHeader("content-type")));
+    // Error bodies in Discord's shape too (numeric code) — see toDiscordError.
+    if (reply.statusCode >= 400 && typeof payload === "string" && payload.startsWith("{")) {
+      try {
+        return JSON.stringify(toDiscordError(reply.statusCode, JSON.parse(payload)));
+      } catch {
+        /* not JSON after all — pass through */
+      }
+    }
     return payload;
   });
 
