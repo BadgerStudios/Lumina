@@ -76,6 +76,18 @@ async function assertCanViewChannel(userId: string, channel: { id: string; serve
 }
 
 export default async function discordCompatRest(fastify: FastifyInstance) {
+  // Discord accepts an empty body under a JSON content type (a bare PUT pin, some libraries' DELETEs);
+  // fastify's default parser answers 400 "Body cannot be empty". Same parser otherwise — including
+  // its prototype-poisoning guards — and scoped to this plugin, so the rest of the API is unchanged.
+  const defaultJson = fastify.getDefaultJsonParser("error", "error");
+  fastify.removeContentTypeParser("application/json");
+  fastify.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    if (typeof body === "string" && body.trim() === "") {
+      done(null, undefined);
+      return;
+    }
+    defaultJson(request, body as string, done);
+  });
   // Bare `application/json` on every reply (success and error alike) — see compatContentType.
   fastify.addHook("onSend", async (request, reply, payload) => {
     const shaped = compatReplyShape(reply.statusCode, reply.getHeader("content-type"), payload);

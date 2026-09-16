@@ -377,7 +377,8 @@ export function toDiscordError(status: number, body: unknown): { code: number; m
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const message = typeof b.error === "string" ? b.error : typeof b.message === "string" ? b.message : `HTTP ${status}`;
   const unknown = status === 404 ? /unknown (application|channel|guild|member|message|role|user|webhook|interaction)/i.exec(message) : null;
-  const code = unknown ? DISCORD_UNKNOWN_CODE[unknown[1].toLowerCase()] : (DISCORD_CODE_BY_STATUS[status] ?? 0);
+  // A route that already chose Discord's own code (50016 for a bulk delete of 1) keeps it.
+  const code = typeof b.code === "number" ? b.code : unknown ? DISCORD_UNKNOWN_CODE[unknown[1].toLowerCase()] : (DISCORD_CODE_BY_STATUS[status] ?? 0);
   const errors = b.issues ?? b.details;
   return { code, message, ...(errors !== undefined ? { errors } : {}) };
 }

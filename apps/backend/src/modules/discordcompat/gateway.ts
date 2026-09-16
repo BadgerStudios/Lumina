@@ -398,13 +398,22 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
   internal.on("message:update", dispatchMessage("MESSAGE_UPDATE"));
   internal.on("message:delete", (payload: { id: string; channelId?: string | null }) => {
     void (async () => {
-      const guildLumina = await guildIdForChannel(session, payload.channelId ?? null);
+      // Every emitter sends the channel now; an older one that does not is resolved from the row
+      // (soft-deleted, so it is still there) rather than dispatched as channel "0".
+      let channelId = payload.channelId ?? null;
+      if (!channelId) {
+        const mid = parseBigIntId(payload.id);
+        const row = mid === null ? null : await prisma.message.findUnique({ where: { id: mid }, select: { channelId: true } });
+        channelId = row?.channelId ?? null;
+      }
+      if (!channelId) return; // a DM deletion: bots are not in DMs through this feed
+      const guildLumina = await guildIdForChannel(session, channelId);
       send(
         session,
         0,
         {
           id: payload.id,
-          channel_id: payload.channelId ? await toSnowflake("channel", payload.channelId) : "0",
+          channel_id: await toSnowflake("channel", channelId),
           ...(guildLumina ? { guild_id: await toSnowflake("guild", guildLumina) } : {}),
         },
         "MESSAGE_DELETE",

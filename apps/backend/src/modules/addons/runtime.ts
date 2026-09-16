@@ -149,7 +149,7 @@ async function perform(
         where: { id: ctx.messageId },
         data: { deletedAt: new Date(), content: "" },
       });
-      emit(ctx, ServerEvents.MESSAGE_DELETE, { id: ctx.messageId.toString() });
+      emit(ctx, ServerEvents.MESSAGE_DELETE, { id: ctx.messageId.toString(), channelId: ctx.channelId });
       return;
 
     case "reply": {

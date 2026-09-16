@@ -107,6 +107,8 @@ describe("error bodies", () => {
     expect(typeof e.code).toBe("number");
     expect(e).toEqual({ code: 50035, message: "At most 100 commands per application" });
     expect(toDiscordError(401, { error: "Unauthorized", code: "UNAUTHORIZED" }).code).toBe(40001);
+    // a compat route that already picked Discord's specific code keeps it
+    expect(toDiscordError(400, { code: 50016, message: "Provided too few or too many messages to delete." }).code).toBe(50016);
     expect(toDiscordError(403, { error: "Missing permission", code: "FORBIDDEN" }).code).toBe(50013);
   });
   it("picks the specific Unknown-X code for 404s", () => {

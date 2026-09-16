@@ -670,7 +670,9 @@ export async function deleteMessage(params: { userId: string; messageId: string 
 
   const payload = { id: params.messageId };
   const room = message.channelId ? `channel:${message.channelId}` : `dm:${message.dmConversationId}`;
-  getIO().to(room).emit(ServerEvents.MESSAGE_DELETE, payload);
+  // The channel rides along for translators: the compat gateway's MESSAGE_DELETE needs channel_id,
+  // and without it every deletion reached bots as channel "0", which libraries discard.
+  getIO().to(room).emit(ServerEvents.MESSAGE_DELETE, { ...payload, channelId: message.channelId ?? null });
   return payload;
 }
 
@@ -901,7 +903,7 @@ export async function bulkDeleteMessages(params: { userId: string; channelId: st
   await prisma.message.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { deletedAt: new Date() } });
   const deleted = rows.map((r) => r.id.toString());
   const io = getIO();
-  for (const id of deleted) io.to(`channel:${channel.id}`).emit(ServerEvents.MESSAGE_DELETE, { id });
+  for (const id of deleted) io.to(`channel:${channel.id}`).emit(ServerEvents.MESSAGE_DELETE, { id, channelId: channel.id });
   return { deleted };
 }
 
