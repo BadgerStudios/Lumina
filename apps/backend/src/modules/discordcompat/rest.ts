@@ -14,7 +14,8 @@ import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude, editMessage, createChannelMessage, deleteMessage } from "../messages/service.js";
 import { parseBigIntId } from "../../lib/parseBigIntId.js";
 import { memberRoleSnowflakes, memberRoleSnowflakesBulk, threadOwnerId } from "./members.js";
-import { contentFromDiscord, guildEmojis, reactionKeyFromDiscord } from "./emojis.js";
+import { contentFromDiscord, guildEmojis, mapEmoji, reactionKeyFromDiscord } from "./emojis.js";
+import { forgetServerEmojis } from "../emoji/serverEmojiCache.js";
 import { shapeInvite, type InviteJson } from "./invites.js";
 
 /**
@@ -37,6 +38,23 @@ async function internal(request: FastifyRequest, method: string, path: string, b
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json: unknown = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    /* non-JSON */
+  }
+  return { status: res.status, json };
+}
+
+/** internal(), for Lumina routes that take multipart (an image upload). */
+async function internalForm(request: FastifyRequest, method: string, path: string, form: FormData) {
+  const res = await fetch(`${INTERNAL}${path}`, {
+    method,
+    headers: { authorization: request.headers.authorization ?? "" },
+    body: form,
   });
   const text = await res.text();
   let json: unknown = null;
@@ -161,6 +179,50 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const emoji = (await guildEmojis(luminaId)).find((e) => e.id === emojiId);
     if (!emoji) throw new NotFoundError("Unknown Emoji");
     return emoji;
+  });
+
+  // Emoji management (Red's and Nadeko's emoji commands). Discord sends the image as a data URI in
+  // JSON; Lumina's route takes a multipart upload, so the image is re-wrapped and every check
+  // (MANAGE_EMOJI, the per-space limit, name rules, image processing) stays in that one route.
+  const EMOJI_DATA_URI = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/=\s]+)$/;
+  fastify.post("/guilds/:id/emojis", { preHandler: [requireAuth] }, async (request, reply) => {
+    const luminaId = await fromSnowflake("guild", (request.params as { id: string }).id);
+    if (!luminaId) throw new NotFoundError("Unknown guild");
+    const body = (request.body ?? {}) as { name?: string; image?: string };
+    const m = typeof body.image === "string" ? EMOJI_DATA_URI.exec(body.image) : null;
+    if (!body.name || !m) throw new BadRequestError("name and a png, jpeg, gif or webp image data URI are required");
+    const bytes = Buffer.from(m[2].replace(/\s+/g, ""), "base64");
+    if (bytes.length > 256 * 1024) throw new BadRequestError("Emoji images must be 256 KB or smaller");
+    const form = new FormData();
+    form.append("name", body.name);
+    form.append("image", new Blob([bytes], { type: m[1] }), `emoji.${m[1].split("/")[1]}`);
+    const res = await internalForm(request, "POST", `/servers/${luminaId}/emojis`, form);
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    forgetServerEmojis(luminaId);
+    const created = res.json as { id: string; name: string; animated: boolean };
+    return reply.code(201).send(await mapEmoji({ id: created.id, name: created.name, animated: created.animated }));
+  });
+  const emojiTarget = async (request: FastifyRequest) => {
+    const { id, emojiId } = request.params as { id: string; emojiId: string };
+    const luminaId = await fromSnowflake("guild", id);
+    const luminaEmojiId = await fromSnowflake("emoji", emojiId);
+    if (!luminaId) throw new NotFoundError("Unknown guild");
+    if (!luminaEmojiId) throw new NotFoundError("Unknown Emoji");
+    return { luminaId, luminaEmojiId };
+  };
+  fastify.patch("/guilds/:id/emojis/:emojiId", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { luminaId, luminaEmojiId } = await emojiTarget(request);
+    const body = (request.body ?? {}) as { name?: string };
+    if (!body.name) throw new BadRequestError("name is required");
+    const res = await internal(request, "PATCH", `/servers/${luminaId}/emojis/${luminaEmojiId}`, { name: body.name });
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    const e = res.json as { id: string; name: string; animated: boolean };
+    return mapEmoji({ id: e.id, name: e.name, animated: e.animated });
+  });
+  fastify.delete("/guilds/:id/emojis/:emojiId", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { luminaId, luminaEmojiId } = await emojiTarget(request);
+    const res = await internal(request, "DELETE", `/servers/${luminaId}/emojis/${luminaEmojiId}`);
+    return reply.code(res.status >= 400 ? res.status : 204).send(res.status >= 400 ? res.json : undefined);
   });
 
   fastify.get("/guilds/:id/channels", { preHandler: [requireAuth] }, async (request) => {
