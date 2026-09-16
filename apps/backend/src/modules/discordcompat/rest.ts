@@ -1,6 +1,6 @@
 import { readDiscordBody } from "./multipart.js";
 import { uploadLimitsFor } from "../billing/premium.js";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
@@ -287,6 +287,60 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const capped = list.slice(0, Math.min(Number(limit ?? 50) || 50, 100));
     return Promise.all(capped.map((m) => mapMessage(m, channel.serverId)));
   });
+
+  // ---- purge. Red's cleanup, Nadeko's .prune and every discord.js bulkDelete land here. Discord's
+  // rule is 2..100 ids (a single message goes through the plain DELETE); code 50016 otherwise.
+  fastify.post("/channels/:id/messages/bulk-delete", { preHandler: [requireAuth] }, async (request, reply) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const raw = (request.body as { messages?: unknown } | null)?.messages;
+    const ids = Array.isArray(raw) ? raw.map((v) => String(v)) : [];
+    if (ids.length < 2 || ids.length > 100) {
+      return reply.code(400).send({ code: 50016, message: "Provided too few or too many messages to delete. Must provide at least 2 and fewer than 100 messages to delete." });
+    }
+    const res = await internal(request, "POST", `/channels/${channel.id}/messages/bulk-delete`, { messages: ids });
+    return reply.code(res.status >= 400 ? res.status : 204).send(res.status >= 400 ? res.json : undefined);
+  });
+
+  // ---- pins: the classic routes and the paginated ones discord.js 14.20+ calls.
+  const pinsOf = async (request: FastifyRequest) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const res = await internal(request, "GET", `/channels/${channel.id}/pins`);
+    const list = res.status < 400 && Array.isArray(res.json) ? (res.json as Parameters<typeof mapMessage>[0][]) : [];
+    return { channel, res, list };
+  };
+  fastify.get("/channels/:id/pins", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { channel, res, list } = await pinsOf(request);
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    return Promise.all(list.slice(0, 50).map((m) => mapMessage(m, channel.serverId)));
+  });
+  fastify.get("/channels/:id/messages/pins", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { channel, res, list } = await pinsOf(request);
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    const limit = Math.min(Math.max(Number((request.query as { limit?: string }).limit ?? 50) || 50, 1), 50);
+    const items = await Promise.all(
+      list.slice(0, limit).map(async (m) => ({
+        // No pin time is stored; the message's own time is the honest stand-in.
+        pinned_at: (m as { createdAt?: string }).createdAt ?? new Date().toISOString(),
+        message: await mapMessage(m, channel.serverId),
+      })),
+    );
+    return { items, has_more: list.length > limit };
+  });
+  const setPin = (pinned: boolean) => async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id, messageId } = request.params as { id: string; messageId: string };
+    const channel = await resolveChannel(id);
+    const mid = parseBigIntId(messageId);
+    if (mid === null) throw new NotFoundError("Unknown message");
+    // Bound to THIS channel, like the reactions read: an id from elsewhere is not pinnable through it.
+    const msg = await prisma.message.findUnique({ where: { id: mid }, select: { channelId: true } });
+    if (!msg || msg.channelId !== channel.id) throw new NotFoundError("Unknown message");
+    const res = await internal(request, "PATCH", `/messages/${messageId}/pin`, { pinned });
+    return reply.code(res.status >= 400 ? res.status : 204).send(res.status >= 400 ? res.json : undefined);
+  };
+  fastify.put("/channels/:id/pins/:messageId", { preHandler: [requireAuth] }, setPin(true));
+  fastify.delete("/channels/:id/pins/:messageId", { preHandler: [requireAuth] }, setPin(false));
+  fastify.put("/channels/:id/messages/pins/:messageId", { preHandler: [requireAuth] }, setPin(true));
+  fastify.delete("/channels/:id/messages/pins/:messageId", { preHandler: [requireAuth] }, setPin(false));
 
   // Who reacted with an emoji — the API a giveaway bot draws winners from.
   fastify.get("/channels/:id/messages/:messageId/reactions/:emoji", { preHandler: [requireAuth] }, async (request) => {

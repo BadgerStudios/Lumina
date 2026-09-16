@@ -266,6 +266,25 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
     })().catch(() => undefined);
   });
 
+  // Pin set changed (reaches bots that joined the channel's room, i.e. those with GUILD_MESSAGES).
+  internal.on("channel:pins-update", (payload: { channelId?: string; lastPinAt?: string | null }) => {
+    const channelId = payload?.channelId;
+    if (!channelId) return;
+    void (async () => {
+      const guildLumina = await guildIdForChannel(session, channelId);
+      send(
+        session,
+        0,
+        {
+          ...(guildLumina ? { guild_id: await toSnowflake("guild", guildLumina) } : {}),
+          channel_id: await toSnowflake("channel", channelId),
+          last_pin_timestamp: payload.lastPinAt ?? null,
+        },
+        "CHANNEL_PINS_UPDATE",
+      );
+    })().catch(() => undefined);
+  });
+
   // Who is in which voice channel. Lumina broadcasts the full roster of a channel to the whole space
   // on every join/leave; the bot gets the difference as VOICE_STATE_UPDATEs — how a music bot knows
   // which channel the person who typed "play" is sitting in. The channel the bot itself is in is

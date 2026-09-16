@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth, requireMembership, resolveServerId } from "../../plugins/authenticate.js";
-import { createChannelMessage, listChannelMessages, listPinnedMessages } from "./service.js";
+import { bulkDeleteMessages, createChannelMessage, listChannelMessages, listPinnedMessages, MAX_BULK_DELETE } from "./service.js";
 import { parseMessageMultipart } from "./multipart.js";
 import { uploadLimitsFor } from "../billing/premium.js";
 import { createPoll } from "../polls/service.js";
@@ -21,6 +21,21 @@ export default async function channelMessagesRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const query = request.query as z.infer<typeof listQuerySchema>;
       return listChannelMessages({ userId: request.userId!, channelId: id, before: query.before, limit: query.limit });
+    },
+  );
+
+  const bulkDeleteSchema = z.object({ messages: z.array(z.string().min(1).max(32)).min(1).max(MAX_BULK_DELETE) });
+  fastify.post(
+    "/:id/messages/bulk-delete",
+    {
+      schema: { body: bulkDeleteSchema },
+      config: { rateLimit: { max: 10, timeWindow: "10 seconds" } },
+      preHandler: [requireAuth, requireMembership(resolveServerId.fromChannelParam("id"))],
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as z.infer<typeof bulkDeleteSchema>;
+      return bulkDeleteMessages({ userId: request.userId!, channelId: id, messageIds: body.messages });
     },
   );
 

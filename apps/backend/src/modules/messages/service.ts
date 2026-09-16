@@ -451,7 +451,8 @@ export async function createChannelMessage(params: {
         title: `${authorName} replied to you`,
         body: params.content.slice(0, 150) || "Sent an attachment",
         url: `/channels/${channel.serverId}/${params.channelId}`,
-        tag: `reply-${message.id}`,
+        // Several replies to one message update one notification (a bot's placeholder then its answer).
+        tag: `reply-${replyToNotify}`,
         kind: "mention",
       });
     })().catch(() => undefined);
@@ -862,7 +863,46 @@ export async function togglePinMessage(params: { userId: string; messageId: stri
   const replyMap = await buildReplyPreviewMap([updated], { channelId: message.channelId });
   const dto = serializeMessage(updated, null, replyPreviewFor(updated.replyToId, replyMap));
   getIO().to(`channel:${message.channelId}`).emit(ServerEvents.MESSAGE_UPDATE, dto);
+  if (params.pinned !== message.pinned) {
+    // No pin timestamp is stored, so "now" stands in for the newest pin; null once none are left.
+    const remaining = params.pinned
+      ? 1
+      : await prisma.message.count({ where: { channelId: message.channelId, pinned: true, deletedAt: null } });
+    // Backend-only event name (not in @lumina/shared): only the compat gateway listens, and adding it to
+    // the shared package would rebuild every app for an event none of them reads.
+    getIO()
+      .to(`channel:${message.channelId}`)
+      .emit("channel:pins-update", { channelId: message.channelId, lastPinAt: remaining > 0 ? new Date().toISOString() : null });
+  }
   return dto;
+}
+
+/** The most messages one purge may take — Discord's own ceiling for a bulk delete. */
+export const MAX_BULK_DELETE = 100;
+
+/**
+ * A moderation purge: soft-delete up to 100 messages in one channel at once. MANAGE_MESSAGES on the
+ * channel, the same bar deleting someone else's message already has; ids that are not in this
+ * channel (or already gone) are ignored rather than failing the rest. Each deletion is broadcast
+ * exactly like a single delete, so every client and translator stays in step without a new event.
+ */
+export async function bulkDeleteMessages(params: { userId: string; channelId: string; messageIds: string[] }): Promise<{ deleted: string[] }> {
+  const channel = await prisma.channel.findUnique({ where: { id: params.channelId } });
+  if (!channel) throw new NotFoundError("Channel not found");
+  await checkChannelPermission(params.userId, channel.serverId, channel.id, Permissions.MANAGE_MESSAGES);
+  const ids = [...new Set(params.messageIds)].map((id) => parseBigIntId(id)).filter((id): id is bigint => id !== null);
+  if (ids.length > MAX_BULK_DELETE) throw new BadRequestError(`At most ${MAX_BULK_DELETE} messages can be deleted at once`);
+  if (ids.length === 0) return { deleted: [] };
+  const rows = await prisma.message.findMany({
+    where: { id: { in: ids }, channelId: channel.id, deletedAt: null },
+    select: { id: true },
+  });
+  if (rows.length === 0) return { deleted: [] };
+  await prisma.message.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { deletedAt: new Date() } });
+  const deleted = rows.map((r) => r.id.toString());
+  const io = getIO();
+  for (const id of deleted) io.to(`channel:${channel.id}`).emit(ServerEvents.MESSAGE_DELETE, { id });
+  return { deleted };
 }
 
 export async function listPinnedMessages(params: { userId: string; channelId: string }): Promise<MessageDTO[]> {
