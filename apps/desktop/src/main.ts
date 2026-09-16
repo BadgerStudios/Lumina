@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { contentTypeFor, resolveRendererFile } from "./protocolHandler";
 import { initAutoUpdate } from "./updater";
+import { registerScreenShare } from "./screenShare";
 
 const RENDERER_DIR = path.join(__dirname, "..", "renderer");
 const isDev = !!process.env.LUMINA_DESKTOP_DEV;
@@ -59,6 +60,8 @@ function createWindow(): void {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      // The one bridge into the shell (screen sharing). See preload.ts.
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
@@ -92,6 +95,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   registerAppProtocol();
+  registerScreenShare();
   createWindow();
   initAutoUpdate(() => mainWindow);
 

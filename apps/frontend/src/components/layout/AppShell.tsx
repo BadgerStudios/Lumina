@@ -7,6 +7,7 @@ import { ActivityFeed } from "./ActivityFeed";
 import { VoiceVideoGrid } from "./VoiceVideoGrid";
 import { VoiceDock } from "./VoiceDock";
 import { IncomingCallBanner } from "./IncomingCallBanner";
+import { ScreenSourcePicker } from "../voice/ScreenSourcePicker";
 import { CommandPalette } from "./CommandPalette";
 import { UpdateBanner } from "./UpdateBanner";
 import { ModalRoot } from "../modals/ModalRoot";
@@ -250,6 +251,7 @@ export function AppShell() {
       <VoiceVideoGrid />
       <VoiceDock />
       <IncomingCallBanner />
+      <ScreenSourcePicker />
       <CommandPalette />
       {mobileDrawer === "activity" && <ActivityFeed />}
       {/* Makes the socket's own silent reconnection backoff visible once a live session drops. */}

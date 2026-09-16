@@ -6,6 +6,8 @@ import { api } from "../lib/apiClient";
 import { CLIENT_TYPE } from "../lib/platform";
 import { keepCallAlive, releaseCall } from "../lib/nativeVoiceCall";
 import { toast } from "./toastStore";
+import { desktopBridge } from "../lib/desktopShell";
+import { useScreenPickerStore } from "./screenPickerStore";
 
 const STUN_SERVER: RTCIceServer = { urls: "stun:stun.l.google.com:19302" };
 
@@ -553,6 +555,45 @@ function stopLocalVideo(): void {
 }
 
 /**
+ * Send this stream's video to every peer, reusing a video sender that is already there.
+ *
+ * Camera and screen share take turns in one slot. Swapping used to stop the old track and addTrack
+ * the new one, which left the stopped track's sender behind: every swap grew the connection by
+ * another video transceiver, and the far side kept a dead stream next to the live one. replaceTrack
+ * swaps what the existing sender carries with no renegotiation at all.
+ */
+function publishVideo(stream: MediaStream): void {
+  const [track] = stream.getVideoTracks();
+  if (!track) return;
+  for (const { pc } of peers.values()) {
+    const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+    if (sender) {
+      void sender.replaceTrack(track).catch(() => undefined);
+      continue;
+    }
+    // Turning video off removes the track but leaves its transceiver; addTrack will not reuse a
+    // transceiver that has sent before, so on/off/on kept adding more. Reuse an idle video
+    // transceiver (ours from before, or the one carrying the other person's video) instead. The
+    // stream id is set before the direction change so the renegotiated track arrives with its
+    // stream, which is what the far side's ontrack keys on.
+    const idle = pc.getTransceivers().find((t) => t.receiver.track.kind === "video" && !t.sender.track && t.currentDirection !== "stopped");
+    if (idle) {
+      idle.sender.setStreams(stream);
+      idle.direction = "sendrecv";
+      void idle.sender.replaceTrack(track).catch(() => undefined);
+    } else {
+      pc.addTrack(track, stream);
+    }
+  }
+}
+
+function unpublishVideo(): void {
+  for (const { pc } of peers.values()) {
+    pc.getSenders().filter((s) => s.track?.kind === "video").forEach((s) => pc.removeTrack(s));
+  }
+}
+
+/**
  * Acquire the microphone and publish it into every existing peer — used both on an ordinary join
  * and when a stage audience member is promoted to speaker (adding a track fires
  * onnegotiationneeded, which the perfect-negotiation path renegotiates). No-op if already live.
@@ -905,21 +946,19 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   // see roadmap Phase 8.
   toggleCamera: async () => {
     if (get().videoSource === "camera") {
+      unpublishVideo();
       stopLocalVideo();
-      for (const { pc } of peers.values()) {
-        pc.getSenders().filter((s) => s.track?.kind === "video").forEach((s) => pc.removeTrack(s));
-      }
       set({ videoSource: null });
       announceStreamState(null);
       return;
     }
     try {
-      if (get().videoSource === "screen") stopLocalVideo();
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Publish first, then stop the screen: its sender is reused, so there is never a gap with
+      // no video sender at all.
+      publishVideo(stream);
+      if (get().videoSource === "screen") stopLocalVideo();
       localVideoStream = stream;
-      for (const { pc } of peers.values()) {
-        for (const track of stream.getTracks()) pc.addTrack(track, stream);
-      }
       set({ videoSource: "camera" });
       announceStreamState("camera");
     } catch (err) {
@@ -929,21 +968,33 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   toggleScreenShare: async () => {
     if (get().videoSource === "screen") {
+      unpublishVideo();
       stopLocalVideo();
-      for (const { pc } of peers.values()) {
-        pc.getSenders().filter((s) => s.track?.kind === "video").forEach((s) => pc.removeTrack(s));
-      }
       set({ videoSource: null });
       announceStreamState(null);
       return;
     }
     try {
-      if (get().videoSource === "camera") stopLocalVideo();
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      localVideoStream = stream;
-      for (const { pc } of peers.values()) {
-        for (const track of stream.getTracks()) pc.addTrack(track, stream);
+      // The desktop app has no browser picker: list what can be shared, let the person choose, and
+      // tell the shell which source to grant before asking for it (apps/desktop/src/screenShare.ts).
+      const shell = desktopBridge();
+      if (shell) {
+        const sources = await shell.listScreenSources();
+        if (sources.length === 0) {
+          reportVoiceError("There is no screen or window to share.");
+          return;
+        }
+        const id = sources.length === 1 ? sources[0].id : await useScreenPickerStore.getState().pick(sources);
+        if (!id) return;
+        if (!(await shell.chooseScreenSource(id))) {
+          reportVoiceError("That screen or window can't be shared. Pick another one.");
+          return;
+        }
       }
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      publishVideo(stream);
+      if (get().videoSource === "camera") stopLocalVideo();
+      localVideoStream = stream;
       set({ videoSource: "screen" });
       announceStreamState("screen");
       // The browser's own native "Stop sharing" control ends the track directly — listen for
