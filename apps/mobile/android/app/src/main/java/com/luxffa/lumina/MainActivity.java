@@ -6,6 +6,8 @@ import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.webkit.WebView;
 
 import androidx.annotation.RequiresApi;
@@ -27,6 +29,11 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AgeSignalsPlugin.class);
         registerPlugin(VoiceCallPlugin.class);
         super.onCreate(savedInstanceState);
+
+        // Capacitor's chrome client crashes the app when a permission prompt or file picker comes
+        // from a page whose activity is already destroyed. See SafeWebChromeClient. Registered here,
+        // inside onCreate, because its result launchers must be registered before the activity starts.
+        getBridge().getWebView().setWebChromeClient(new SafeWebChromeClient(getBridge()));
 
         // Notification channels, created before anything can post to one.
         //
@@ -68,4 +75,24 @@ public class MainActivity extends BridgeActivity {
         ViewCompat.requestApplyInsets(webView);
     }
 
+    /**
+     * Destroy this activity's WebView with the activity.
+     *
+     * Capacitor only destroys it in onDetachedFromWindow. When Android relaunches the activity for a
+     * configuration change it does not handle (asset paths, on a cold start after an install or a
+     * WebView update), that callback did not arrive in time: the old page kept running JavaScript,
+     * a second copy of the app with its own socket, for several seconds after the new one started,
+     * and a microphone request from it crashed the app. Destroying here ends that copy at once. The
+     * later onDetachedFromWindow destroy is a no-op on a destroyed WebView.
+     */
+    @Override
+    public void onDestroy() {
+        final WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        super.onDestroy();
+        if (webView == null) return;
+        ViewParent parent = webView.getParent();
+        if (parent instanceof ViewGroup) ((ViewGroup) parent).removeView(webView);
+        webView.removeAllViews();
+        webView.destroy();
+    }
 }

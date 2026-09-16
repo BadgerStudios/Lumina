@@ -18,6 +18,10 @@ const config: CapacitorConfig = {
   appId: 'com.luxffa.lumina.owner',
   appName: 'Lumina Owner',
   webDir: '../frontend/dist-owner',
+  // No Capacitor logging, in any build. The APKs are debug builds, where the default ("debug")
+  // mirrors every plugin call and result into the Android system log, including
+  // Preferences.get -> the stored refresh token. Inspect the WebView with DevTools instead.
+  loggingBehavior: 'none',
 };
 
 export default config;
