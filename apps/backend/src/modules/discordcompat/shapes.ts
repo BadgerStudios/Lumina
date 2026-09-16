@@ -380,3 +380,14 @@ const OPTION_TYPE_TO_LUMINA: Record<number, "string" | "integer" | "boolean" | "
 export function optionTypeToLumina(discordType: number | undefined): "string" | "integer" | "boolean" | "user" | "channel" {
   return OPTION_TYPE_TO_LUMINA[discordType ?? 3] ?? "string";
 }
+
+/**
+ * Only CHAT_INPUT commands (Discord type 1, the default) can live in Lumina's command palette.
+ * USER (2) and MESSAGE (3) context-menu commands carry display names like "Report Message" that
+ * fail the palette's name rule and cannot be typed anyway; they are left out of registration
+ * instead of failing the bot's whole set (Ree6 ships several). The PUT still echoes them back so
+ * the library sees every command it sent.
+ */
+export function chatInputOnly<T extends { type?: number }>(commands: T[]): T[] {
+  return commands.filter((c) => c.type === undefined || c.type === 1);
+}

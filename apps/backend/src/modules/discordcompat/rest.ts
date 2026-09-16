@@ -4,7 +4,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly } from "./shapes.js";
 import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
@@ -329,7 +329,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   // the application, exactly like Lumina's own route).
   fastify.put("/applications/:id/commands", async (request, reply) => {
     const commands = Array.isArray(request.body) ? (request.body as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[]) : [];
-    const mapped = commands.map((c) => ({
+    const mapped = chatInputOnly(commands).map((c) => ({
       name: c.name,
       description: c.description ?? "",
       options: (c.options ?? []).map((o) => ({
@@ -693,7 +693,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     fastify[method]("/applications/:id/guilds/:guildId/commands", { preHandler: [requireAuth] }, async (request, reply) => {
       const raw = Array.isArray(request.body) ? request.body : [request.body];
       const commands = raw.filter(Boolean) as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[];
-      const mapped = commands.map((c) => ({
+      const mapped = chatInputOnly(commands).map((c) => ({
         name: c.name,
         description: c.description ?? "",
         options: (c.options ?? []).map((o) => ({

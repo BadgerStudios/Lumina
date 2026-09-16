@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -135,5 +135,12 @@ describe("command option types", () => {
     expect(optionTypeToLumina(6)).toBe("user");
     expect(optionTypeToLumina(7)).toBe("channel");
     expect(optionTypeToLumina(10)).toBe("string");
+  });
+});
+
+describe("command kinds", () => {
+  it("registers chat-input commands and drops context menus rather than failing the set", () => {
+    const sent = [{ name: "ping" }, { name: "level", type: 1 }, { name: "Report Message", type: 3 }, { name: "Avatar", type: 2 }];
+    expect(chatInputOnly(sent).map((c) => c.name)).toEqual(["ping", "level"]);
   });
 });
