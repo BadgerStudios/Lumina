@@ -550,3 +550,88 @@ export function quoteBigIntegers(json: string): string {
   }
   return out;
 }
+
+/** A Lumina thread (ThreadDTO) as Discord's public thread channel (type 11). */
+export interface ThreadLike {
+  id: string;
+  serverId: string;
+  name: string;
+  parentId: string | null;
+  archived: boolean;
+  archivedAt: string | null;
+  autoArchiveMinutes: number;
+  createdAt: string;
+  messageCount: number;
+  memberCount: number;
+}
+export async function mapThread(t: ThreadLike, ownerId: string | null, newlyCreated = false) {
+  return {
+    id: await toSnowflake("channel", t.id),
+    guild_id: await toSnowflake("guild", t.serverId),
+    parent_id: t.parentId ? await toSnowflake("channel", t.parentId) : null,
+    owner_id: ownerId ? await toSnowflake("user", ownerId) : null,
+    name: t.name,
+    type: 11,
+    last_message_id: null,
+    rate_limit_per_user: 0,
+    flags: 0,
+    message_count: t.messageCount,
+    total_message_sent: t.messageCount,
+    member_count: t.memberCount,
+    // discord.js/discord.py read archived state, the archive clock and lock flag from here.
+    thread_metadata: {
+      archived: t.archived,
+      auto_archive_duration: t.autoArchiveMinutes,
+      archive_timestamp: t.archivedAt ?? t.createdAt,
+      locked: false,
+      create_timestamp: t.createdAt,
+    },
+    ...(newlyCreated ? { newly_created: true } : {}),
+  };
+}
+
+/** Discord's thread archive clocks and Lumina's are the same four values; anything else falls back to 3 days. */
+export function archiveMinutes(v: unknown): number | undefined {
+  const n = Number(v);
+  return [60, 1440, 4320, 10080].includes(n) ? n : undefined;
+}
+
+/** A Lumina invite as Discord's invite object. Lumina invites belong to the space, not a channel. */
+export async function mapInvite(
+  inv: { code: string; serverId: string; creatorId: string; maxUses: number | null; uses: number; expiresAt: string | null; createdAt: string },
+  server: { id: string; name: string; description?: string | null } | null,
+  channel: { id: string; name: string } | null,
+  inviter: Parameters<typeof mapUser>[0] | null,
+  memberCount?: number,
+) {
+  const created = Date.parse(inv.createdAt);
+  const expires = inv.expiresAt ? Date.parse(inv.expiresAt) : null;
+  return {
+    type: 0,
+    code: inv.code,
+    guild: server
+      ? {
+          id: await toSnowflake("guild", server.id),
+          name: server.name,
+          icon: null,
+          splash: null,
+          banner: null,
+          description: server.description ?? null,
+          features: [],
+          verification_level: 0,
+          vanity_url_code: null,
+          nsfw_level: 0,
+          premium_subscription_count: 0,
+        }
+      : undefined,
+    channel: channel ? { id: await toSnowflake("channel", channel.id), name: channel.name, type: 0 } : null,
+    ...(inviter ? { inviter: await mapUser(inviter) } : {}),
+    uses: inv.uses,
+    max_uses: inv.maxUses ?? 0,
+    max_age: expires !== null && Number.isFinite(created) ? Math.max(0, Math.round((expires - created) / 1000)) : 0,
+    temporary: false,
+    created_at: inv.createdAt,
+    expires_at: inv.expiresAt,
+    ...(memberCount !== undefined ? { approximate_member_count: memberCount, approximate_presence_count: 0 } : {}),
+  };
+}

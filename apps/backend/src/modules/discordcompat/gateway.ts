@@ -1,5 +1,5 @@
 import { discordVoiceServer, type VoiceSession, type VoiceStateRequest } from "./voice/server.js";
-import { memberRoleSnowflakes } from "./members.js";
+import { memberRoleSnowflakes, threadOwnerId } from "./members.js";
 import { createDeflate, createZstdCompress, constants as zlibConstants, type Deflate, type ZstdCompress } from "node:zlib";
 import type { Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -8,7 +8,7 @@ import { prisma } from "../../db/prisma.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, timeSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, mapRole, mapChannel, nestInteractionOptions } from "./shapes.js";
+import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, mapRole, mapChannel, nestInteractionOptions, mapThread, type ThreadLike } from "./shapes.js";
 import { computeEffectiveChannelPermissions } from "../../permissions/permissionService.js";
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
@@ -182,6 +182,24 @@ async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<
   ] as never;
   guild.member_count = await prisma.membership.count({ where: { serverId } });
   (guild as { voice_states?: unknown[] }).voice_states = await voiceStatesFor(session, serverId, guild.id as string, channels, botUser.id);
+  // Active threads ride in GUILD_CREATE (discord.js keeps them in guild.channels from here).
+  const activeThreads = await prisma.channel.findMany({
+    where: { serverId, type: "THREAD", archived: false },
+    include: { _count: { select: { messages: true, threadMembers: true } } },
+    take: 100,
+  });
+  (guild as { threads?: unknown[] }).threads = await Promise.all(
+    activeThreads.map(async (r) =>
+      mapThread(
+        {
+          id: r.id, serverId: r.serverId, name: r.name, parentId: r.parentId, archived: r.archived,
+          archivedAt: r.archivedAt?.toISOString() ?? null, autoArchiveMinutes: r.autoArchiveMinutes,
+          createdAt: r.createdAt.toISOString(), messageCount: r._count.messages, memberCount: r._count.threadMembers,
+        },
+        await threadOwnerId(r.id),
+      ),
+    ),
+  );
   // Discord.Net reads `unavailable: false` as "a guild from READY became available" and, finding
   // no such guild, logs Unknown Guild and drops it (NadekoBot, added live to a space). A real
   // join carries no `unavailable` key at all — that absence is what selects the join path.
@@ -357,6 +375,12 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
     if (wantsMessages && (c.type === "TEXT" || c.type === "THREAD")) internal.emit("channel:join", { channelId: c.id });
   });
   on<ChannelLike>("channel:update", async (c) => send(session, 0, await mapChannel(c), "CHANNEL_UPDATE"));
+  on<ThreadLike>("thread:create", async (t) => {
+    send(session, 0, await mapThread(t, await threadOwnerId(t.id), true), "THREAD_CREATE");
+    // A new thread is a new room of "every message in every guild I'm in".
+    if (wantsMessages) internal.emit("channel:join", { channelId: t.id });
+  });
+  on<ThreadLike>("thread:update", async (t) => send(session, 0, await mapThread(t, await threadOwnerId(t.id)), "THREAD_UPDATE"));
   on<{ id: string; serverId: string }>("channel:delete", async (p) => send(session, 0, { id: await toSnowflake("channel", p.id), guild_id: await guildSnowOf(p.serverId), type: 0 }, "CHANNEL_DELETE"));
   on<{ channelId: string; userId: string; isTyping: boolean }>("typing:update", async (p) => {
     if (!p.isTyping || !wantsMessages) return;

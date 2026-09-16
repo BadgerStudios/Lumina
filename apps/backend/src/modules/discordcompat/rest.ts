@@ -6,14 +6,14 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, chatInputOnly, compatReplyShape, discordCommandToLumina, rateLimitHeaders, quoteBigIntegers } from "./shapes.js";
-import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, chatInputOnly, compatReplyShape, discordCommandToLumina, rateLimitHeaders, quoteBigIntegers, mapThread, mapInvite, archiveMinutes, type ThreadLike } from "./shapes.js";
+import { computeEffectivePermissions, checkChannelPermission, filterVisibleChannels } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude, editMessage, createChannelMessage, deleteMessage } from "../messages/service.js";
 import { parseBigIntId } from "../../lib/parseBigIntId.js";
-import { memberRoleSnowflakes, memberRoleSnowflakesBulk } from "./members.js";
+import { memberRoleSnowflakes, memberRoleSnowflakesBulk, threadOwnerId } from "./members.js";
 
 /**
  * Discord-shaped REST subset. Registered under BOTH /discord/api and /discord/api/v10 (libraries
@@ -228,10 +228,141 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   });
 
   // ---- channels + messages (writes translate onto the real API — one behavior code path)
-  fastify.get("/channels/:id", { preHandler: [requireAuth] }, async (request) => {
+  fastify.get("/channels/:id", { preHandler: [requireAuth] }, async (request, reply) => {
     const channel = await resolveChannel((request.params as { id: string }).id);
+    if (channel.type === "THREAD") {
+      const t = await internal(request, "GET", `/threads/${channel.id}`);
+      if (t.status >= 400) return reply.code(t.status).send(t.json);
+      return mapThread(t.json as ThreadLike, await threadOwnerId(channel.id));
+    }
     await assertCanViewChannel(request.userId!, channel);
     return mapChannel(channel);
+  });
+
+  // ---- threads. Lumina threads are public; a private-thread request (type 12) opens a public one.
+  const threadReply = async (request: FastifyRequest, reply: FastifyReply, res: { status: number; json: unknown }) => {
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    const t = res.json as ThreadLike;
+    reply.code(201);
+    return mapThread(t, await threadOwnerId(t.id), true);
+  };
+  fastify.post("/channels/:id/messages/:messageId/threads", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id, messageId } = request.params as { id: string; messageId: string };
+    const channel = await resolveChannel(id);
+    const b = (request.body ?? {}) as { name?: string; auto_archive_duration?: number };
+    const res = await internal(request, "POST", `/channels/${channel.id}/threads`, {
+      name: String(b.name ?? "Thread").slice(0, 100) || "Thread",
+      originMessageId: messageId,
+      ...(archiveMinutes(b.auto_archive_duration) ? { autoArchiveMinutes: archiveMinutes(b.auto_archive_duration) } : {}),
+    });
+    return threadReply(request, reply, res);
+  });
+  fastify.post("/channels/:id/threads", { preHandler: [requireAuth] }, async (request, reply) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const { body: raw } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
+    const b = (raw ?? {}) as { name?: string; auto_archive_duration?: number; message?: { content?: string; embeds?: unknown } };
+    // A forum post carries its opening message; a text channel thread has none.
+    const opening = b.message ? [b.message.content?.trim(), flattenEmbeds(b.message.embeds)].filter(Boolean).join("\n\n") : undefined;
+    const res = await internal(request, "POST", `/channels/${channel.id}/threads`, {
+      name: String(b.name ?? "Thread").slice(0, 100) || "Thread",
+      ...(archiveMinutes(b.auto_archive_duration) ? { autoArchiveMinutes: archiveMinutes(b.auto_archive_duration) } : {}),
+      ...(opening ? { content: opening } : {}),
+    });
+    return threadReply(request, reply, res);
+  });
+  fastify.get("/channels/:id/threads/archived/public", { preHandler: [requireAuth] }, async (request, reply) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const res = await internal(request, "GET", `/channels/${channel.id}/threads?archived=true`);
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    const list = Array.isArray(res.json) ? (res.json as ThreadLike[]) : [];
+    return { threads: await Promise.all(list.map(async (t) => mapThread(t, await threadOwnerId(t.id)))), members: [], has_more: false };
+  });
+  fastify.get("/guilds/:id/threads/active", { preHandler: [requireAuth] }, async (request) => {
+    const luminaId = await fromSnowflake("guild", (request.params as { id: string }).id);
+    if (!luminaId) throw new NotFoundError("Unknown guild");
+    await assertGuildMember(request.userId!, luminaId);
+    const rows = await prisma.channel.findMany({
+      where: { serverId: luminaId, type: "THREAD", archived: false },
+      include: { _count: { select: { messages: true, threadMembers: true } } },
+      take: 200,
+    });
+    const visible = await filterVisibleChannels(request.userId!, luminaId, rows);
+    const threads = await Promise.all(
+      visible.map(async (r) =>
+        mapThread(
+          {
+            id: r.id, serverId: r.serverId, name: r.name, parentId: r.parentId, archived: r.archived,
+            archivedAt: r.archivedAt?.toISOString() ?? null, autoArchiveMinutes: r.autoArchiveMinutes,
+            createdAt: r.createdAt.toISOString(), messageCount: r._count.messages, memberCount: r._count.threadMembers,
+          },
+          await threadOwnerId(r.id),
+        ),
+      ),
+    );
+    return { threads, members: [] };
+  });
+  const threadMembership = (join: boolean) => async (request: FastifyRequest, reply: FastifyReply) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const res = await internal(request, join ? "PUT" : "DELETE", `/threads/${channel.id}/members/@me`);
+    return reply.code(res.status >= 400 ? res.status : 204).send(res.status >= 400 ? res.json : undefined);
+  };
+  fastify.put("/channels/:id/thread-members/@me", { preHandler: [requireAuth] }, threadMembership(true));
+  fastify.delete("/channels/:id/thread-members/@me", { preHandler: [requireAuth] }, threadMembership(false));
+
+  // ---- invites. A Lumina invite opens the whole space, so it points at the space's system channel
+  // (or its first text channel) — the channel a Discord invite would name.
+  const inviteContext = async (serverId: string) => {
+    const server = await prisma.server.findUnique({ where: { id: serverId }, select: { id: true, name: true, description: true, systemChannelId: true } });
+    const channel = server?.systemChannelId
+      ? await prisma.channel.findUnique({ where: { id: server.systemChannelId }, select: { id: true, name: true } })
+      : await prisma.channel.findFirst({ where: { serverId, type: "TEXT" }, orderBy: { position: "asc" }, select: { id: true, name: true } });
+    return { server, channel };
+  };
+  type InviteJson = { code: string; serverId: string; creatorId: string; maxUses: number | null; uses: number; expiresAt: string | null; createdAt: string };
+  const shapeInvite = async (inv: InviteJson, counts = false) => {
+    const { server, channel } = await inviteContext(inv.serverId);
+    const inviter = await prisma.user.findUnique({ where: { id: inv.creatorId } });
+    const members = counts ? await prisma.membership.count({ where: { serverId: inv.serverId } }) : undefined;
+    return mapInvite(inv, server, channel, inviter, members);
+  };
+  fastify.get("/guilds/:id/invites", { preHandler: [requireAuth] }, async (request, reply) => {
+    const luminaId = await fromSnowflake("guild", (request.params as { id: string }).id);
+    if (!luminaId) throw new NotFoundError("Unknown guild");
+    const res = await internal(request, "GET", `/servers/${luminaId}/invites`);
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    return Promise.all((Array.isArray(res.json) ? (res.json as InviteJson[]) : []).map((i) => shapeInvite(i)));
+  });
+  fastify.get("/channels/:id/invites", { preHandler: [requireAuth] }, async (request, reply) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const res = await internal(request, "GET", `/servers/${channel.serverId}/invites`);
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    return Promise.all((Array.isArray(res.json) ? (res.json as InviteJson[]) : []).map((i) => shapeInvite(i)));
+  });
+  fastify.post("/channels/:id/invites", { preHandler: [requireAuth] }, async (request, reply) => {
+    const channel = await resolveChannel((request.params as { id: string }).id);
+    const b = (request.body ?? {}) as { max_age?: number; max_uses?: number };
+    // Discord's defaults: a day, unlimited uses; max_age 0 = never expires.
+    const maxAge = b.max_age === undefined ? 86_400 : Number(b.max_age);
+    const res = await internal(request, "POST", `/servers/${channel.serverId}/invites`, {
+      maxUses: Number(b.max_uses) > 0 ? Math.trunc(Number(b.max_uses)) : null,
+      expiresInSeconds: maxAge > 0 ? Math.trunc(maxAge) : null,
+    });
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    return shapeInvite(res.json as InviteJson);
+  });
+  fastify.get("/invites/:code", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { code } = request.params as { code: string };
+    const res = await internal(request, "GET", `/invites/${encodeURIComponent(code)}`);
+    if (res.status >= 400) return reply.code(res.status === 404 ? 404 : res.status).send(res.status === 404 ? { code: 10006, message: "Unknown Invite" } : res.json);
+    return shapeInvite(res.json as InviteJson, (request.query as { with_counts?: string }).with_counts === "true");
+  });
+  fastify.delete("/invites/:code", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { code } = request.params as { code: string };
+    const before = await internal(request, "GET", `/invites/${encodeURIComponent(code)}`);
+    if (before.status >= 400) return reply.code(404).send({ code: 10006, message: "Unknown Invite" });
+    const res = await internal(request, "DELETE", `/invites/${encodeURIComponent(code)}`);
+    if (res.status >= 400) return reply.code(res.status).send(res.json);
+    return shapeInvite(before.json as InviteJson);
   });
 
   fastify.post("/channels/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -305,15 +436,36 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     return mapMessage(serializeMessage(row, null) as Parameters<typeof mapMessage>[0], channel.serverId);
   });
 
-  fastify.get("/channels/:id/messages", { preHandler: [requireAuth] }, async (request) => {
+  fastify.get("/channels/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
     const channel = await resolveChannel((request.params as { id: string }).id);
-    const { limit, before } = request.query as { limit?: string; before?: string };
-    const qs = new URLSearchParams();
-    if (before) qs.set("before", before);
-    const res = await internal(request, "GET", `/channels/${channel.id}/messages${qs.size ? `?${qs}` : ""}`);
-    const list = Array.isArray(res.json) ? (res.json as Parameters<typeof mapMessage>[0][]) : [];
-    const capped = list.slice(0, Math.min(Number(limit ?? 50) || 50, 100));
-    return Promise.all(capped.map((m) => mapMessage(m, channel.serverId)));
+    const q = request.query as { limit?: string; before?: string; after?: string; around?: string };
+    // Discord: 1..100, default 50. The limit used to stop at Lumina's own default page (50), so a
+    // purge asking for 100 read a "short page", took it for the end of the channel and stopped.
+    const limit = Math.min(Math.max(Number(q.limit ?? 50) || 50, 1), 100);
+    if (!q.after && !q.around) {
+      const qs = new URLSearchParams({ limit: String(limit) });
+      if (q.before) qs.set("before", q.before);
+      const res = await internal(request, "GET", `/channels/${channel.id}/messages?${qs}`);
+      if (res.status >= 400) return reply.code(res.status).send(res.json);
+      const list = Array.isArray(res.json) ? (res.json as Parameters<typeof mapMessage>[0][]) : [];
+      return Promise.all(list.slice(0, limit).map((m) => mapMessage(m, channel.serverId)));
+    }
+    // after / around are not in Lumina's own list API (its clients only scroll back); read them here
+    // behind the same visibility check, newest first like every Discord message list.
+    await assertCanViewChannel(request.userId!, channel);
+    const pivot = parseBigIntId(q.after ?? q.around);
+    if (pivot === null) return [];
+    const base = { channelId: channel.id, deletedAt: null };
+    let rows;
+    if (q.after) {
+      rows = await prisma.message.findMany({ where: { ...base, id: { gt: pivot } }, orderBy: { id: "asc" }, take: limit, include: messageInclude });
+      rows.reverse();
+    } else {
+      const newer = await prisma.message.findMany({ where: { ...base, id: { gte: pivot } }, orderBy: { id: "asc" }, take: Math.ceil(limit / 2), include: messageInclude });
+      const older = await prisma.message.findMany({ where: { ...base, id: { lt: pivot } }, orderBy: { id: "desc" }, take: limit - newer.length, include: messageInclude });
+      rows = [...newer.reverse(), ...older];
+    }
+    return Promise.all(rows.map((row) => mapMessage(serializeMessage(row, request.userId!) as Parameters<typeof mapMessage>[0], channel.serverId)));
   });
 
   // ---- purge. Red's cleanup, Nadeko's .prune and every discord.js bulkDelete land here. Discord's
@@ -740,9 +892,28 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
 
   fastify.patch("/channels/:id", { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { name?: string; topic?: string | null };
+    const body = (request.body ?? {}) as { name?: string; topic?: string | null; archived?: boolean };
     const channel = await fromSnowflake("channel", id);
     if (!channel) throw new NotFoundError("Unknown channel");
+    const row = await prisma.channel.findUnique({ where: { id: channel }, select: { type: true } });
+    if (row?.type === "THREAD") {
+      // Unarchive before renaming, archive after — an archived thread is read-only.
+      if (body.archived === false) {
+        const r = await internal(request, "PATCH", `/threads/${channel}/archive`, { archived: false });
+        if (r.status >= 400) return reply.code(r.status).send(r.json);
+      }
+      if (body.name !== undefined) {
+        const r = await internal(request, "PATCH", `/channels/${channel}`, { name: body.name });
+        if (r.status >= 400) return reply.code(r.status).send(r.json);
+      }
+      if (body.archived === true) {
+        const r = await internal(request, "PATCH", `/threads/${channel}/archive`, { archived: true });
+        if (r.status >= 400) return reply.code(r.status).send(r.json);
+      }
+      const t = await internal(request, "GET", `/threads/${channel}`);
+      if (t.status >= 400) return reply.code(t.status).send(t.json);
+      return mapThread(t.json as ThreadLike, await threadOwnerId(channel));
+    }
     const res = await internal(request, "PATCH", `/channels/${channel}`, {
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.topic !== undefined ? { topic: body.topic } : {}),

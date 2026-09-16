@@ -27,3 +27,13 @@ export async function memberRoleSnowflakesBulk(serverId: string, userIds: string
   for (const r of rows) out.get(r.membership.userId)?.push(await toSnowflake("role", r.roleId));
   return out;
 }
+
+/** Who started a thread: its earliest member (the creator is added at creation). */
+export async function threadOwnerId(threadId: string): Promise<string | null> {
+  const first = await prisma.threadMembership.findFirst({
+    where: { channelId: threadId },
+    orderBy: { joinedAt: "asc" },
+    select: { userId: true },
+  });
+  return first?.userId ?? null;
+}
