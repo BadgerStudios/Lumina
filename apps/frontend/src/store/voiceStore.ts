@@ -3,6 +3,9 @@ import { ClientEvents, ServerEvents } from "@lumina/shared";
 import type { UserDTO, VoiceParticipantDTO } from "@lumina/shared";
 import { getSocket } from "../socket/socketClient";
 import { api } from "../lib/apiClient";
+import { CLIENT_TYPE } from "../lib/platform";
+import { keepCallAlive, releaseCall } from "../lib/nativeVoiceCall";
+import { toast } from "./toastStore";
 
 const STUN_SERVER: RTCIceServer = { urls: "stun:stun.l.google.com:19302" };
 
@@ -35,6 +38,48 @@ async function refreshIceServers(): Promise<void> {
     iceServers = [STUN_SERVER];
   }
 }
+/**
+ * Why a microphone or camera could not be opened, in words that say what to do about it. Every
+ * failure used to become one "access denied" string in store state that nothing rendered, so a
+ * blocked microphone looked exactly like a dead voice button.
+ */
+function deviceErrorMessage(err: unknown, device: "microphone" | "camera"): string {
+  const name = (err as { name?: string } | null)?.name;
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    if (CLIENT_TYPE === "mobile") return `Lumina can't use your ${device}. Allow it in Settings, Apps, Lumina, Permissions, then try again.`;
+    if (CLIENT_TYPE === "desktop") return `Lumina can't use your ${device}. Allow ${device} access for Lumina in your system settings, then try again.`;
+    return `Lumina can't use your ${device}. Allow ${device} access for this site in your browser, then try again.`;
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") return `No ${device} found. Connect one and try again.`;
+  if (name === "NotReadableError" || name === "AbortError") return `Your ${device} is in use by another app. Close it and try again.`;
+  return `Couldn't start your ${device}. Try again.`;
+}
+
+/** Record a voice failure and put it on screen. */
+function reportVoiceError(message: string): void {
+  useVoiceStore.setState({ error: message });
+  toast.error(message);
+}
+
+type JoinAck = { ok: boolean; participants?: VoiceParticipantDTO[]; stageRole?: "speaker" | "audience"; error?: string };
+
+/**
+ * VOICE_JOIN with a deadline. socket.io buffers an emit while the socket is down and the ack never
+ * fires if it stays down, which left the button spinning on "connecting" for good. A late join the
+ * server does process is undone with a leave, so a timed-out attempt never leaves a ghost in the room.
+ */
+function emitJoin(emit: { channelId?: string; conversationId?: string }): Promise<JoinAck> {
+  return new Promise((resolve) => {
+    getSocket()
+      .timeout(20_000)
+      .emit(ClientEvents.VOICE_JOIN, emit, (err: Error | null, res: JoinAck) => {
+        if (!err) return resolve(res);
+        getSocket().emit(ClientEvents.VOICE_LEAVE);
+        resolve({ ok: false, error: "the voice server didn't answer" });
+      });
+  });
+}
+
 const SPEAKING_THRESHOLD = 12; // 0-255 scale off the analyser's average byte frequency data
 
 type VideoSource = "camera" | "screen" | null;
@@ -516,8 +561,8 @@ async function acquireMic(): Promise<boolean> {
   if (localAudioStream) return true;
   try {
     localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch {
-    useVoiceStore.setState({ error: "Microphone access denied or unavailable." });
+  } catch (err) {
+    reportVoiceError(deviceErrorMessage(err, "microphone"));
     return false;
   }
   syncVadEngine();
@@ -525,6 +570,9 @@ async function acquireMic(): Promise<boolean> {
   for (const { pc } of peers.values()) {
     for (const track of localAudioStream.getTracks()) pc.addTrack(track, localAudioStream);
   }
+  // A stage listener promoted to speaker: the foreground service needs the microphone permission,
+  // which a listener may only just have granted.
+  if (useVoiceStore.getState().channelId) keepCallAlive(useVoiceStore.getState().dmConversationId ? "In a call" : "In a voice room");
   return true;
 }
 
@@ -574,14 +622,10 @@ async function doConnect(opts: {
       localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       syncVadEngine();
       applyMicGate();
-    } catch {
-      store.setState({
-        connecting: false,
-        serverId: null,
-        channelId: null,
-        dmConversationId: null,
-        error: "Microphone access denied or unavailable.",
-      });
+    } catch (err) {
+      const message = deviceErrorMessage(err, "microphone");
+      store.setState({ connecting: false, serverId: null, channelId: null, dmConversationId: null, error: message });
+      toast.error(message);
       return;
     }
   }
@@ -589,24 +633,20 @@ async function doConnect(opts: {
 
   attachSignalingListeners();
 
-  const ack = await new Promise<{
-    ok: boolean;
-    participants?: VoiceParticipantDTO[];
-    stageRole?: "speaker" | "audience";
-    error?: string;
-  }>((resolve) => {
-    getSocket().emit(ClientEvents.VOICE_JOIN, opts.emit, resolve);
-  });
+  const ack = await emitJoin(opts.emit);
+
+  if (store.getState().channelId !== opts.channelId) {
+    // Left, or moved to another room, while the join was in flight. Moving already told the server
+    // (one call per socket); leaving did too, but the leave can land before the join finishes.
+    if (ack.ok && !store.getState().channelId) getSocket().emit(ClientEvents.VOICE_LEAVE);
+    return;
+  }
 
   if (!ack.ok) {
     teardown();
-    store.setState({
-      connecting: false,
-      serverId: null,
-      channelId: null,
-      dmConversationId: null,
-      error: ack.error ?? "Failed to join.",
-    });
+    const message = ack.error ? `Couldn't join voice: ${ack.error}` : "Couldn't join voice. Try again.";
+    store.setState({ connecting: false, serverId: null, channelId: null, dmConversationId: null, error: message });
+    toast.error(message);
     return;
   }
 
@@ -620,6 +660,7 @@ async function doConnect(opts: {
   store.setState({ connecting: false, participants, stageRole, handRaised: false });
   for (const p of ack.participants ?? []) getOrCreatePeer(p.socketId);
   rememberVoiceSocket(opts.emit);
+  keepCallAlive(opts.dmConversationId ? "In a call" : "In a voice room");
 }
 
 // ---- surviving a reconnect ---------------------------------------------------------------------
@@ -659,13 +700,11 @@ async function rejoinAfterReconnect(): Promise<void> {
   for (const socketId of Array.from(peers.keys())) closePeer(socketId);
   store.setState({ connecting: true, participants: {} });
   await refreshIceServers();
-  const ack = await new Promise<{ ok: boolean; participants?: VoiceParticipantDTO[]; stageRole?: "speaker" | "audience"; error?: string }>((resolve) => {
-    getSocket().emit(ClientEvents.VOICE_JOIN, emit, resolve);
-  });
+  const ack = await emitJoin(emit);
   if (!store.getState().channelId || lastJoinEmit !== emit) return; // left (or moved) while this was in flight
   if (!ack.ok) {
     store.getState().leave();
-    store.setState({ error: ack.error ?? "Lost the voice connection. Join again." });
+    reportVoiceError(ack.error ? `Lost the voice connection: ${ack.error}. Join again.` : "Lost the voice connection. Join again.");
     return;
   }
   voiceSocketId = getSocket().id ?? null;
@@ -681,6 +720,7 @@ async function rejoinAfterReconnect(): Promise<void> {
 }
 
 function teardown(): void {
+  releaseCall();
   for (const socketId of Array.from(peers.keys())) closePeer(socketId);
   // Before the source tracks are stopped — the VAD clone shares their hardware source, and
   // leaving it running would hold the microphone open (and the recording indicator lit) after
@@ -882,8 +922,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       }
       set({ videoSource: "camera" });
       announceStreamState("camera");
-    } catch {
-      set({ error: "Camera access denied or unavailable." });
+    } catch (err) {
+      reportVoiceError(deviceErrorMessage(err, "camera"));
     }
   },
 
@@ -911,8 +951,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
         if (get().videoSource === "screen") get().toggleScreenShare();
       });
-    } catch {
-      set({ error: "Screen share was cancelled or unavailable." });
+    } catch (err) {
+      // Closing the picker rejects with NotAllowedError. That is a choice, not a failure to report.
+      if ((err as { name?: string } | null)?.name === "NotAllowedError") return;
+      reportVoiceError("Screen sharing isn't available here.");
     }
   },
 }));

@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Newspaper, Bookmark,
-  Bell,
   ChevronRight,
   Compass,
   Crown,
@@ -26,13 +24,11 @@ import { isStaff as checkStaff, isOwner as checkOwner } from "../../lib/platform
 import { useServers } from "../../queries/servers";
 import { useServerFolders, useCreateFolder } from "../../queries/serverFolders";
 import { DeckFolder } from "./deck/DeckFolder";
-import { useInboxUnread } from "../../queries/inbox";
 import { useGlobalUnread } from "../../queries/readState";
 import { useUIStore } from "../../store/uiStore";
 import { resolveAssetUrl } from "../../lib/apiClient";
 import { cn } from "../../lib/cn";
 import { UserAvatar } from "../common/UserAvatar";
-import { InboxPanel } from "../inbox/InboxPanel";
 import { MessagesBranch } from "./deck/MessagesBranch";
 import { SpaceBranch, SpaceMenu } from "./deck/SpaceBranch";
 
@@ -60,42 +56,6 @@ import { SpaceBranch, SpaceMenu } from "./deck/SpaceBranch";
 
 function DeckSectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="lx-eyebrow px-2 pb-1 pt-3">{children}</div>;
-}
-
-/** The activity bell — unread count from its own tiny endpoint, list on demand. */
-function DeckInbox({ collapsed }: { collapsed: boolean }) {
-  const [open, setOpen] = useState(false);
-  const { data: unread } = useInboxUnread();
-  const count = unread?.count ?? 0;
-  return (
-    <DropdownMenu.Root open={open} onOpenChange={setOpen}>
-      <DropdownMenu.Trigger asChild>
-        <button
-          className="lx-focus relative rounded-lg p-1.5 text-signal-dim hover:bg-base-600 hover:text-signal"
-          title="Activity"
-          aria-label="Activity"
-        >
-          <Bell size={16} />
-          {count > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-flare px-0.5 font-mono text-[9px] font-bold text-white">
-              {count > 99 ? "99+" : count}
-            </span>
-          )}
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align={collapsed ? "center" : "start"}
-          side="right"
-          sideOffset={8}
-          className="lx-raised z-50 w-96 max-w-[92vw] overflow-hidden"
-        >
-          <p className="lx-eyebrow border-b border-hairline px-3 py-2">Activity</p>
-          <InboxPanel onNavigate={() => setOpen(false)} />
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
 }
 
 /** One space's mark, and the single definition of what a space with no icon looks like — the deck
@@ -333,7 +293,6 @@ export function NavDeck() {
             {!collapsed && <span className="truncate font-display text-sm font-bold tracking-tight text-signal">Lumina</span>}
           </Link>
           <div className={cn("flex items-center gap-0.5", !collapsed && "ml-auto")}>
-            <DeckInbox collapsed={collapsed} />
             <button
               onClick={toggleDeck}
               title={collapsed ? "Expand navigation" : "Collapse navigation"}

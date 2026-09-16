@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(BiometricLockPlugin.class);
         registerPlugin(NotificationSoundsPlugin.class);
         registerPlugin(AgeSignalsPlugin.class);
+        registerPlugin(VoiceCallPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Notification channels, created before anything can post to one.

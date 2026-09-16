@@ -46,6 +46,13 @@
 
         </activity>
 
+        <!-- Keeps a voice call alive with the screen off or another app in front. Started and
+             stopped by VoiceCallPlugin; see VoiceCallService for why a call needs it. -->
+        <service
+            android:name=".VoiceCallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -65,4 +72,17 @@
          install intent is refused by the OS with nothing shown to the user. The user still
          confirms every install; this permission only allows the app to *ask*. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Voice rooms, calls, voice messages and camera. The WebView turns getUserMedia into a runtime
+         request for these (Capacitor's BridgeWebChromeClient), and Android refuses a permission the
+         manifest never declared without ever showing a prompt. Before these lines existed every
+         voice join in the app failed on the spot. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- VoiceCallService: a microphone foreground service plus a partial wake lock while in a call. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 </manifest>
