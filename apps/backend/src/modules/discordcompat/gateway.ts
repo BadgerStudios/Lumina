@@ -59,7 +59,7 @@ async function guildIdForChannel(session: GatewaySession, channelId: string | nu
 }
 
 /** One guild, in full, as GUILD_CREATE — at identify for every membership, and again live when the bot is added to a space. */
-async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<typeof mapUser>[0], serverId: string): Promise<void> {
+async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<typeof mapUser>[0], serverId: string, live = false): Promise<void> {
   const server = await prisma.server.findUnique({ where: { id: serverId } });
   if (!server) return;
   const [roles, channels, membership] = await Promise.all([
@@ -81,6 +81,10 @@ async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<
     },
   ] as never;
   guild.member_count = await prisma.membership.count({ where: { serverId } });
+  // Discord.Net reads `unavailable: false` as "a guild from READY became available" and, finding
+  // no such guild, logs Unknown Guild and drops it (NadekoBot, added live to a space). A real
+  // join carries no `unavailable` key at all — that absence is what selects the join path.
+  if (live) delete (guild as { unavailable?: boolean }).unavailable;
   send(session, 0, guild, "GUILD_CREATE");
 }
 
@@ -154,7 +158,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
     const serverId = payload?.serverId;
     if (!serverId) return;
     void (async () => {
-      await dispatchGuildCreate(session, botUser, serverId);
+      await dispatchGuildCreate(session, botUser, serverId, true);
       if (!wantsMessages) return;
       const channels = await prisma.channel.findMany({ where: { serverId, type: { in: ["TEXT", "THREAD"] } }, select: { id: true } });
       for (const c of channels) internal.emit("channel:join", { channelId: c.id });
