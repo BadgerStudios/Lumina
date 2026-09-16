@@ -143,6 +143,11 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
   useEffect(() => setDescription(server.description ?? ""), [server.description]);
   useEffect(() => setVanity(server.vanityCode ?? ""), [server.vanityCode]);
   useEffect(() => setMcHost(server.minecraftHost ?? ""), [server.minecraftHost]);
+  const [joinTemplate, setJoinTemplate] = useState(server.joinMessageTemplate ?? "");
+  const [leaveTemplate, setLeaveTemplate] = useState(server.leaveMessageTemplate ?? "");
+  useEffect(() => setJoinTemplate(server.joinMessageTemplate ?? ""), [server.joinMessageTemplate]);
+  useEffect(() => setLeaveTemplate(server.leaveMessageTemplate ?? ""), [server.leaveMessageTemplate]);
+  const systemChannel = textChannels.find((c) => c.id === server.systemChannelId);
 
   return (
     <div>
@@ -225,6 +230,23 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-signal-faint">
           System messages
         </h4>
+        <Field
+          label="System messages channel"
+          hint={systemChannel ? `Join and leave announcements are posted in #${systemChannel.name}.` : "Pick a channel or announcements have nowhere to go."}
+        >
+          <select
+            className={SELECT_CLASS}
+            value={server.systemChannelId ?? ""}
+            onChange={(e) => save({ systemChannelId: e.target.value || null })}
+          >
+            <option value="">No system channel</option>
+            {textChannels.map((c) => (
+              <option key={c.id} value={c.id}>
+                #{c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
         <Toggle
           label="Welcome new members"
           hint="Posts in the system channel when someone joins."
@@ -236,6 +258,28 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
           hint="Off by default — on a busy server this is mostly noise, and it can single people out."
           checked={server.sysLeaveMessages}
           onChange={(v) => save({ sysLeaveMessages: v })}
+        />
+        <TemplateField
+          label="Join message"
+          value={joinTemplate}
+          fallback={DEFAULT_JOIN_TEMPLATE}
+          space={server.name}
+          onChange={setJoinTemplate}
+          onCommit={() => {
+            const next = joinTemplate.trim();
+            if (next !== (server.joinMessageTemplate ?? "")) save({ joinMessageTemplate: next || null });
+          }}
+        />
+        <TemplateField
+          label="Leave message"
+          value={leaveTemplate}
+          fallback={DEFAULT_LEAVE_TEMPLATE}
+          space={server.name}
+          onChange={setLeaveTemplate}
+          onCommit={() => {
+            const next = leaveTemplate.trim();
+            if (next !== (server.leaveMessageTemplate ?? "")) save({ leaveMessageTemplate: next || null });
+          }}
         />
         <Toggle
           label="18+ only"
@@ -284,5 +328,50 @@ export function CommunityPanel({ server, serverId }: PanelProps) {
         </Field>
       </div>
     </div>
+  );
+}
+
+// Mirrors apps/backend/src/modules/messages/systemMessages.ts — the wording a space gets when it
+// writes none of its own. Kept here so the preview shows the real default, not a guess.
+const DEFAULT_JOIN_TEMPLATE = "{user} just joined {space}. Say hi!";
+const DEFAULT_LEAVE_TEMPLATE = "{user} left {space}.";
+
+function previewTemplate(template: string, space: string): string {
+  const values: Record<string, string> = { user: "@newcomer", name: "Newcomer", space, count: "128" };
+  return template.replace(/\{(user|name|space|count)\}/g, (_, key: string) => values[key]);
+}
+
+/** A template with its live preview underneath, so nobody has to join to find out what it says. */
+function TemplateField({
+  label,
+  value,
+  fallback,
+  space,
+  onChange,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  fallback: string;
+  space: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+}) {
+  const effective = value.trim() || fallback;
+  return (
+    <Field label={label} hint="Placeholders: {user} mentions them, {name} is their display name, {space} this space, {count} the member count.">
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onCommit}
+        maxLength={200}
+        placeholder={fallback}
+        className="w-full rounded-lg border border-hairline bg-base-800 px-3 py-2 text-sm text-signal placeholder:text-signal-faint focus:border-accent focus:outline-none"
+      />
+      <p className="mt-1.5 truncate text-xs text-signal-dim">
+        <span className="text-signal-faint">Preview: </span>
+        {previewTemplate(effective, space)}
+      </p>
+    </Field>
   );
 }

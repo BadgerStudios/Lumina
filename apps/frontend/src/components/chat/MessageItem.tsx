@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Bookmark, Link as LinkIcon, CornerUpLeft } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Bookmark, Link as LinkIcon, CornerUpLeft, LogIn, LogOut } from "lucide-react";
 import { useSaveMessage } from "../../queries/keep";
 import { useUIStore } from "../../store/uiStore";
 import { useMarkChannelUnread } from "../../queries/readState";
@@ -172,6 +172,10 @@ export function MessageItem({
     } catch {
       reportError(null, "Couldn't copy the link");
     }
+  }
+
+  if (message.type === "MEMBER_JOIN" || message.type === "MEMBER_LEAVE") {
+    return <SystemMessage message={message} highlighted={highlighted} displayName={displayName} avatarUrl={avatarUrl} />;
   }
 
   return (
@@ -519,6 +523,58 @@ export function MessageItem({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A join/leave announcement. Not a chat bubble: no spine, no reply/react/edit controls — it is
+ * the space speaking about a member, so it reads as one quiet line with the member's face on it.
+ * The `@username` inside is the same mention the composer would produce, so it is tappable in
+ * spirit and styled like one here.
+ */
+function SystemMessage({
+  message,
+  highlighted,
+  displayName,
+  avatarUrl,
+}: {
+  message: MessageDTO;
+  highlighted?: boolean;
+  displayName: string;
+  avatarUrl: string | null;
+}) {
+  const joined = message.type === "MEMBER_JOIN";
+  const parts = message.content.split(/(@[a-zA-Z0-9_]+)/g);
+  return (
+    <div
+      className={cn("flex items-center gap-3 px-4 py-1.5", highlighted && "rounded-lg bg-accent/10 transition-colors duration-500")}
+      data-message-id={message.id}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+          joined ? "bg-online/15 text-online" : "bg-base-600 text-signal-faint",
+        )}
+      >
+        {joined ? <LogIn size={13} /> : <LogOut size={13} />}
+      </span>
+      <UserAvatar avatarUrl={avatarUrl} name={displayName} size={20} />
+      <span className="min-w-0 flex-1 truncate text-sm text-signal-dim">
+        {parts.map((part, i) =>
+          part.startsWith("@") ? (
+            <span key={i} className="font-medium text-accent">
+              {part}
+            </span>
+          ) : (
+            <span key={i}>{part}</span>
+          ),
+        )}
+      </span>
+      <time className="shrink-0 text-[11px] text-signal-faint" dateTime={message.createdAt} title={formatFullDate(message.createdAt)}>
+        {formatTime(message.createdAt)}
+      </time>
     </div>
   );
 }

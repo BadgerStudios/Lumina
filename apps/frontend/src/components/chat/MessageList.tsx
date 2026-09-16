@@ -198,6 +198,10 @@ export function MessageList({
             const showHeader =
               !prev ||
               prev.authorId !== message.authorId ||
+              // An announcement never starts a group: the member's first real message after their
+              // own join line must carry its own name and face.
+              message.type !== "DEFAULT" ||
+              prev.type !== "DEFAULT" ||
               new Date(message.createdAt).getTime() - new Date(prev.createdAt).getTime() > GROUP_WINDOW_MS;
             return (
               <div key={message.id}>

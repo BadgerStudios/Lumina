@@ -57,7 +57,7 @@ function highestColoredRole(member: MemberDTO, roles: RoleDTO[]): RoleDTO | unde
  * sends from a timed-out member) with zero UI ever calling it, same bug class as the role
  * gap above.
  */
-function MemberRolesMenu({
+export function MemberRolesMenu({
   serverId,
   member,
   roles,

@@ -10,7 +10,7 @@ import { MentionPalette, findMentionQuery } from "./MentionPalette";
 import { useMembers } from "../../queries/members";
 import { ICON } from "../common/Icon";
 import { PollBuilder, type PollDraft } from "./PollBuilder";
-import { SlashCommandPalette, parseInvocation } from "./SlashCommandPalette";
+import { SlashCommandPalette, parseInvocation, commandLeaves, matchLeaves } from "./SlashCommandPalette";
 import { useServerCommands, useInvokeCommand } from "../../queries/interactions";
 import type { RichSendPayload } from "../../queries/messages";
 import type { SlashCommandDTO } from "@lumina/shared";
@@ -210,7 +210,8 @@ export function Composer({
 
   // The palette is open only while the text is a lone `/word` with no space yet — once an argument
   // is being typed, the list has served its purpose and would only be in the way.
-  const slashQuery = /^\/([a-z0-9_-]*)$/i.exec(value)?.[1];
+  // Up to two more words so `/level ra` still shows /level rank — commands nest like Discord's.
+  const slashQuery = /^\/([a-z0-9_-]*(?: [a-z0-9_-]*){0,2})$/i.exec(value)?.[1];
   const paletteOpen = slashQuery !== undefined && (commands?.length ?? 0) > 0;
 
   // ---- @-mention autocomplete --------------------------------------------------------------
@@ -342,11 +343,18 @@ export function Composer({
     if (!text.startsWith("/") || !commands?.length) return false;
     const parsed = parseInvocation(text, commands);
     if (!parsed) return false;
+    if (parsed.missingSubcommand) {
+      // `/level` where the bot defined `/level rank` and `/level set`: say which, rather than
+      // sending the bare word as a message or letting the bot refuse it.
+      setError(`/${[parsed.command.name, ...parsed.path].join(" ")} needs one of: ${parsed.missingSubcommand.join(", ")}`);
+      return true;
+    }
 
     const result = await invokeCommand.mutateAsync({
       channelId: typingChannelId,
       dmConversationId,
       name: parsed.command.name,
+      path: parsed.path,
       options: parsed.options,
     });
     if (result.timedOut) setError(result.timedOut);
@@ -450,9 +458,9 @@ export function Composer({
         // Tab completes; Enter deliberately does not, so a genuine message that happens to start
         // with a slash can still be sent by pressing Enter as usual.
         e.preventDefault();
-        const matches = commands.filter((c) => c.name.startsWith(slashQuery ?? ""));
-        const picked: SlashCommandDTO | undefined = matches[commandIndex % Math.max(1, matches.length)];
-        if (picked) setValue(`/${picked.name} `);
+        const matches = matchLeaves(commandLeaves(commands), slashQuery ?? "");
+        const picked = matches[commandIndex % Math.max(1, matches.length)];
+        if (picked) setValue(`/${picked.label} `);
         return;
       }
       if (e.key === "Escape") {
@@ -500,8 +508,8 @@ export function Composer({
           commands={commands}
           query={slashQuery ?? ""}
           activeIndex={commandIndex}
-          onPick={(command) => {
-            setValue(`/${command.name} `);
+          onPick={(leaf) => {
+            setValue(`/${leaf.label} `);
             textareaRef.current?.focus();
           }}
         />

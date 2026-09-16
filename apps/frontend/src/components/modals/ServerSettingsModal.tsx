@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DoorOpen,
   Copy, Check, Trash2, Settings as SettingsIcon, ShieldCheck, Users, Smile,
-  Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle, Bot, ChevronUp, ChevronDown,
+  Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle, Bot, ChevronUp, ChevronDown, UserCog, Link as LinkIcon,
 } from "lucide-react";
 import type { RoleDTO } from "@lumina/shared";
 import { useUIStore } from "../../store/uiStore";
@@ -24,9 +24,11 @@ import { cn } from "../../lib/cn";
 import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
 import { ExpressionsSettingsPanel } from "./ExpressionsSettingsPanel";
 import { ServerTemplateSection } from "./ServerTemplateSection";
+import { ServerMembersPanel } from "./ServerMembersPanel";
+import { ServerInvitesPanel } from "./ServerInvitesPanel";
 import { SettingsShell, type SettingsGroup } from "./SettingsShell";
 
-type Tab = "overview" | "onboarding" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons" | "bots";
+type Tab = "overview" | "onboarding" | "moderation" | "community" | "emoji" | "roles" | "members" | "invites" | "bans" | "auditLog" | "webhooks" | "automod" | "addons" | "bots";
 
 function colorToHex(color: number | null): string {
   return color === null ? "#5b7cfa" : `#${color.toString(16).padStart(6, "0")}`;
@@ -232,7 +234,9 @@ export function ServerSettingsModal() {
     {
       title: "Community",
       items: [
-        { key: "community", label: "Community", icon: Users, hint: "Rules channel and inactive channel" },
+        { key: "members", label: "Members", icon: UserCog, hint: "Everyone here: roles, nicknames, kicks and bans" },
+        { key: "invites", label: "Invites", icon: LinkIcon, hint: "Links that bring people in" },
+        { key: "community", label: "Community", icon: Users, hint: "Announcements, rules and discovery" },
         { key: "moderation", label: "Moderation", icon: ShieldCheck, hint: "Who and what gets scanned" },
         { key: "automod", label: "AutoMod", icon: ShieldAlert, hint: "Automatic rules for messages" },
         { key: "bans", label: "Bans", icon: Ban, hint: "Who is kept out" },
@@ -548,6 +552,8 @@ export function ServerSettingsModal() {
           )}
 
           {tab === "webhooks" && <WebhooksTab serverId={serverId} />}
+          {tab === "members" && server && <ServerMembersPanel server={server} serverId={serverId} />}
+          {tab === "invites" && <ServerInvitesPanel serverId={serverId} />}
     </SettingsShell>
   );
 }

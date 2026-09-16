@@ -25,6 +25,8 @@ export function useInvokeCommand() {
       channelId?: string;
       dmConversationId?: string;
       name: string;
+      /** Subcommand group and/or subcommand names, e.g. ["rank"] for /level rank. */
+      path?: string[];
       options: Record<string, string | number | boolean>;
     }) => api.post<InvokeResult>("/interactions/invoke", input),
     // Deliberately no onError toast: the caller renders the failure inline next to the composer,

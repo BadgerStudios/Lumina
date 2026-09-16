@@ -58,6 +58,8 @@ export function useUpdateServer(serverId: string) {
       sysLeaveMessages?: boolean;
       sysBoostMessages?: boolean;
       rulesChannelId?: string | null;
+      joinMessageTemplate?: string | null;
+      leaveMessageTemplate?: string | null;
     }) =>
       api.patch<ServerDTO>(`/servers/${serverId}`, body),
     onSuccess: (server) => {
