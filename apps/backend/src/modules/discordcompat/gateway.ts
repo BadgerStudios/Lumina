@@ -58,6 +58,32 @@ async function guildIdForChannel(session: GatewaySession, channelId: string | nu
   return serverId;
 }
 
+/** One guild, in full, as GUILD_CREATE — at identify for every membership, and again live when the bot is added to a space. */
+async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<typeof mapUser>[0], serverId: string): Promise<void> {
+  const server = await prisma.server.findUnique({ where: { id: serverId } });
+  if (!server) return;
+  const [roles, channels, membership] = await Promise.all([
+    prisma.role.findMany({ where: { serverId } }),
+    prisma.channel.findMany({ where: { serverId, type: { not: "THREAD" } } }),
+    prisma.membership.findUnique({ where: { userId_serverId: { userId: botUser.id, serverId } } }),
+  ]);
+  const guild = await mapGuild(server, roles, channels);
+  // The bot's OWN member must ride in GUILD_CREATE: discord.js's guild.members.me is how
+  // libraries compute their permissions, and a null me reads as "no permissions" — the exact
+  // refusal discord-tictactoe printed until this existed.
+  guild.members = [
+    {
+      user: { ...(await mapUser(botUser)), bot: true },
+      nick: membership?.nickname ?? null,
+      roles: [],
+      joined_at: (membership?.joinedAt ?? new Date(0)).toISOString(),
+      ...MEMBER_DEFAULTS,
+    },
+  ] as never;
+  guild.member_count = await prisma.membership.count({ where: { serverId } });
+  send(session, 0, guild, "GUILD_CREATE");
+}
+
 async function handleIdentify(session: GatewaySession, d: { token?: string; intents?: number }): Promise<void> {
   const raw = (d?.token ?? "").replace(/^Bot\s+/i, "");
   const application = await prisma.application.findFirst({
@@ -98,30 +124,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
     },
     "READY",
   );
-  for (const { serverId } of memberships) {
-    const server = await prisma.server.findUnique({ where: { id: serverId } });
-    if (!server) continue;
-    const [roles, channels, membership] = await Promise.all([
-      prisma.role.findMany({ where: { serverId } }),
-      prisma.channel.findMany({ where: { serverId, type: { not: "THREAD" } } }),
-      prisma.membership.findUnique({ where: { userId_serverId: { userId: botUser.id, serverId } } }),
-    ]);
-    const guild = await mapGuild(server, roles, channels);
-    // The bot's OWN member must ride in GUILD_CREATE: discord.js's guild.members.me is how
-    // libraries compute their permissions, and a null me reads as "no permissions" — the exact
-    // refusal discord-tictactoe printed until this existed.
-    guild.members = [
-      {
-        user: { ...(await mapUser(botUser)), bot: true },
-        nick: membership?.nickname ?? null,
-        roles: [],
-        joined_at: (membership?.joinedAt ?? new Date(0)).toISOString(),
-        ...MEMBER_DEFAULTS,
-      },
-    ] as never;
-    guild.member_count = await prisma.membership.count({ where: { serverId } });
-    send(session, 0, guild, "GUILD_CREATE");
-  }
+  for (const { serverId } of memberships) await dispatchGuildCreate(session, botUser, serverId);
 
   // The translation feed: a native bot socket, speaking Lumina events in, Discord dispatches out.
   const internal = ioClient(`http://127.0.0.1:${env.PORT}`, {
@@ -141,6 +144,19 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
         where: { serverId: { in: memberships.map((m) => m.serverId) }, type: { in: ["TEXT", "THREAD"] } },
         select: { id: true },
       });
+      for (const c of channels) internal.emit("channel:join", { channelId: c.id });
+    })().catch(() => undefined);
+  });
+
+  // Added to a space while connected (Bots panel → "Add to this space"): the guild arrives the
+  // way a real join does — GUILD_CREATE, then its channel rooms — so the bot answers there at once.
+  internal.on("server:joined", (payload: { serverId?: string }) => {
+    const serverId = payload?.serverId;
+    if (!serverId) return;
+    void (async () => {
+      await dispatchGuildCreate(session, botUser, serverId);
+      if (!wantsMessages) return;
+      const channels = await prisma.channel.findMany({ where: { serverId, type: { in: ["TEXT", "THREAD"] } }, select: { id: true } });
       for (const c of channels) internal.emit("channel:join", { channelId: c.id });
     })().catch(() => undefined);
   });

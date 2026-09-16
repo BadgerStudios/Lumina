@@ -1,12 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
+import { getIO } from "../../realtime/io.js";
+import { admitUserToServer } from "../../realtime/io.js";
 import type { AuthorizedAppDTO, OAuthAuthorizeInfoDTO, OAuthBotTargetServerDTO, UserDTO } from "@lumina/shared";
-import { Permissions } from "@lumina/shared";
+import { Permissions, ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
 import { generateRefreshToken, hashRefreshToken } from "../../lib/jwt.js";
-import { serializeUser } from "../../lib/serialize.js";
+import { serializeUser, serializeMember } from "../../lib/serialize.js";
 import { computeEffectivePermissions } from "../../permissions/permissionService.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
 import { BadRequestError, ForbiddenError, NotFoundError, UnauthorizedError } from "../../lib/errors.js";
+
+const memberInclude = { user: true, roles: { select: { roleId: true } } } as const;
 
 const CODE_TTL_SECONDS = 5 * 60; // standard OAuth2 authorization-code lifetime
 const TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
@@ -188,7 +192,7 @@ export async function installBot(params: {
     select: { id: true },
   });
 
-  await prisma.$transaction(async (tx) => {
+  const membershipId = await prisma.$transaction(async (tx) => {
     const membership =
       existing ??
       (await tx.membership.create({ data: { userId: botUser.id, serverId: server.id }, select: { id: true } }));
@@ -216,6 +220,7 @@ export async function installBot(params: {
         update: {},
       });
     }
+    return membership.id;
   });
 
   if (!existing) {
@@ -228,6 +233,13 @@ export async function installBot(params: {
     });
   }
 
+  if (!existing) {
+    // Same two announcements an invite join makes: the room hears a member arrived, and the
+    // newcomer's own live sockets are let in (for a bot, that is what makes it answer here now).
+    const full = await prisma.membership.findUnique({ where: { id: membershipId }, include: memberInclude });
+    if (full) getIO().to(`server:${server.id}`).emit(ServerEvents.MEMBER_JOIN, serializeMember(full));
+    await admitUserToServer(botUser.id, server.id);
+  }
   return { serverId: server.id, botUserId: botUser.id, grantedPermissions: granted.toString(), alreadyPresent: !!existing };
 }
 

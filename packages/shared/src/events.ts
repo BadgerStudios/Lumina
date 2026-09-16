@@ -44,6 +44,9 @@ export const ServerEvents = {
   REACTION_REMOVE: "reaction:remove",
   TYPING_UPDATE: "typing:update",
   PRESENCE_UPDATE: "presence:update",
+  // To the joining user only: they were just added to a server (a bot installed from the Bots
+  // panel, an invite accepted elsewhere). Their live sockets are already in the server room.
+  SERVER_JOINED: "server:joined",
   MEMBER_JOIN: "member:join",
   MEMBER_LEAVE: "member:leave",
   MEMBER_UPDATE: "member:update",

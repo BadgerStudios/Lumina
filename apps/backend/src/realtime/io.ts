@@ -1,3 +1,4 @@
+import { ServerEvents } from "@lumina/shared";
 import type { Server as HTTPServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
@@ -44,6 +45,23 @@ export async function evictUserFromServer(userId: string, serverId: string): Pro
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error(`[realtime] failed to evict user ${userId} from server ${serverId}:`, err);
+  }
+}
+
+/**
+ * Counterpart of evictUserFromServer. A user who was just added to a server gets their live
+ * sockets into its room at once, plus a SERVER_JOINED nudge on their own room so anything that
+ * translates the feed (the Discord compat gateway) can announce the guild and subscribe to its
+ * channels. Without it a bot installed from the Bots panel sat deaf in the new space until its
+ * next reconnect. Best-effort like the eviction: adding a member must not fail on realtime.
+ */
+export async function admitUserToServer(userId: string, serverId: string): Promise<void> {
+  if (!io) return;
+  try {
+    io.in(`user:${userId}`).socketsJoin(`server:${serverId}`);
+    io.to(`user:${userId}`).emit(ServerEvents.SERVER_JOINED, { serverId });
+  } catch (err) {
+    console.error(`[realtime] failed to admit user ${userId} to server ${serverId}:`, err);
   }
 }
 
