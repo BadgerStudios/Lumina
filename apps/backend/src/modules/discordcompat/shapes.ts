@@ -388,6 +388,9 @@ export function optionTypeToLumina(discordType: number | undefined): "string" | 
  * instead of failing the bot's whole set (Ree6 ships several). The PUT still echoes them back so
  * the library sees every command it sent.
  */
-export function chatInputOnly<T extends { type?: number }>(commands: T[]): T[] {
-  return commands.filter((c) => c.type === undefined || c.type === 1);
+export function chatInputOnly<T extends object>(commands: T[]): T[] {
+  return commands.filter((c) => {
+    const type = (c as { type?: number }).type;
+    return type === undefined || type === 1;
+  });
 }
