@@ -1,3 +1,4 @@
+import { usePreferencesStore } from "../../store/preferencesStore";
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -26,9 +27,9 @@ import { useCreateDM } from "../../queries/dms";
 import { reportError, toast } from "../../store/toastStore";
 import { PUBLIC_ORIGIN } from "../../lib/platform";
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, hour12 = true): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toLocaleTimeString([], { hour: hour12 ? "numeric" : "2-digit", minute: "2-digit", hour12 });
 }
 
 function formatFullDate(iso: string): string {
@@ -106,6 +107,7 @@ export function MessageItem({
   const openReport = useUIStore((s) => s.openModalWith);
   const markUnread = useMarkChannelUnread();
   const save = useSaveMessage();
+  const chatPrefs = usePreferencesStore((s) => s.prefs.chat);
   const author = message.author;
   const displayName = author?.displayName ?? author?.username ?? message.webhookUsername ?? "Unknown user";
   const avatarUrl = author?.avatarUrl ?? message.webhookAvatarUrl ?? null;
@@ -313,20 +315,20 @@ export function MessageItem({
               <div className="mt-1.5 flex flex-col gap-2">
                 {message.attachments.map((a) => (
                   <SpoilerAttachment key={a.id} fileName={a.fileName}>
-                    {a.mimeType.startsWith("image/") ? (
+                    {chatPrefs.showMedia && a.mimeType.startsWith("image/") ? (
                       <img
                         src={attachmentUrl(a.url)}
                         alt={stripSpoilerPrefix(a.fileName)}
                         className="max-h-80 max-w-sm rounded-xl border border-hairline"
                       />
-                    ) : a.mimeType.startsWith("video/") ? (
+                    ) : chatPrefs.showMedia && a.mimeType.startsWith("video/") ? (
                       <video
                         src={attachmentUrl(a.url)}
                         controls
                         preload="metadata"
                         className="max-h-80 max-w-sm rounded-xl border border-hairline"
                       />
-                    ) : a.mimeType.startsWith("audio/") ? (
+                    ) : chatPrefs.showMedia && a.mimeType.startsWith("audio/") ? (
                       <audio src={attachmentUrl(a.url)} controls preload="metadata" className="max-w-xs" />
                     ) : (
                       <a
@@ -355,7 +357,7 @@ export function MessageItem({
               />
             ) : null}
             {message.poll ? <PollCard poll={message.poll} currentUserId={currentUserId} /> : null}
-            <LinkEmbeds embeds={message.embeds} />
+            {chatPrefs.showLinkPreviews ? <LinkEmbeds embeds={message.embeds} /> : null}
             {message.components ? <MessageComponents messageId={message.id} rows={message.components} /> : null}
           </>
         )}
@@ -410,7 +412,7 @@ export function MessageItem({
           group's opening time is permanent context and the individual times are there when wanted
           without printing a clock beside every line. */}
       <div className="lx-gutter" title={formatFullDate(message.createdAt)}>
-        {formatTime(message.createdAt)}
+        {formatTime(message.createdAt, !chatPrefs.use24hClock)}
       </div>
 
       {!editing && (
@@ -546,6 +548,7 @@ function SystemMessage({
 }) {
   const joined = message.type === "MEMBER_JOIN";
   const parts = message.content.split(/(@[a-zA-Z0-9_]+)/g);
+  const chatPrefs = usePreferencesStore((s) => s.prefs.chat);
   return (
     <div
       className={cn("flex items-center gap-3 px-4 py-1.5", highlighted && "rounded-lg bg-accent/10 transition-colors duration-500")}
@@ -573,7 +576,7 @@ function SystemMessage({
         )}
       </span>
       <time className="shrink-0 text-[11px] text-signal-faint" dateTime={message.createdAt} title={formatFullDate(message.createdAt)}>
-        {formatTime(message.createdAt)}
+        {formatTime(message.createdAt, !chatPrefs.use24hClock)}
       </time>
     </div>
   );

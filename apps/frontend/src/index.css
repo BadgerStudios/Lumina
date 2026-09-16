@@ -945,3 +945,14 @@ body {
   --safe-top: max(env(safe-area-inset-top, 0px), var(--android-safe-top, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--android-safe-bottom, 0px));
 }
+
+/* Account preference "Reduce motion" (User Settings → Accessibility), independent of the OS
+   setting: the same collapse the prefers-reduced-motion media query applies, forced by attribute. */
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}

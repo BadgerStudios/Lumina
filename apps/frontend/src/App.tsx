@@ -1,3 +1,4 @@
+import { usePreferencesStore } from "./store/preferencesStore";
 import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./store/authStore";
@@ -78,6 +79,7 @@ export function App() {
   useEffect(() => {
     if (accessToken) {
       connectSocket();
+      void usePreferencesStore.getState().load();
     } else {
       disconnectSocket();
     }

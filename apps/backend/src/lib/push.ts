@@ -1,3 +1,4 @@
+import { resolvePreferences } from "../modules/users/preferences.js";
 import webpush from "web-push";
 import { prisma } from "../db/prisma.js";
 import { env } from "../config/env.js";
@@ -30,6 +31,10 @@ export interface PushPayload {
  * the user's other devices.
  */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
+  // The person's own switch for this kind (User Settings → Notifications) wins over everything
+  // that decided to send: a kind turned off stays silent on every device.
+  const prefUser = await prisma.user.findUnique({ where: { id: userId }, select: { preferencesJson: true } });
+  if (!resolvePreferences(prefUser?.preferencesJson).notifications.push[payload.kind ?? "message"]) return;
   // Both transports, independently. A phone usually holds an FCM token AND a web-push
   // subscription; the native one is what can play the app's own sound, and web push is what still
   // reaches every desktop and browser. Failing at one must never stop the other.

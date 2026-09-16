@@ -1,4 +1,4 @@
-import { createDeflate, constants as zlibConstants, type Deflate } from "node:zlib";
+import { createDeflate, createZstdCompress, constants as zlibConstants, type Deflate, type ZstdCompress } from "node:zlib";
 import type { Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
@@ -44,8 +44,11 @@ interface GatewaySession {
   channelGuildCache: Map<string, string | null>;
   /** GUILD_MEMBERS intent declared AND the portal toggle on: the full member list may be chunked. */
   membersAllowed: boolean;
-  /** Set when the client connected with compress=zlib-stream: one shared deflate context for the session. */
-  deflate: Deflate | null;
+  /**
+   * Set when the client asked for compress=zlib-stream or zstd-stream: one shared compression
+   * context for the whole session, plus the flush flag that closes each payload.
+   */
+  deflate: { stream: Deflate | ZstdCompress; flush: number } | null;
   /** Compressed sends are async; this keeps them in order. */
   sendChain: Promise<void>;
 }
@@ -54,11 +57,12 @@ function send(session: GatewaySession, op: number, d: unknown, t?: string): void
   if (session.ws.readyState !== WebSocket.OPEN) return;
   const s = t ? ++session.seq : null;
   const json = JSON.stringify({ op, d, s, t: t ?? null });
-  const deflate = session.deflate;
-  if (!deflate) {
+  const compressor = session.deflate;
+  if (!compressor) {
     session.ws.send(json);
     return;
   }
+  const { stream: deflate, flush } = compressor;
   // zlib-stream, exactly as Discord does it: one deflate context for the whole session, each
   // payload terminated by a Z_SYNC_FLUSH so the client can cut the stream at 00 00 FF FF. Every
   // payload goes out as ONE binary frame — Discord.Net decompresses a frame and parses it as one
@@ -69,7 +73,7 @@ function send(session: GatewaySession, op: number, d: unknown, t?: string): void
       () =>
         new Promise<void>((resolve) => {
           deflate.write(json);
-          deflate.flush(zlibConstants.Z_SYNC_FLUSH, () => {
+          deflate.flush(flush, () => {
             const out = deflate.read() as Buffer | null;
             if (out && session.ws.readyState === WebSocket.OPEN) session.ws.send(out, { binary: true });
             resolve();
@@ -459,19 +463,25 @@ export function attachDiscordGateway(server: HttpServer): void {
   });
 
   wss.on("connection", (ws, request: { url?: string }) => {
-    // compress=zlib-stream is negotiated in the URL (Discord's way); zstd-stream is not offered
-    // here, and every library falls back to plain JSON text frames when it is absent.
-    const compress = /[?&]compress=zlib-stream(?:&|$)/.test(request?.url ?? "");
+    // Compression is negotiated in the URL, Discord's way. discord.py 2.7 asks for zstd-stream
+    // and decompresses each frame as one complete payload; Discord.Net and JDA ask for
+    // zlib-stream. Anything else gets plain JSON text frames.
+    const url = request?.url ?? "";
+    const compress = /[?&]compress=zstd-stream(?:&|$)/.test(url)
+      ? { stream: createZstdCompress(), flush: zlibConstants.ZSTD_e_flush }
+      : /[?&]compress=zlib-stream(?:&|$)/.test(url)
+        ? { stream: createDeflate(), flush: zlibConstants.Z_SYNC_FLUSH }
+        : null;
     const session: GatewaySession = {
       ws,
       seq: 0,
       internal: null,
       channelGuildCache: new Map(),
       membersAllowed: false,
-      deflate: compress ? createDeflate() : null,
+      deflate: compress,
       sendChain: Promise.resolve(),
     };
-    session.deflate?.on("error", () => ws.close(4000, "Compression failed"));
+    session.deflate?.stream.on("error", () => ws.close(4000, "Compression failed"));
     send(session, 10, { heartbeat_interval: HEARTBEAT_INTERVAL_MS });
 
     // A client that never heartbeats is a dead client; Discord zombie-detects the same way.
@@ -512,7 +522,7 @@ export function attachDiscordGateway(server: HttpServer): void {
     ws.on("close", () => {
       clearInterval(reaper);
       session.internal?.close();
-      session.deflate?.close();
+      session.deflate?.stream.close();
     });
   });
 }

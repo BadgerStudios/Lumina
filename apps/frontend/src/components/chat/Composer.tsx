@@ -1,3 +1,4 @@
+import { usePreferencesStore } from "../../store/preferencesStore";
 import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { BarChart3, EyeOff, Mic, MoreHorizontal, Plus, Send, Square, Sticker as StickerIcon, Upload, X } from "lucide-react";
@@ -207,6 +208,7 @@ export function Composer({
 
   const { data: commands } = useServerCommands(serverId);
   const invokeCommand = useInvokeCommand();
+  const sendWithEnter = usePreferencesStore((s) => s.prefs.chat.sendWithEnter);
 
   // The palette is open only while the text is a lone `/word` with no space yet — once an argument
   // is being typed, the list has served its purpose and would only be in the way.
@@ -468,7 +470,10 @@ export function Composer({
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Account preference: Enter sends (Shift+Enter breaks the line), or Enter breaks the line and
+    // Ctrl/⌘+Enter sends — the second is what people who write long messages tend to want.
+    const sends = sendWithEnter ? !e.shiftKey : e.ctrlKey || e.metaKey;
+    if (e.key === "Enter" && sends) {
       e.preventDefault();
       void submit();
     }

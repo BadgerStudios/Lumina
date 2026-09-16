@@ -1,3 +1,4 @@
+import { mergePreferences, resolvePreferences } from "./preferences.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../../db/prisma.js";
@@ -70,6 +71,16 @@ export default async function usersRoutes(fastify: FastifyInstance) {
   // Username changes are security/identity-sensitive (it's also the login handle), so they're
   // split out from the general PATCH /me and gated behind re-entering the current password —
   // same reasoning as the password-change route below, matches how most real platforms treat it.
+  fastify.get("/me/preferences", { preHandler: [requireAuth] }, async (request) => {
+    const user = await prisma.user.findUnique({ where: { id: request.userId! }, select: { preferencesJson: true } });
+    return resolvePreferences(user?.preferencesJson);
+  });
+  fastify.patch("/me/preferences", { preHandler: [requireAuth] }, async (request) => {
+    const user = await prisma.user.findUnique({ where: { id: request.userId! }, select: { preferencesJson: true } });
+    const next = mergePreferences(user?.preferencesJson, request.body);
+    await prisma.user.update({ where: { id: request.userId! }, data: { preferencesJson: next as never } });
+    return next;
+  });
   fastify.patch("/me/username", { schema: { body: updateUsernameSchema }, preHandler: [requireAuth] }, async (request) => {
     const body = request.body as z.infer<typeof updateUsernameSchema>;
     const me = await prisma.user.findUnique({ where: { id: request.userId! } });

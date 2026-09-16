@@ -1,9 +1,10 @@
+import { AccessibilitySection, ChatSection, PushKindToggles } from "./PreferenceSections";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
-import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket, Flag, LifeBuoy, Info, ChevronRight } from "lucide-react";
+import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket, Flag, LifeBuoy, Info, ChevronRight, MessageSquare, Accessibility } from "lucide-react";
 import { MyReportsPanel } from "../feed/MyReportsPanel";
 import { CLIENT_TYPE } from "../../lib/platform";
 import { getInstalledVersion } from "../../lib/appUpdater";
@@ -70,12 +71,14 @@ import { ICON } from "../common/Icon";
 
 const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND", "INVISIBLE"];
 
-type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "support" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about";
+type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "support" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about" | "chat" | "accessibility";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "account", label: "My Account", icon: User },
   { key: "sessions", label: "Devices & Sessions", icon: Monitor },
   { key: "appearance", label: "Appearance", icon: Palette },
+  { key: "chat", label: "Chat & media", icon: MessageSquare },
+  { key: "accessibility", label: "Accessibility", icon: Accessibility },
   { key: "privacy", label: "Privacy & Safety", icon: ShieldCheck },
   { key: "reports", label: "My Reports", icon: Flag },
   { key: "support", label: "Support", icon: LifeBuoy },
@@ -106,6 +109,8 @@ const GROUPS: SettingsGroup<Section>[] = [
     title: "Preferences",
     items: [
       { key: "appearance", label: "Appearance", icon: Palette, hint: "Theme and layout" },
+      { key: "chat", label: "Chat & media", icon: MessageSquare, hint: "Sending, previews, media and the clock" },
+      { key: "accessibility", label: "Accessibility", icon: Accessibility, hint: "Motion and text size" },
       { key: "notifications", label: "Notifications", icon: Bell, hint: "What rings, and when" },
       { key: "voice", label: "Voice & Video", icon: Mic, hint: "Mic, camera and speakers" },
     ],
@@ -1320,6 +1325,7 @@ function NotificationsSection() {
         {native && status === "subscribed" ? <TonePicker /> : null}
       </div>
 
+      <PushKindToggles />
       <NotificationSoundToggle />
     </div>
   );
@@ -1981,6 +1987,8 @@ export function UserSettingsModal() {
               {section === "account" && <AccountSection />}
               {section === "sessions" && <SessionsSection />}
               {section === "appearance" && <AppearanceSection />}
+              {section === "chat" && <ChatSection />}
+              {section === "accessibility" && <AccessibilitySection />}
               {section === "privacy" && <PrivacySection />}
               {section === "reports" && <MyReportsPanel />}
               {section === "support" && <SupportSection />}

@@ -1,3 +1,4 @@
+import { usePreferencesStore } from "../../store/preferencesStore";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InfiniteData } from "@tanstack/react-query";
 import type { DMConversationDTO, MessageDTO } from "@lumina/shared";
@@ -78,7 +79,10 @@ export function MessageList({
 
   // Pages are newest-first (see queries/messages.ts); reverse to oldest-first for top-to-bottom
   // chat rendering, and reverse the page order too since page 0 = newest page.
-  const ordered = data ? [...data.pages].reverse().flatMap((page) => [...page].reverse()) : [];
+  const showJoinLeaveLines = usePreferencesStore((s) => s.prefs.chat.showJoinLeaveLines);
+  const orderedAll = data ? [...data.pages].reverse().flatMap((page) => [...page].reverse()) : [];
+  // Account preference: the space's join/leave lines can be hidden without hiding anyone's words.
+  const ordered = showJoinLeaveLines ? orderedAll : orderedAll.filter((m) => m.type === "DEFAULT");
 
   // Index of the first message newer than the read cursor — where the divider goes. Ids are
   // sequential bigints carried as strings, the same comparison SeenIndicator below makes.

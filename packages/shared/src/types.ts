@@ -720,3 +720,38 @@ export interface AuthorizedAppDTO {
   scope: string;
   authorizedAt: string;
 }
+
+/**
+ * Account preferences — the switches that shape the app the same way on every device a person
+ * signs in on. Served by GET/PATCH /users/me/preferences; unknown or invalid stored values fall
+ * back to DEFAULT_PREFERENCES leaf by leaf.
+ */
+export const FONT_SCALES = [90, 100, 110, 125] as const;
+export type FontScale = (typeof FONT_SCALES)[number];
+
+export interface UserPreferencesDTO {
+  chat: {
+    /** Enter sends (Shift+Enter for a new line); off, Enter is a new line and Ctrl/⌘+Enter sends. */
+    sendWithEnter: boolean;
+    showLinkPreviews: boolean;
+    /** Images, video and audio inline; off, every attachment is a link. */
+    showMedia: boolean;
+    use24hClock: boolean;
+    /** The space's join/leave announcements in the timeline. */
+    showJoinLeaveLines: boolean;
+  };
+  accessibility: {
+    reducedMotion: boolean;
+    fontScale: FontScale;
+  };
+  notifications: {
+    /** Which push kinds may ring at all (see PUSH_KINDS in notificationSounds.ts). */
+    push: { message: boolean; direct: boolean; mention: boolean; channel: boolean };
+  };
+}
+
+export const DEFAULT_PREFERENCES: UserPreferencesDTO = {
+  chat: { sendWithEnter: true, showLinkPreviews: true, showMedia: true, use24hClock: false, showJoinLeaveLines: true },
+  accessibility: { reducedMotion: false, fontScale: 100 },
+  notifications: { push: { message: true, direct: true, mention: true, channel: true } },
+};

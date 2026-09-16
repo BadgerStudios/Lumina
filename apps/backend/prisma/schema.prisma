@@ -188,6 +188,8 @@ model User {
   // creation) — both default to true (Discord's own default), so this is purely opt-out.
   allowDmsFromNonFriends Boolean        @default(true)
   allowFriendRequests    Boolean        @default(true)
+  /// Account preferences (chat, accessibility, push kinds) — see modules/users/preferences.ts.
+  preferencesJson        Json?
   // Platform-wide authority. The only global authorization concept in the schema — everything else
   // is per-server (Role.permissions bitfields via Membership), which cannot express "may moderate
   // the cross-server video feed" or "may ban from the platform" since those surfaces belong to no
