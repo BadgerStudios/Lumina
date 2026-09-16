@@ -26,6 +26,9 @@ interface PeerEntry {
   ignoreOffer: boolean;
   /** The bot's audio into this person's ear. */
   outbound: MediaStreamTrack;
+  /** Candidates that arrived before the remote description; werift cannot hold them itself. */
+  remoteSet: boolean;
+  pendingCandidates: unknown[];
 }
 
 export interface MeshBridgeOptions {
@@ -34,7 +37,7 @@ export interface MeshBridgeOptions {
   iceServers: RTCIceServer[];
   /** Public addresses to advertise as host candidates (the container's own are private). */
   additionalHostAddresses?: string[];
-  /** UDP ports werift may bind for ICE; published through the container so host candidates work. */
+  /** UDP ports werift may bind for ICE; published through the container so reflexive candidates work. */
   icePortRange?: [number, number];
   /** A person's opus RTP, as it arrives from their browser. */
   onIncomingAudio: (fromSocketId: string, fromUserId: string, rtp: RtpPacket) => void;
@@ -157,6 +160,8 @@ export class MeshBridge {
       makingOffer: false,
       ignoreOffer: false,
       outbound: new MediaStreamTrack({ kind: "audio" }),
+      remoteSet: false,
+      pendingCandidates: [],
     };
     this.peers.set(socketId, entry);
     pc.addTrack(entry.outbound);
@@ -202,12 +207,21 @@ export class MeshBridge {
         entry.ignoreOffer = !entry.polite && offerCollision;
         if (entry.ignoreOffer) return;
         await pc.setRemoteDescription(data.description as never);
+        entry.remoteSet = true;
+        for (const c of entry.pendingCandidates.splice(0)) await pc.addIceCandidate(c as never).catch(() => undefined);
         if (data.description.type === "offer") {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           this.signal(fromSocketId, { description: sdpInit(pc.localDescription!) });
         }
       } else if (data.candidate) {
+        // Browsers send an empty candidate to mark the end of gathering; werift wants none.
+        const cand = data.candidate as { candidate?: string };
+        if (!cand.candidate) return;
+        if (!entry.remoteSet) {
+          entry.pendingCandidates.push(data.candidate);
+          return;
+        }
         try {
           await pc.addIceCandidate(data.candidate as never);
         } catch (err) {

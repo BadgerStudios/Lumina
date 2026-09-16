@@ -82,6 +82,18 @@ export interface VoiceStateRequest {
   self_deaf?: boolean;
 }
 
+/**
+ * STUN first: werift can only make host candidates on addresses it can bind, and inside the
+ * container that is a private one nobody outside can reach. A reflexive candidate from STUN
+ * carries the box's public IP with the same UDP port (Docker keeps the source port), and that
+ * port sits in the range published on the container — so browsers connect directly. TURN via
+ * coturn is the fallback for anyone who cannot.
+ */
+function bridgeIceServers(userId: string): RTCIceServer[] {
+  const stun: RTCIceServer[] = [{ urls: [`stun:${env.TURN_HOST}:${env.TURN_PORT}`, "stun:stun.l.google.com:19302"] }];
+  return [...stun, ...turnIceServers(userId)];
+}
+
 function turnIceServers(userId: string): RTCIceServer[] {
   if (!env.TURN_SECRET) return [];
   const expiresAt = Math.floor(Date.now() / 1000) + TURN_CREDENTIAL_TTL_S;
@@ -180,8 +192,7 @@ export class DiscordVoiceServer {
       ws: null,
       bridge: new MeshBridge({
         internal: params.internal,
-        iceServers: turnIceServers(params.botUserId),
-        additionalHostAddresses: [env.DISCORD_VOICE_PUBLIC_IP!],
+        iceServers: bridgeIceServers(params.botUserId),
         icePortRange: [env.DISCORD_VOICE_ICE_PORT_MIN, env.DISCORD_VOICE_ICE_PORT_MAX],
         onIncomingAudio: (socketId, userId, rtp) => this.forwardToBot(session, socketId, userId, rtp),
         onParticipant: (userId, present) => void this.announceParticipant(session, userId, present),
