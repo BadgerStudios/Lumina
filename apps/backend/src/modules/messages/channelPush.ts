@@ -23,9 +23,16 @@ export async function pushChannelMessage(params: {
   authorName: string;
   content: string;
   alreadyNotified: Set<string>;
+  /** The message this one replies to: its author already gets the reply push, not a second one. */
+  replyToId?: bigint | null;
 }): Promise<void> {
+  const skip = new Set(params.alreadyNotified);
+  if (params.replyToId != null) {
+    const parent = await prisma.message.findUnique({ where: { id: params.replyToId }, select: { authorId: true } });
+    if (parent?.authorId) skip.add(parent.authorId);
+  }
   const members = await prisma.membership.findMany({ where: { serverId: params.serverId }, select: { userId: true } });
-  const candidates = members.map((m) => m.userId).filter((id) => id !== params.authorId && !params.alreadyNotified.has(id));
+  const candidates = members.map((m) => m.userId).filter((id) => id !== params.authorId && !skip.has(id));
   if (candidates.length === 0) return;
   const levels = await effectiveLevelsForServer(params.serverId, params.channelId, candidates);
   const following = candidates.filter((id) => levels.get(id) === "ALL");

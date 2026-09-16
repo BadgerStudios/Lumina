@@ -3,7 +3,7 @@ import { api } from "./apiClient";
 import { tonesFrom } from "@lumina/shared";
 import { applyTonesOnDevice } from "./nativeTones";
 import { toast } from "../store/toastStore";
-import { CLIENT_TYPE } from "./platform";
+import { CLIENT_TYPE, APP_VARIANT } from "./platform";
 
 /**
  * Notifications the phone renders itself, through Firebase Cloud Messaging.
@@ -157,6 +157,9 @@ export async function getNativePushStatus(): Promise<NativePushStatus> {
   }
 }
 
+/** Which app this bundle is, so the server can keep chat pushes off the owner console on a shared phone. */
+const PUSH_APP: "chat" | "owner" = APP_VARIANT === "owner" ? "owner" : "chat";
+
 export async function enableNativePush(): Promise<void> {
   if (!isNativePushSupported()) throw new Error("Native notifications aren't available on this device");
 
@@ -168,7 +171,7 @@ export async function enableNativePush(): Promise<void> {
   // The server holds this phone's tones; the phone re-creates their channels on every
   // registration. A reinstall wipes the channels but not the row, and without this a push
   // would name a channel the phone no longer has — which Android drops without a trace.
-  const registered = await api.post<Record<string, unknown>>("/push/device", { token, platform: "android" });
+  const registered = await api.post<Record<string, unknown>>("/push/device", { token, platform: "android", app: PUSH_APP });
   await applyTonesOnDevice(tonesFrom(registered)).catch(() => {});
   rememberToken(token);
 }
@@ -253,7 +256,7 @@ export async function syncNativePushRegistration(): Promise<void> {
     // The server holds this phone's tones; the phone re-creates their channels on every
     // registration. A reinstall wipes the channels but not the row, and without this a push
     // would name a channel the phone no longer has — which Android drops without a trace.
-    const registered = await api.post<Record<string, unknown>>("/push/device", { token, platform: "android" });
+    const registered = await api.post<Record<string, unknown>>("/push/device", { token, platform: "android", app: PUSH_APP });
     await applyTonesOnDevice(tonesFrom(registered)).catch(() => {});
     rememberToken(token);
   } catch {

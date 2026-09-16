@@ -1,0 +1,1 @@
+ALTER TABLE "DeviceToken" ADD COLUMN "app" TEXT NOT NULL DEFAULT 'chat';

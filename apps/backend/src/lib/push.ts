@@ -28,6 +28,9 @@ export interface PushPayload {
   /** Send even when the person is active on a desktop — for the few things that must never be
    * quietly absorbed by an open tab, like an infrastructure alert to the owner. */
   force?: boolean;
+  /** Who it is for. "chat" (default) rings only the Lumina app; "staff" also rings the owner
+   * console; "all" rings every registered app (the settings self-test). */
+  audience?: "chat" | "staff" | "all";
 }
 
 /**
@@ -76,8 +79,11 @@ interface Delivery {
  */
 async function sendNativePush(userId: string, payload: PushPayload): Promise<Delivery> {
   if (!isFcmConfigured()) return { sent: 0, total: 0 };
+  // The owner console holds its own token on the same phone as the chat app. Chat pushes ring only
+  // the chat app; without this every DM and mention rang twice, once per app.
+  const audience = payload.audience ?? "chat";
   const tokens = await prisma.deviceToken.findMany({
-    where: { userId },
+    where: { userId, ...(audience === "chat" ? { app: { not: "owner" } } : {}) },
     select: { id: true, token: true, messageSound: true, directSound: true, mentionSound: true, channelSound: true },
   });
   if (tokens.length === 0) return { sent: 0, total: 0 };

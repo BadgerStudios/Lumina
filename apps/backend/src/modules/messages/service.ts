@@ -413,16 +413,6 @@ export async function createChannelMessage(params: {
           serverId: channel.serverId,
           preview: params.content.slice(0, 140),
         });
-        // A reply is addressed to someone the way a mention is: it pushes at ALL and MENTIONS alike.
-        if (parent.authorId !== params.userId && (await shouldNotify(parent.authorId, channel.serverId, params.channelId, true))) {
-          await sendPushToUser(parent.authorId, {
-            title: `${authorName} replied to you`,
-            body: params.content.slice(0, 150) || "Sent an attachment",
-            url: `/channels/${channel.serverId}/${params.channelId}`,
-            tag: `reply-${message.id}`,
-            kind: "mention",
-          });
-        }
       }
     })().catch(() => undefined);
   }
@@ -447,7 +437,25 @@ export async function createChannelMessage(params: {
     authorName,
     content: params.content,
     alreadyNotified: mentionedUserIds,
+    replyToId: replyToNotify,
   }).catch(() => undefined);
+  // A reply is addressed to someone the way a mention is (it pushes at ALL and MENTIONS alike) —
+  // unless that someone was also @mentioned in it, which already pushed them once.
+  if (replyToNotify !== null) {
+    void (async () => {
+      const parent = await prisma.message.findUnique({ where: { id: replyToNotify }, select: { authorId: true } });
+      const to = parent?.authorId;
+      if (!to || to === params.userId || mentionedUserIds.has(to)) return;
+      if (!(await shouldNotify(to, channel.serverId, params.channelId, true))) return;
+      await sendPushToUser(to, {
+        title: `${authorName} replied to you`,
+        body: params.content.slice(0, 150) || "Sent an attachment",
+        url: `/channels/${channel.serverId}/${params.channelId}`,
+        tag: `reply-${message.id}`,
+        kind: "mention",
+      });
+    })().catch(() => undefined);
+  }
 
   // Installed addons run here, deliberately AFTER the message exists and has been broadcast, and
   // deliberately not awaited. An automation must never be able to make someone's message slower to

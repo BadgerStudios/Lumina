@@ -89,6 +89,7 @@ export async function noteSnapshot(payload: OpsSnapshotPayload): Promise<void> {
       // that fails to deliver must never take down the report that triggered it.
       void sendPushToUser(owner.id, {
         force: true,
+        audience: "staff",
         title: change.health === "bad" ? "Lumina: something needs attention" : "Lumina: recovered",
         body: change.detail,
         // "/owner/infrastructure" was not a route. The owner console is a single /owner route

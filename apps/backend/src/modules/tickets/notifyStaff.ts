@@ -112,6 +112,7 @@ export async function notifyStaffOfQueueItem(params: {
             body,
             url: "/staff/tickets",
             tag: "staff-queue",
+            audience: "staff",
           }),
         ),
     );

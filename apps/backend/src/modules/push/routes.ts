@@ -5,6 +5,8 @@ const deviceSchema = z.object({
   /** FCM registration token from the device. */
   token: z.string().min(10).max(4096),
   platform: z.literal("android").optional(),
+  /** Which app is registering. Absent from builds before 111, which leaves the stored value alone. */
+  app: z.enum(["chat", "owner"]).optional(),
 });
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
@@ -70,8 +72,8 @@ export default async function pushRoutes(fastify: FastifyInstance) {
     // the phone no longer has — which Android drops without a sound or an error.
     const row = await prisma.deviceToken.upsert({
       where: { token: body.token },
-      create: { token: body.token, userId: request.userId!, platform: body.platform ?? "android" },
-      update: { userId: request.userId!, lastSeenAt: new Date() },
+      create: { token: body.token, userId: request.userId!, platform: body.platform ?? "android", app: body.app ?? "chat" },
+      update: { userId: request.userId!, lastSeenAt: new Date(), ...(body.app ? { app: body.app } : {}) },
       select: { messageSound: true, directSound: true, mentionSound: true, channelSound: true },
     });
     return { ok: true, ...row };
@@ -148,6 +150,10 @@ export default async function pushRoutes(fastify: FastifyInstance) {
         body: "Notifications are working on this device.",
         url: "/",
         tag: TEST_TAG,
+        // The person asked for it: every registered device answers, whichever app, and even while
+        // this very tab is the active one (that is the point of a test).
+        audience: "all",
+        force: true,
       });
 
       const [webAfter, nativeAfter] = await count();

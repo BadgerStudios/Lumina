@@ -3170,6 +3170,10 @@ model DeviceToken {
   /// re-registering after a sign-out is how it moves.
   token      String   @unique
   platform   String   @default("android")
+  /// Which app holds the token: "chat" (the Lumina app) or "owner" (the owner console). One phone
+  /// often carries both, and the console must not ring for every chat message the chat app already
+  /// rang for — it only takes staff pushes (queue items, infrastructure alerts).
+  app        String   @default("chat")
   createdAt  DateTime @default(now())
   /// Refreshed on every registration, so a token nothing has renewed in months is identifiable as
   /// dead without waiting for a send to fail.
