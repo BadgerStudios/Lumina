@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Rebuilds and redeploys the whole Lumina stack from current source, then rebuilds the Android
-# debug APK + Linux desktop AppImage and republishes both to the /downloads/ endpoint. Run this
+# release APKs + Linux desktop AppImage and republishes both to the /downloads/ endpoint. Run this
 # after making code changes.
 #
 # Usage: ./deploy.sh            full deploy: web stack + Android APK + desktop AppImage
@@ -185,7 +185,7 @@ if [[ "$BUILD_NATIVE" == false ]]; then
   exit 0
 fi
 
-echo "== 3/5: building Android debug APK =="
+echo "== 3/5: building Android release APKs =="
 # Bump the version the installed app checks itself against (see queries/meta.ts's
 # useAndroidUpdateAvailable + UpdateBanner.tsx) — only here, not in the --web-only path above,
 # since that path never actually rebuilds/republishes the APK this number is meant to describe.
@@ -267,7 +267,11 @@ build_chat_apk() {
     export JAVA_HOME="$JDK21"
     export ANDROID_HOME="$ANDROID_SDK"
     export PATH="$JAVA_HOME/bin:$PATH"
-    ./gradlew -Dorg.gradle.java.home="$JDK21" assembleDebug --build-cache
+    # Release, not debug. A debug build is debuggable: over USB debugging, `adb run-as` reads the app's
+    # storage (the stored refresh token) and the WebView is open to DevTools. Both variants are signed
+    # with the same luminaShared key, so a release build installs over the debug builds already out
+    # there and the in-app updater keeps working.
+    ./gradlew -Dorg.gradle.java.home="$JDK21" assembleRelease --build-cache
   )
 }
 
@@ -279,7 +283,11 @@ build_owner_apk() {
     export JAVA_HOME="$JDK21"
     export ANDROID_HOME="$ANDROID_SDK"
     export PATH="$JAVA_HOME/bin:$PATH"
-    ./gradlew -Dorg.gradle.java.home="$JDK21" assembleDebug --build-cache
+    # Release, not debug. A debug build is debuggable: over USB debugging, `adb run-as` reads the app's
+    # storage (the stored refresh token) and the WebView is open to DevTools. Both variants are signed
+    # with the same luminaShared key, so a release build installs over the debug builds already out
+    # there and the in-app updater keeps working.
+    ./gradlew -Dorg.gradle.java.home="$JDK21" assembleRelease --build-cache
   )
 }
 
@@ -322,7 +330,7 @@ echo "All three native builds succeeded."
 # Past this line a failure is no longer rewound (see on_exit) — artifacts start reaching users.
 PUBLISHING=true
 echo "== publishing chat APK to /downloads/ =="
-cp apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk downloads/lumina.apk
+cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk downloads/lumina.apk
 echo "Published: https://lumina.luxffa.com/downloads/lumina.apk"
 
 # Owner console APK — a separate app (com.luxffa.lumina.owner) built from the `dist-owner` bundle,
@@ -330,7 +338,7 @@ echo "Published: https://lumina.luxffa.com/downloads/lumina.apk"
 # app rather than replacing it. Grants nothing by itself: every route it calls is enforced by
 # requireOwner server-side, so on a non-owner account it is an inert login screen.
 echo "== publishing owner console APK =="
-cp apps/owner-mobile/android/app/build/outputs/apk/debug/app-debug.apk downloads/lumina-owner.apk
+cp apps/owner-mobile/android/app/build/outputs/apk/release/app-release.apk downloads/lumina-owner.apk
 echo "Published: https://lumina.luxffa.com/downloads/lumina-owner.apk"
 
 echo "== publishing Linux desktop AppImage =="
