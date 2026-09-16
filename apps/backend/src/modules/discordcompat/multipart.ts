@@ -52,6 +52,12 @@ export async function readDiscordBody(request: FastifyRequest, maxFileBytes: num
   const attachments: CreateMessageAttachmentInput[] = [];
   const partOpts = { limits: { fileSize: maxFileBytes } };
   for await (const part of request.parts(partOpts as Parameters<typeof request.parts>[0])) {
+    if (part.type === "file" && part.fieldname === "payload_json") {
+      // JDA labels this part `application/json`, and the multipart parser then hands it over as a
+      // file rather than a text field. It is the body all the same.
+      fields.push({ name: "payload_json", value: (await part.toBuffer()).toString("utf8") });
+      continue;
+    }
     if (part.type === "file") {
       let buffer: Buffer;
       try {
@@ -72,7 +78,8 @@ export async function readDiscordBody(request: FastifyRequest, maxFileBytes: num
         url: `/api/files/${attachmentId}`,
       });
     } else {
-      fields.push({ name: part.fieldname, value: String(part.value ?? "") });
+      const value = part.value;
+      fields.push({ name: part.fieldname, value: typeof value === "string" ? value : JSON.stringify(value ?? "") });
     }
   }
   return { body: mergeDiscordFields(fields), attachments };
