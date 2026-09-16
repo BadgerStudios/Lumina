@@ -85,6 +85,10 @@ services:
       TURN_SECRET: ${TURN_SECRET}
       TURN_HOST: ${TURN_HOST}
       TURN_PORT: 3478
+      DISCORD_VOICE_PUBLIC_IP: ${TURN_EXTERNAL_IP}
+      DISCORD_VOICE_UDP_PORT: 4010
+      DISCORD_VOICE_ICE_PORT_MIN: 4020
+      DISCORD_VOICE_ICE_PORT_MAX: 4040
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
       # Firebase, for the notifications Android renders itself with the app's own sound. Optional:
@@ -187,6 +191,9 @@ services:
       - ./secrets/vm-east-submission.pem:/run/secrets/vm-east-submission.pem:ro
     ports:
       - "127.0.0.1:4000:4000"
+      # Discord-compatible voice for bots: media UDP + the ICE range for their WebRTC seat.
+      - "4010:4010/udp"
+      - "4020-4040:4020-4040/udp"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/healthz').then(r=>{if(r.ok)process.exit(0);process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s

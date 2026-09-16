@@ -1,3 +1,4 @@
+import { discordVoiceServer, type VoiceSession, type VoiceStateRequest } from "./voice/server.js";
 import { createDeflate, createZstdCompress, constants as zlibConstants, type Deflate, type ZstdCompress } from "node:zlib";
 import type { Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -51,6 +52,10 @@ interface GatewaySession {
   deflate: { stream: Deflate | ZstdCompress; flush: number } | null;
   /** Compressed sends are async; this keeps them in order. */
   sendChain: Promise<void>;
+  /** Known after IDENTIFY: which bot this session is. */
+  botUserId: string | null;
+  /** The bot's seat in a voice channel, while it has one (voice/server.ts). */
+  voice: VoiceSession | null;
 }
 
 function send(session: GatewaySession, op: number, d: unknown, t?: string): void {
@@ -172,6 +177,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
     auth: { botToken: raw },
   });
   session.internal = internal;
+  session.botUserId = botUser.id;
 
   // Message broadcasts go to channel:<id> rooms, which native clients join per-channel as they
   // view them. A Discord bot's contract is "every message in every guild I'm in", so the
@@ -458,6 +464,7 @@ export function attachDiscordGateway(server: HttpServer): void {
 
   server.on("upgrade", (request, socket, head) => {
     const url = request.url ?? "";
+    if (discordVoiceServer.handleUpgrade(request, socket, head)) return; // /discord/voice
     if (!url.startsWith("/discord/gateway")) return; // socket.io's own upgrade handler owns the rest
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
@@ -480,6 +487,8 @@ export function attachDiscordGateway(server: HttpServer): void {
       membersAllowed: false,
       deflate: compress,
       sendChain: Promise.resolve(),
+      botUserId: null,
+      voice: null,
     };
     session.deflate?.stream.on("error", () => ws.close(4000, "Compression failed"));
     send(session, 10, { heartbeat_interval: HEARTBEAT_INTERVAL_MS });
@@ -509,6 +518,22 @@ export function attachDiscordGateway(server: HttpServer): void {
         case 6: // resume — we keep no replay buffer; a fresh identify costs one READY
           send(session, 9, false);
           break;
+        case 4: // voice state update — the bot joins, moves or leaves a voice channel
+          if (session.botUserId && session.internal) {
+            void discordVoiceServer
+              .onVoiceStateUpdate({
+                botUserId: session.botUserId,
+                internal: session.internal,
+                request: (packet.d ?? {}) as VoiceStateRequest,
+                dispatch: (t, d) => send(session, 0, d, t),
+                current: session.voice,
+              })
+              .then((voice) => {
+                session.voice = voice;
+              })
+              .catch((err) => console.error("[discord-voice] voice state update failed:", (err as Error)?.message ?? err));
+          }
+          break;
         case 3: // presence update — accepted and ignored (Lumina presence is account-level)
           break;
         case 8: // request guild members — real members, nonce echoed, intent-gated like Discord
@@ -521,6 +546,8 @@ export function attachDiscordGateway(server: HttpServer): void {
 
     ws.on("close", () => {
       clearInterval(reaper);
+      discordVoiceServer.endForGateway(session.voice);
+      session.voice = null;
       session.internal?.close();
       session.deflate?.stream.close();
     });

@@ -1,3 +1,4 @@
+import { discordVoiceServer } from "./modules/discordcompat/voice/server.js";
 import { remapStaleCommands } from "./modules/interactions/service.js";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -472,6 +473,8 @@ async function main() {
   // After initIO so socket.io's own upgrade listener is already in place — ours only claims
   // /discord/gateway and leaves every other upgrade untouched.
   attachDiscordGateway(fastify.server);
+  // Voice for Discord bots (their voice websocket + UDP); a no-op unless DISCORD_VOICE_PUBLIC_IP is set.
+  await discordVoiceServer.start().catch((err) => console.error("[discord-voice] failed to start:", (err as Error)?.message ?? err));
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
   fastify.log.info(`Lumina backend listening on :${env.PORT}`);

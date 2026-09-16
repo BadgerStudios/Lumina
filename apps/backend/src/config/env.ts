@@ -22,6 +22,13 @@ const envSchema = z.object({
   TURN_SECRET: z.string().optional(),
   TURN_HOST: z.string().default("localhost"),
   TURN_PORT: z.coerce.number().default(3478),
+  // Discord-compatible voice for bots (modules/discordcompat/voice). Off unless the public IP is
+  // set — the same graceful-if-unconfigured pattern as TURN_SECRET.
+  DISCORD_VOICE_PUBLIC_IP: z.string().optional(),
+  DISCORD_VOICE_UDP_PORT: z.coerce.number().default(4010),
+  DISCORD_VOICE_ICE_PORT_MIN: z.coerce.number().default(4020),
+  DISCORD_VOICE_ICE_PORT_MAX: z.coerce.number().default(4040),
+  DISCORD_VOICE_ENDPOINT: z.string().optional(),
   // Web Push (VAPID) — optional. If unset, subscribe/send just no-op (same graceful-degradation
   // pattern as TURN_SECRET above) rather than hard-failing routes that touch push.
   VAPID_PUBLIC_KEY: z.string().optional(),
