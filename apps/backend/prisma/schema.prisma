@@ -510,6 +510,9 @@ model Server {
   sysJoinMessages  Boolean @default(true)
   sysLeaveMessages Boolean @default(false)
   sysBoostMessages Boolean @default(true)
+  // The space's own wording for join/leave announcements; null means the built-in line.
+  joinMessageTemplate  String?
+  leaveMessageTemplate String?
 
   // ---- Community ----
   /// Shown on the join gate when set, so people see the rules before they can post.
@@ -857,13 +860,14 @@ model ChannelPermissionOverwrite {
 }
 
 model Message {
-  id                BigInt                   @id @default(autoincrement())
+  id                BigInt                   @id @default(dbgenerated("lumina_snowflake()"))
   /// Everyone who kept this message. Cascades on delete — see SavedMessage.
   savedBy           SavedMessage[]
   channelId         String?
   dmConversationId  String?
   authorId          String?
   content           String
+  type              MessageType              @default(DEFAULT)
   editedAt          DateTime?
   deletedAt         DateTime?
   pinned            Boolean                  @default(false)
@@ -2371,6 +2375,7 @@ model Interaction {
   serverId          String?
   /// COMMAND only.
   commandName       String?
+  commandPath       String[]          @default([])
   optionsJson       Json?
   /// COMPONENT only — the customId the bot put on the button, and the message it was attached to.
   componentCustomId String?
@@ -3367,4 +3372,11 @@ model PostCommentLike {
 
   @@id([commentId, userId])
   @@index([userId])
+}
+
+/// What a message row IS: something a person typed, or an announcement the space posted about a member.
+enum MessageType {
+  DEFAULT
+  MEMBER_JOIN
+  MEMBER_LEAVE
 }

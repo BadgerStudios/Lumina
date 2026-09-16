@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly, compatReplyShape } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly, compatReplyShape, rateLimitHeaders, discordCommandToLumina, nestInteractionOptions, mapMessage } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -159,5 +159,44 @@ describe("the compat reply hook", () => {
   it("does not touch an already-bare header or a non-JSON body", () => {
     expect(compatReplyShape(200, "application/json", "{}")).toEqual({ payload: "{}" });
     expect(compatReplyShape(500, "text/plain", "boom")).toEqual({ payload: "boom" });
+  });
+});
+
+describe("rate-limit headers", () => {
+  it("carry Discord's five headers with a stable per-route bucket", () => {
+    const a = rateLimitHeaders("/channels/:id/messages", 1_800_000_000_000);
+    expect(Object.keys(a).sort()).toEqual(["x-ratelimit-bucket", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-ratelimit-reset-after"]);
+    expect(Number(a["x-ratelimit-remaining"])).toBeLessThan(Number(a["x-ratelimit-limit"]));
+    expect(a["x-ratelimit-reset"]).toBe(String(1_800_000_000 + 1));
+    expect(rateLimitHeaders("/channels/:id/messages")["x-ratelimit-bucket"]).toBe(a["x-ratelimit-bucket"]);
+    expect(rateLimitHeaders("/guilds/:id")["x-ratelimit-bucket"]).not.toBe(a["x-ratelimit-bucket"]);
+  });
+});
+
+describe("command trees", () => {
+  it("keeps Discord's subcommand nesting on registration", () => {
+    const lumina = discordCommandToLumina({
+      name: "settings",
+      description: "d",
+      options: [{ name: "welcome", type: 2, description: "g", options: [{ name: "set", type: 1, description: "s", options: [{ name: "channel", type: 7, description: "c", required: true }] }] }],
+    }) as { options: Array<{ type: string; options: Array<{ type: string; options: Array<{ type: string; required: boolean }> }> }> };
+    expect(lumina.options[0].type).toBe("subcommand_group");
+    expect(lumina.options[0].options[0].type).toBe("subcommand");
+    expect(lumina.options[0].options[0].options[0]).toMatchObject({ type: "channel", required: true });
+  });
+  it("nests interaction options back the way Discord sends them", () => {
+    expect(nestInteractionOptions([], { n: 2 })).toEqual([{ name: "n", type: 4, value: 2 }]);
+    expect(nestInteractionOptions(["rank"], { user: "1" })).toEqual([{ name: "rank", type: 1, options: [{ name: "user", type: 3, value: "1" }] }]);
+    expect(nestInteractionOptions(["welcome", "set"], { on: true })).toEqual([
+      { name: "welcome", type: 2, options: [{ name: "set", type: 1, options: [{ name: "on", type: 5, value: true }] }] },
+    ]);
+  });
+});
+
+describe("message kinds", () => {
+  it("marks a join announcement as Discord type 7", async () => {
+    const base = { id: "1", channelId: "c", authorId: "u", author: { id: "u", username: "x" }, content: "", editedAt: null, pinned: false, replyToId: null, createdAt: new Date().toISOString() };
+    expect((await mapMessage({ ...base, type: "MEMBER_JOIN" })).type).toBe(7);
+    expect((await mapMessage({ ...base, type: "DEFAULT" })).type).toBe(0);
   });
 });

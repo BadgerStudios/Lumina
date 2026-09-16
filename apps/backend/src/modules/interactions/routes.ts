@@ -17,6 +17,7 @@ const invokeSchema = z.object({
   channelId: z.string().optional(),
   dmConversationId: z.string().optional(),
   name: z.string().min(1).max(32),
+  path: z.array(z.string().min(1).max(32)).max(2).optional(),
   options: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
 });
 
@@ -94,6 +95,7 @@ export default async function interactionRoutes(fastify: FastifyInstance) {
       channelId: body.channelId ?? null,
       dmConversationId: body.dmConversationId ?? null,
       commandName: body.name,
+        path: body.path,
       options: body.options,
     });
   });

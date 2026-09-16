@@ -1,3 +1,4 @@
+import { announceMember } from "../messages/systemMessages.js";
 import type { FastifyInstance } from "fastify";
 import { assertNotLockedMinor } from "../parental/service.js";
 import { Permissions, ServerEvents } from "@lumina/shared";
@@ -139,6 +140,7 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
 
     const dto = serializeMember(membership);
     getIO().to(`server:${invite.serverId}`).emit(ServerEvents.MEMBER_JOIN, dto);
+    announceMember("join", invite.serverId, request.userId!);
 
     reply.code(201);
     return dto;

@@ -253,6 +253,9 @@ export interface ServerDTO {
   sysJoinMessages: boolean;
   sysLeaveMessages: boolean;
   sysBoostMessages: boolean;
+  /** Join/leave announcement wording; null = the built-in line. Placeholders: {user} {name} {space} {count}. */
+  joinMessageTemplate: string | null;
+  leaveMessageTemplate: string | null;
   rulesChannelId: string | null;
   /** 18+ only: an account known to be under 18 cannot join. Existing members are unaffected. */
   adultOnly: boolean;
@@ -299,8 +302,12 @@ export interface MessageReplyPreviewDTO {
   hasAttachments: boolean;
 }
 
+/** A message a person typed, or an announcement the space posted about a member joining or leaving. */
+export type MessageSystemType = "DEFAULT" | "MEMBER_JOIN" | "MEMBER_LEAVE";
+
 export interface MessageDTO {
   id: string; // bigint as string
+  type: MessageSystemType;
   channelId: string | null;
   dmConversationId: string | null;
   authorId: string | null;
@@ -430,9 +437,12 @@ export interface SlashCommandDTO {
 export interface SlashCommandOptionDTO {
   name: string;
   description: string;
-  type: "string" | "integer" | "boolean" | "user" | "channel";
+  /** Leaf kinds the palette renders, plus Discord's two nesting kinds (see interactions/commandSchema.ts). */
+  type: "string" | "integer" | "boolean" | "user" | "channel" | "subcommand" | "subcommand_group";
   required?: boolean;
   choices?: Array<{ name: string; value: string | number }>;
+  /** Only for subcommand / subcommand_group: the level below. */
+  options?: SlashCommandOptionDTO[];
 }
 
 /** What a bot receives on ClientEvents-side INTERACTION_CREATE. */
@@ -445,6 +455,8 @@ export interface InteractionDTO {
   dmConversationId: string | null;
   serverId: string | null;
   commandName: string | null;
+  /** Subcommand group and/or subcommand below the command name, in order. Empty for a plain command. */
+  commandPath: string[];
   options: Record<string, string | number | boolean> | null;
   customId: string | null;
   messageId: string | null;

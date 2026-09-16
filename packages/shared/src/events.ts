@@ -50,6 +50,9 @@ export const ServerEvents = {
   MEMBER_JOIN: "member:join",
   MEMBER_LEAVE: "member:leave",
   MEMBER_UPDATE: "member:update",
+  // To the server room: someone was banned / unbanned (the member:leave still fires for a ban).
+  BAN_ADD: "ban:add",
+  BAN_REMOVE: "ban:remove",
   ROLE_CREATE: "role:create",
   ROLE_UPDATE: "role:update",
   ROLE_DELETE: "role:delete",

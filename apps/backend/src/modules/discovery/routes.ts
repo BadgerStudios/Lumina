@@ -1,3 +1,4 @@
+import { announceMember } from "../messages/systemMessages.js";
 import type { FastifyInstance } from "fastify";
 import { ServerEvents } from "@lumina/shared";
 import { prisma } from "../../db/prisma.js";
@@ -63,6 +64,7 @@ export default async function discoveryRoutes(fastify: FastifyInstance) {
 
     const dto = serializeMember(membership);
     getIO().to(`server:${id}`).emit(ServerEvents.MEMBER_JOIN, dto);
+    announceMember("join", id, request.userId!);
     reply.code(201);
     return dto;
   });

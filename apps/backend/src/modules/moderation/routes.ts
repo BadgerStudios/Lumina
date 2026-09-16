@@ -80,6 +80,7 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
       // realtime rooms — the ban route previously had no realtime effect at all, so a banned
       // member kept receiving the live stream until reconnect even though REST 403'd them.
       getIO().to(`server:${request.serverId!}`).emit(ServerEvents.MEMBER_LEAVE, { userId: body.userId, serverId: request.serverId! });
+      getIO().to(`server:${request.serverId!}`).emit(ServerEvents.BAN_ADD, { userId: body.userId, serverId: request.serverId! });
       getIO().to(`user:${body.userId}`).emit(ServerEvents.SERVER_DELETE, { id: request.serverId! });
       await evictUserFromServer(body.userId, request.serverId!);
 
@@ -119,6 +120,7 @@ export default async function moderationRoutes(fastify: FastifyInstance) {
       if (!ban) throw new NotFoundError("Ban not found");
 
       await prisma.ban.delete({ where: { id: ban.id } });
+      getIO().to(`server:${request.serverId!}`).emit(ServerEvents.BAN_REMOVE, { userId: ban.userId, serverId: request.serverId! });
 
       await recordAuditLog({
         serverId: request.serverId!,

@@ -1,3 +1,4 @@
+import { announceMember } from "../messages/systemMessages.js";
 import type { FastifyInstance } from "fastify";
 import { ageVisibilityFilter } from "../parental/visibility.js";
 import { assertNotLockedMinor } from "../parental/service.js";
@@ -45,6 +46,8 @@ const updateServerSchema = z.object({
   sysJoinMessages: z.boolean().optional(),
   sysLeaveMessages: z.boolean().optional(),
   sysBoostMessages: z.boolean().optional(),
+  joinMessageTemplate: z.string().max(200).nullable().optional(),
+  leaveMessageTemplate: z.string().max(200).nullable().optional(),
   rulesChannelId: z.string().nullable().optional(),
   /// Opt in to the public Discover surface. MANAGE_SERVER-gated like everything else here.
   adultOnly: z.boolean().optional(),
@@ -189,6 +192,8 @@ export default async function serversRoutes(fastify: FastifyInstance) {
           ...(body.sysJoinMessages !== undefined ? { sysJoinMessages: body.sysJoinMessages } : {}),
           ...(body.sysLeaveMessages !== undefined ? { sysLeaveMessages: body.sysLeaveMessages } : {}),
           ...(body.sysBoostMessages !== undefined ? { sysBoostMessages: body.sysBoostMessages } : {}),
+          ...(body.joinMessageTemplate !== undefined ? { joinMessageTemplate: body.joinMessageTemplate } : {}),
+          ...(body.leaveMessageTemplate !== undefined ? { leaveMessageTemplate: body.leaveMessageTemplate } : {}),
           ...(body.rulesChannelId !== undefined ? { rulesChannelId: body.rulesChannelId } : {}),
           ...(body.adultOnly !== undefined ? { adultOnly: body.adultOnly } : {}),
           ...(body.discoverable !== undefined ? { discoverable: body.discoverable } : {}),
@@ -376,6 +381,7 @@ export default async function serversRoutes(fastify: FastifyInstance) {
       getIO()
         .to(`server:${request.serverId!}`)
         .emit(ServerEvents.MEMBER_LEAVE, { userId: request.userId!, serverId: request.serverId! });
+      announceMember("leave", request.serverId!, request.userId!);
       reply.code(204).send();
     },
   );
@@ -496,6 +502,7 @@ export default async function serversRoutes(fastify: FastifyInstance) {
         .to(`server:${request.serverId!}`)
         .emit(ServerEvents.MEMBER_LEAVE, { userId: targetUserId, serverId: request.serverId! });
       getIO().to(`user:${targetUserId}`).emit(ServerEvents.SERVER_DELETE, { id: request.serverId! });
+      announceMember("leave", request.serverId!, targetUserId);
       // Actually remove their sockets from the server's rooms, not just tell the client to drop it:
       // a client that ignores SERVER_DELETE would otherwise keep receiving the server's live stream
       // until reconnect.

@@ -20,7 +20,9 @@ export async function toSnowflake(kind: CompatKind, luminaId: string): Promise<s
   let row = await prisma.compatId.findUnique({ where: { kind_luminaId: { kind, luminaId } } });
   if (!row) {
     try {
-      row = await prisma.compatId.create({ data: { kind, luminaId } });
+      // Minted with a time-based id (see timeSnowflake) so libraries reading creation time off
+      // a guild/channel/role id get today, not January 2015. Rows minted earlier keep their ids.
+      row = await prisma.compatId.create({ data: { id: BigInt(timeSnowflake()), kind, luminaId } });
     } catch {
       // Raced with another mint of the same pair — the unique constraint means the winner's row
       // is the answer.

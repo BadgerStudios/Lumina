@@ -1,11 +1,12 @@
+import { createDeflate, constants as zlibConstants, type Deflate } from "node:zlib";
 import type { Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { prisma } from "../../db/prisma.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { env } from "../../config/env.js";
-import { toSnowflake, timeSnowflake } from "./ids.js";
-import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor } from "./shapes.js";
+import { toSnowflake, timeSnowflake, fromSnowflake } from "./ids.js";
+import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, mapRole, mapChannel, nestInteractionOptions } from "./shapes.js";
 import { computeEffectiveChannelPermissions } from "../../permissions/permissionService.js";
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
@@ -41,12 +42,41 @@ interface GatewaySession {
   seq: number;
   internal: ClientSocket | null;
   channelGuildCache: Map<string, string | null>;
+  /** GUILD_MEMBERS intent declared AND the portal toggle on: the full member list may be chunked. */
+  membersAllowed: boolean;
+  /** Set when the client connected with compress=zlib-stream: one shared deflate context for the session. */
+  deflate: Deflate | null;
+  /** Compressed sends are async; this keeps them in order. */
+  sendChain: Promise<void>;
 }
 
 function send(session: GatewaySession, op: number, d: unknown, t?: string): void {
   if (session.ws.readyState !== WebSocket.OPEN) return;
   const s = t ? ++session.seq : null;
-  session.ws.send(JSON.stringify({ op, d, s, t: t ?? null }));
+  const json = JSON.stringify({ op, d, s, t: t ?? null });
+  const deflate = session.deflate;
+  if (!deflate) {
+    session.ws.send(json);
+    return;
+  }
+  // zlib-stream, exactly as Discord does it: one deflate context for the whole session, each
+  // payload terminated by a Z_SYNC_FLUSH so the client can cut the stream at 00 00 FF FF. Every
+  // payload goes out as ONE binary frame — Discord.Net decompresses a frame and parses it as one
+  // JSON document, so splitting a payload across frames would lose it. Paused-mode read() after
+  // the flush hands back everything the flush produced, in order, without racing 'data' events.
+  session.sendChain = session.sendChain
+    .then(
+      () =>
+        new Promise<void>((resolve) => {
+          deflate.write(json);
+          deflate.flush(zlibConstants.Z_SYNC_FLUSH, () => {
+            const out = deflate.read() as Buffer | null;
+            if (out && session.ws.readyState === WebSocket.OPEN) session.ws.send(out, { binary: true });
+            resolve();
+          });
+        }),
+    )
+    .catch(() => undefined);
 }
 
 async function guildIdForChannel(session: GatewaySession, channelId: string | null): Promise<string | null> {
@@ -105,6 +135,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
   // Content needs BOTH the intent bit and the application's privileged toggle — matching
   // Discord, a bot always sees the content of its OWN messages regardless.
   const contentAllowed = (intents & INTENT_MESSAGE_CONTENT) !== 0 && application.intentMessageContent;
+  session.membersAllowed = (intents & INTENT_GUILD_MEMBERS) !== 0 && application.intentServerMembers;
 
   // READY first with unavailable guild stubs (Discord's own sequence), then one GUILD_CREATE
   // per guild with the full object — discord.js waits for exactly this to fire its ready event.
@@ -163,6 +194,75 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
       const channels = await prisma.channel.findMany({ where: { serverId, type: { in: ["TEXT", "THREAD"] } }, select: { id: true } });
       for (const c of channels) internal.emit("channel:join", { channelId: c.id });
     })().catch(() => undefined);
+  });
+
+  // ---- guild lifecycle: what Lumina broadcasts to the space, in Discord's dispatch shapes.
+  // Welcome/autorole bots live on GUILD_MEMBER_ADD; moderation bots on the ban events; every
+  // library keeps its role/channel caches in step from the rest.
+  const guildSnowOf = (serverId: string) => toSnowflake("guild", serverId);
+  type MemberLike = { userId: string; serverId: string; nickname: string | null; joinedAt: string; user: Parameters<typeof mapUser>[0]; roleIds: string[] };
+  const memberPayload = async (m: MemberLike) => ({
+    guild_id: await guildSnowOf(m.serverId),
+    user: await mapUser(m.user),
+    nick: m.nickname,
+    roles: await Promise.all(m.roleIds.map((r) => toSnowflake("role", r))),
+    joined_at: m.joinedAt,
+    ...MEMBER_DEFAULTS,
+  });
+  const userPayload = async (p: { userId: string; serverId: string }) => {
+    const user = await prisma.user.findUnique({ where: { id: p.userId } });
+    return user ? { guild_id: await guildSnowOf(p.serverId), user: await mapUser(user) } : null;
+  };
+  const on = <T,>(event: string, handler: (payload: T) => Promise<void>) =>
+    internal.on(event, (payload: T) => void handler(payload).catch(() => undefined));
+  on<MemberLike>("member:join", async (m) => send(session, 0, await memberPayload(m), "GUILD_MEMBER_ADD"));
+  on<MemberLike>("member:update", async (m) => send(session, 0, await memberPayload(m), "GUILD_MEMBER_UPDATE"));
+  on<{ userId: string; serverId: string }>("member:leave", async (p) => {
+    const payload = await userPayload(p);
+    if (payload) send(session, 0, payload, "GUILD_MEMBER_REMOVE");
+  });
+  on<{ userId: string; serverId: string }>("ban:add", async (p) => {
+    const payload = await userPayload(p);
+    if (payload) send(session, 0, payload, "GUILD_BAN_ADD");
+  });
+  on<{ userId: string; serverId: string }>("ban:remove", async (p) => {
+    const payload = await userPayload(p);
+    if (payload) send(session, 0, payload, "GUILD_BAN_REMOVE");
+  });
+  type RoleLike = Parameters<typeof mapRole>[0];
+  on<RoleLike>("role:create", async (r) => send(session, 0, { guild_id: await guildSnowOf(r.serverId), role: await mapRole(r, await guildSnowOf(r.serverId)) }, "GUILD_ROLE_CREATE"));
+  on<RoleLike>("role:update", async (r) => send(session, 0, { guild_id: await guildSnowOf(r.serverId), role: await mapRole(r, await guildSnowOf(r.serverId)) }, "GUILD_ROLE_UPDATE"));
+  on<{ id: string; serverId: string }>("role:delete", async (p) => send(session, 0, { guild_id: await guildSnowOf(p.serverId), role_id: await toSnowflake("role", p.id) }, "GUILD_ROLE_DELETE"));
+  type ChannelLike = Parameters<typeof mapChannel>[0];
+  on<ChannelLike>("channel:create", async (c) => {
+    send(session, 0, await mapChannel(c), "CHANNEL_CREATE");
+    // A new text room is part of "every message in every guild I'm in".
+    if (wantsMessages && (c.type === "TEXT" || c.type === "THREAD")) internal.emit("channel:join", { channelId: c.id });
+  });
+  on<ChannelLike>("channel:update", async (c) => send(session, 0, await mapChannel(c), "CHANNEL_UPDATE"));
+  on<{ id: string; serverId: string }>("channel:delete", async (p) => send(session, 0, { id: await toSnowflake("channel", p.id), guild_id: await guildSnowOf(p.serverId), type: 0 }, "CHANNEL_DELETE"));
+  on<{ channelId: string; userId: string; isTyping: boolean }>("typing:update", async (p) => {
+    if (!p.isTyping || !wantsMessages) return;
+    const guildLumina = await guildIdForChannel(session, p.channelId);
+    send(
+      session,
+      0,
+      {
+        channel_id: await toSnowflake("channel", p.channelId),
+        ...(guildLumina ? { guild_id: await toSnowflake("guild", guildLumina) } : {}),
+        user_id: await toSnowflake("user", p.userId),
+        timestamp: Math.floor(Date.now() / 1000),
+      },
+      "TYPING_START",
+    );
+  });
+  on<{ id: string }>("server:update", async (p) => {
+    const [server, roles, channels] = await Promise.all([
+      prisma.server.findUnique({ where: { id: p.id } }),
+      prisma.role.findMany({ where: { serverId: p.id } }),
+      prisma.channel.findMany({ where: { serverId: p.id, type: { not: "THREAD" } } }),
+    ]);
+    if (server) send(session, 0, await mapGuild(server, roles, channels), "GUILD_UPDATE");
   });
 
   const dispatchMessage = (t: string) => (m: Parameters<typeof mapMessage>[0]) => {
@@ -229,7 +329,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
 
   internal.on(
     "interaction:create",
-    (i: { id: string; token: string; type: string; commandName: string | null; options: Record<string, string | number | boolean> | null; customId: string | null; channelId: string | null; serverId: string | null; userId: string; messageId: string | null }) => {
+    (i: { id: string; token: string; type: string; commandName: string | null; commandPath?: string[]; options: Record<string, string | number | boolean> | null; customId: string | null; channelId: string | null; serverId: string | null; userId: string; messageId: string | null }) => {
       void (async () => {
         const user = await prisma.user.findUnique({ where: { id: i.userId } });
         if (!user) return;
@@ -283,14 +383,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
                   type: 1,
                   // Lumina stores options as a {name: value} record; Discord's shape is an
                   // array of {name, type, value} — translate so getString()/getInteger() work.
-                  options:
-                    i.options && typeof i.options === "object"
-                      ? Object.entries(i.options).map(([name, value]) => ({
-                          name,
-                          type: typeof value === "number" ? 4 : typeof value === "boolean" ? 5 : 3,
-                          value,
-                        }))
-                      : [],
+                  options: nestInteractionOptions(i.commandPath ?? [], i.options),
                 }
               : { custom_id: i.customId, component_type: 2 },
             app_permissions: luminaPermsToDiscord(botEff),
@@ -310,17 +403,75 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
   );
 }
 
+interface RequestMembers {
+  guild_id?: string;
+  query?: string;
+  limit?: number;
+  nonce?: string;
+  user_ids?: string | string[];
+}
+
+/**
+ * GUILD_MEMBERS_CHUNK. Discord's rule, kept: the whole list needs the members intent (declared in
+ * IDENTIFY and switched on in the portal); a username prefix query or an explicit id list is
+ * answered regardless. The nonce comes back so libraries that match requests to chunks (discord.py,
+ * JDA) resolve instead of waiting sixty seconds for a reply that never arrives.
+ */
+async function handleRequestMembers(session: GatewaySession, d: RequestMembers): Promise<void> {
+  const guildSnow = d.guild_id ?? "0";
+  const chunk = (members: unknown[]) =>
+    send(session, 0, { guild_id: guildSnow, members, chunk_index: 0, chunk_count: 1, ...(d.nonce ? { nonce: d.nonce } : {}) }, "GUILD_MEMBERS_CHUNK");
+  const serverId = await fromSnowflake("guild", guildSnow);
+  const query = (d.query ?? "").trim().toLowerCase();
+  const explicitIds = d.user_ids ? (Array.isArray(d.user_ids) ? d.user_ids : [d.user_ids]).map(String) : null;
+  if (!serverId || (!session.membersAllowed && !query && !explicitIds)) {
+    chunk([]);
+    return;
+  }
+  const wanted = explicitIds ? new Set(await Promise.all(explicitIds.map((id) => fromSnowflake("user", id)))) : null;
+  const rows = await prisma.membership.findMany({
+    where: { serverId, ...(query ? { user: { username: { startsWith: query, mode: "insensitive" } } } : {}) },
+    include: { user: true, roles: { select: { roleId: true } } },
+    take: Math.min(Math.max(Number(d.limit) || 1000, 1), 1000),
+    orderBy: { joinedAt: "asc" },
+  });
+  const members: unknown[] = [];
+  for (const m of rows) {
+    if (wanted && !wanted.has(m.userId)) continue;
+    members.push({
+      user: { ...(await mapUser(m.user)), bot: !!m.user.isBot },
+      nick: m.nickname,
+      roles: await Promise.all(m.roles.map((r) => toSnowflake("role", r.roleId))),
+      joined_at: m.joinedAt.toISOString(),
+      ...MEMBER_DEFAULTS,
+    });
+  }
+  chunk(members);
+}
+
 export function attachDiscordGateway(server: HttpServer): void {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (request, socket, head) => {
     const url = request.url ?? "";
     if (!url.startsWith("/discord/gateway")) return; // socket.io's own upgrade handler owns the rest
-    wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws));
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit("connection", ws, request));
   });
 
-  wss.on("connection", (ws) => {
-    const session: GatewaySession = { ws, seq: 0, internal: null, channelGuildCache: new Map() };
+  wss.on("connection", (ws, request: { url?: string }) => {
+    // compress=zlib-stream is negotiated in the URL (Discord's way); zstd-stream is not offered
+    // here, and every library falls back to plain JSON text frames when it is absent.
+    const compress = /[?&]compress=zlib-stream(?:&|$)/.test(request?.url ?? "");
+    const session: GatewaySession = {
+      ws,
+      seq: 0,
+      internal: null,
+      channelGuildCache: new Map(),
+      membersAllowed: false,
+      deflate: compress ? createDeflate() : null,
+      sendChain: Promise.resolve(),
+    };
+    session.deflate?.on("error", () => ws.close(4000, "Compression failed"));
     send(session, 10, { heartbeat_interval: HEARTBEAT_INTERVAL_MS });
 
     // A client that never heartbeats is a dead client; Discord zombie-detects the same way.
@@ -350,8 +501,8 @@ export function attachDiscordGateway(server: HttpServer): void {
           break;
         case 3: // presence update — accepted and ignored (Lumina presence is account-level)
           break;
-        case 8: // request guild members — answer an empty final chunk so fetches resolve
-          send(session, 0, { guild_id: (packet.d as { guild_id?: string })?.guild_id ?? "0", members: [], chunk_index: 0, chunk_count: 1 }, "GUILD_MEMBERS_CHUNK");
+        case 8: // request guild members — real members, nonce echoed, intent-gated like Discord
+          void handleRequestMembers(session, (packet.d ?? {}) as RequestMembers);
           break;
         default:
           break; // unknown ops are ignored, matching Discord's own tolerance
@@ -361,6 +512,7 @@ export function attachDiscordGateway(server: HttpServer): void {
     ws.on("close", () => {
       clearInterval(reaper);
       session.internal?.close();
+      session.deflate?.close();
     });
   });
 }

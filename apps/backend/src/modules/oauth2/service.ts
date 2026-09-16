@@ -1,3 +1,4 @@
+import { announceMember } from "../messages/systemMessages.js";
 import { timingSafeEqual } from "node:crypto";
 import { getIO } from "../../realtime/io.js";
 import { admitUserToServer } from "../../realtime/io.js";
@@ -239,6 +240,7 @@ export async function installBot(params: {
     const full = await prisma.membership.findUnique({ where: { id: membershipId }, include: memberInclude });
     if (full) getIO().to(`server:${server.id}`).emit(ServerEvents.MEMBER_JOIN, serializeMember(full));
     await admitUserToServer(botUser.id, server.id);
+    announceMember("join", server.id, botUser.id);
   }
   return { serverId: server.id, botUserId: botUser.id, grantedPermissions: granted.toString(), alreadyPresent: !!existing };
 }

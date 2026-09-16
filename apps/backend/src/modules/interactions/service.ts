@@ -1,3 +1,5 @@
+import { MAX_COMMANDS_PER_APPLICATION, resolveLeafOptions, validateCommand } from "./commandSchema.js";
+export { MAX_COMMANDS_PER_APPLICATION };
 import { randomBytes } from "node:crypto";
 import { Permissions, ServerEvents } from "@lumina/shared";
 import type { InteractionDTO, SlashCommandDTO, SlashCommandOptionDTO } from "@lumina/shared";
@@ -27,11 +29,7 @@ import { createChannelMessage, createDMMessage } from "../messages/service.js";
  */
 
 const RESPONSE_WINDOW_MS = 3_000;
-// Discord's own global-command ceiling. Real bots sit well above 50: Ree6 registers ~90.
-export const MAX_COMMANDS_PER_APPLICATION = 100;
 
-// Discord's rule (lowercase letters, digits, _ and -; a digit may lead: /8ball is a classic).
-const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 function serializeCommand(row: {
   id: string;
@@ -49,76 +47,7 @@ function serializeCommand(row: {
   };
 }
 
-const VALID_OPTION_TYPES = new Set(["string", "integer", "boolean", "user", "channel"]);
 
-/**
- * Validates one command definition as sent by a bot.
- *
- * Strict on purpose: this JSON is stored and later handed to every client in the server to draw a
- * command palette from. A malformed option list would render as a broken form for real users, and
- * "the bot sent nonsense" is much easier to act on at registration time than at render time.
- */
-function validateCommand(raw: unknown, index: number): { name: string; description: string; options: SlashCommandOptionDTO[] } {
-  if (!raw || typeof raw !== "object") throw new BadRequestError(`Command ${index} is not an object`);
-  const cmd = raw as Record<string, unknown>;
-  const name = typeof cmd.name === "string" ? cmd.name.trim().toLowerCase() : "";
-  if (!NAME_RE.test(name)) {
-    // Quote what was sent: a bot author reading "Command 62" in a log has to count; "Command 62
-    // (\"Report Message\")" tells them which one.
-    const shown = JSON.stringify(String(cmd.name ?? "")).slice(0, 40);
-    throw new BadRequestError(`Command ${index} (${shown}): name must be 1-32 lowercase characters (a-z, 0-9, _, -) starting with a letter or digit`);
-  }
-  const description = typeof cmd.description === "string" ? cmd.description.trim() : "";
-  if (!description || description.length > 200) {
-    throw new BadRequestError(`Command "${name}": description is required and must be 200 characters or fewer`);
-  }
-
-  const rawOptions = Array.isArray(cmd.options) ? cmd.options : [];
-  if (rawOptions.length > 25) throw new BadRequestError(`Command "${name}": at most 25 options`);
-
-  const seen = new Set<string>();
-  let seenOptional = false;
-  const options: SlashCommandOptionDTO[] = rawOptions.map((o, i) => {
-    if (!o || typeof o !== "object") throw new BadRequestError(`Command "${name}": option ${i} is not an object`);
-    const opt = o as Record<string, unknown>;
-    const optName = typeof opt.name === "string" ? opt.name.trim().toLowerCase() : "";
-    if (!NAME_RE.test(optName)) throw new BadRequestError(`Command "${name}": option ${i} has an invalid name`);
-    if (seen.has(optName)) throw new BadRequestError(`Command "${name}": duplicate option "${optName}"`);
-    seen.add(optName);
-
-    const type = typeof opt.type === "string" ? opt.type : "string";
-    if (!VALID_OPTION_TYPES.has(type)) {
-      throw new BadRequestError(`Command "${name}": option "${optName}" has unknown type "${type}"`);
-    }
-    const required = opt.required === true;
-    // Required-after-optional is unfillable in a positional `/cmd a b c` palette: the client cannot
-    // tell which argument the user meant to skip. Rejected here rather than silently reordered.
-    if (required && seenOptional) {
-      throw new BadRequestError(`Command "${name}": required option "${optName}" cannot come after an optional one`);
-    }
-    if (!required) seenOptional = true;
-
-    return {
-      name: optName,
-      description: typeof opt.description === "string" ? opt.description.slice(0, 200) : "",
-      type: type as SlashCommandOptionDTO["type"],
-      required,
-      choices: Array.isArray(opt.choices)
-        ? opt.choices
-            .filter(
-              (c): c is { name: string; value: string | number } =>
-                !!c &&
-                typeof c === "object" &&
-                typeof (c as { name?: unknown }).name === "string" &&
-                ["string", "number"].includes(typeof (c as { value?: unknown }).value),
-            )
-            .slice(0, 25)
-        : undefined,
-    };
-  });
-
-  return { name, description, options };
-}
 
 /**
  * Bulk overwrite — the whole command set, replacing whatever was there.
@@ -206,6 +135,7 @@ function serializeInteraction(row: {
   dmConversationId: string | null;
   serverId: string | null;
   commandName: string | null;
+  commandPath?: string[];
   optionsJson: unknown;
   componentCustomId: string | null;
   messageId: bigint | null;
@@ -220,6 +150,7 @@ function serializeInteraction(row: {
     dmConversationId: row.dmConversationId,
     serverId: row.serverId,
     commandName: row.commandName,
+    commandPath: row.commandPath ?? [],
     options: (row.optionsJson as Record<string, string | number | boolean> | null) ?? null,
     customId: row.componentCustomId,
     messageId: row.messageId !== null ? row.messageId.toString() : null,
@@ -282,6 +213,8 @@ export async function invokeCommand(params: {
   channelId?: string | null;
   dmConversationId?: string | null;
   commandName: string;
+  /** Subcommand group and/or subcommand names below the command, e.g. ["rank"] for /level rank. */
+  path?: string[];
   options: Record<string, string | number | boolean>;
 }): Promise<InvokeResult> {
   let serverId: string | null = null;
@@ -314,7 +247,8 @@ export async function invokeCommand(params: {
   const command = available.find((c) => c.name === params.commandName.toLowerCase());
   if (!command) throw new NotFoundError(`No command called /${params.commandName} is available here`);
 
-  assertOptionsSatisfy(command, params.options);
+  const leafOptions = resolveLeafOptions(command, params.path ?? []);
+  assertOptionsSatisfy({ ...command, options: leafOptions }, params.options);
 
   const interaction = await prisma.interaction.create({
     data: {
@@ -325,6 +259,7 @@ export async function invokeCommand(params: {
       dmConversationId: params.dmConversationId ?? null,
       serverId,
       commandName: command.name,
+      commandPath: params.path ?? [],
       optionsJson: params.options as never,
       token: randomBytes(32).toString("hex"),
     },

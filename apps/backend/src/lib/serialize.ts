@@ -205,6 +205,8 @@ type ServerLike = {
   sysJoinMessages?: boolean;
   sysLeaveMessages?: boolean;
   sysBoostMessages?: boolean;
+  joinMessageTemplate?: string | null;
+  leaveMessageTemplate?: string | null;
   rulesChannelId?: string | null;
   adultOnly?: boolean;
   discoverable?: boolean;
@@ -235,6 +237,8 @@ export function serializeServer(server: ServerLike): ServerDTO {
     sysJoinMessages: server.sysJoinMessages ?? true,
     sysLeaveMessages: server.sysLeaveMessages ?? false,
     sysBoostMessages: server.sysBoostMessages ?? true,
+    joinMessageTemplate: server.joinMessageTemplate ?? null,
+    leaveMessageTemplate: server.leaveMessageTemplate ?? null,
     rulesChannelId: server.rulesChannelId ?? null,
     adultOnly: server.adultOnly ?? false,
     discoverable: server.discoverable ?? false,
@@ -459,6 +463,7 @@ export function parseComponents(raw: unknown): ActionRowDTO[] | null {
 }
 
 type MessageLike = {
+  type?: string;
   id: bigint;
   channelId: string | null;
   dmConversationId: string | null;
@@ -503,6 +508,7 @@ export function serializeMessage(
 ): MessageDTO {
   return {
     id: message.id.toString(),
+    type: (message.type as MessageDTO["type"] | undefined) ?? "DEFAULT",
     channelId: message.channelId,
     dmConversationId: message.dmConversationId,
     authorId: message.authorId,

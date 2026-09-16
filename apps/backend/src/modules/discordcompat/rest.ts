@@ -4,7 +4,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, optionTypeToLumina, chatInputOnly, compatReplyShape } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, chatInputOnly, compatReplyShape, discordCommandToLumina, rateLimitHeaders } from "./shapes.js";
 import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
@@ -75,9 +75,10 @@ async function assertCanViewChannel(userId: string, channel: { id: string; serve
 
 export default async function discordCompatRest(fastify: FastifyInstance) {
   // Bare `application/json` on every reply (success and error alike) — see compatContentType.
-  fastify.addHook("onSend", async (_request, reply, payload) => {
+  fastify.addHook("onSend", async (request, reply, payload) => {
     const shaped = compatReplyShape(reply.statusCode, reply.getHeader("content-type"), payload);
     if (shaped.contentType) reply.header("content-type", shaped.contentType);
+    for (const [name, value] of Object.entries(rateLimitHeaders(request.routeOptions?.url ?? request.url))) reply.header(name, value);
     return shaped.payload;
   });
 
@@ -330,16 +331,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   // the application, exactly like Lumina's own route).
   fastify.put("/applications/:id/commands", async (request, reply) => {
     const commands = Array.isArray(request.body) ? (request.body as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[]) : [];
-    const mapped = chatInputOnly(commands).map((c) => ({
-      name: c.name,
-      description: c.description ?? "",
-      options: (c.options ?? []).map((o) => ({
-        name: o.name,
-        description: o.description ?? "",
-        type: optionTypeToLumina(o.type),
-        required: !!o.required,
-      })),
-    }));
+    const mapped = chatInputOnly(commands).map(discordCommandToLumina);
     const res = await internal(request, "PUT", "/interactions/commands", mapped);
     reply.code(res.status >= 400 ? res.status : 200);
     if (res.status >= 400) return res.json;
@@ -692,16 +684,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     fastify[method]("/applications/:id/guilds/:guildId/commands", { preHandler: [requireAuth] }, async (request, reply) => {
       const raw = Array.isArray(request.body) ? request.body : [request.body];
       const commands = raw.filter(Boolean) as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[];
-      const mapped = chatInputOnly(commands).map((c) => ({
-        name: c.name,
-        description: c.description ?? "",
-        options: (c.options ?? []).map((o) => ({
-          name: o.name,
-          description: o.description ?? "",
-          type: optionTypeToLumina(o.type),
-          required: !!o.required,
-        })),
-      }));
+      const mapped = chatInputOnly(commands).map(discordCommandToLumina);
       const res = await internal(request, "PUT", "/interactions/commands", mapped);
       if (res.status >= 400) return reply.code(res.status).send(res.json);
       const appId = (request.params as { id: string }).id;

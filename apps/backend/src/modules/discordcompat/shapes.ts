@@ -265,6 +265,7 @@ export async function mapMessage(m: {
   createdAt: string;
   components?: unknown;
   reactions?: { emoji: string; count: number }[];
+  type?: string | null;
 }, guildLuminaId?: string | null) {
   return {
     id: m.id, // native BigInt id — already numeric
@@ -287,7 +288,8 @@ export async function mapMessage(m: {
     // bot's view and Lumina's DTO carries reactedByMe per-viewer, not per-bot here.
     reactions: (m.reactions ?? []).map((r) => ({ emoji: { id: null, name: r.emoji }, count: r.count, me: false })),
     pinned: m.pinned,
-    type: m.replyToId ? 19 : 0,
+    // 7 = GUILD_MEMBER_JOIN: libraries render it as a system line and skip command parsing.
+    type: m.type === "MEMBER_JOIN" ? 7 : m.replyToId ? 19 : 0,
     ...(m.replyToId ? { message_reference: { message_id: m.replyToId, channel_id: m.channelId ? await toSnowflake("channel", m.channelId) : "0" } } : {}),
   };
 }
@@ -414,4 +416,64 @@ export function compatReplyShape(statusCode: number, contentType: unknown, paylo
     }
   }
   return out;
+}
+
+/**
+ * Discord's rate-limit headers, on every compat reply. Lumina rate-limits on its own terms
+ * inside the routes the compat layer forwards to; these headers exist because libraries' request
+ * schedulers read them (JDA warns on their absence, discord.js's bucketing assumes them) and a
+ * generous, honest-enough window keeps them from inventing their own throttling.
+ */
+export function rateLimitHeaders(routePattern: string, nowMs: number = Date.now()): Record<string, string> {
+  return {
+    "x-ratelimit-limit": "50",
+    "x-ratelimit-remaining": "49",
+    "x-ratelimit-reset": String(Math.ceil(nowMs / 1000) + 1),
+    "x-ratelimit-reset-after": "1.000",
+    "x-ratelimit-bucket": createHash("sha256").update(routePattern).digest("hex").slice(0, 32),
+  };
+}
+
+/** A Discord application-command option as a library registers it (types are Discord's numbers). */
+export interface DiscordCommandOption {
+  name: string;
+  description?: string;
+  type?: number;
+  required?: boolean;
+  options?: DiscordCommandOption[];
+  choices?: Array<{ name: string; value: string | number }>;
+}
+
+/**
+ * Discord's nested command tree → Lumina's. Subcommands (1) and groups (2) keep their children;
+ * everything else becomes a leaf option of the nearest Lumina kind.
+ */
+export function discordOptionsToLumina(options: DiscordCommandOption[] | undefined): unknown[] {
+  return (options ?? []).map((o) =>
+    o.type === 1 || o.type === 2
+      ? { name: o.name, description: o.description ?? "", type: o.type === 1 ? "subcommand" : "subcommand_group", options: discordOptionsToLumina(o.options) }
+      : {
+          name: o.name,
+          description: o.description ?? "",
+          type: optionTypeToLumina(o.type),
+          required: !!o.required,
+          ...(Array.isArray(o.choices) ? { choices: o.choices } : {}),
+        },
+  );
+}
+export function discordCommandToLumina(c: { name: string; description?: string; options?: DiscordCommandOption[] }) {
+  return { name: c.name, description: c.description ?? "", options: discordOptionsToLumina(c.options) };
+}
+
+/**
+ * The `data.options` of an INTERACTION_CREATE: Lumina stores the leaf values flat plus the path
+ * the user took (["welcome", "set"]); Discord nests them — group(2) → subcommand(1) → values.
+ */
+export function nestInteractionOptions(path: string[], options: Record<string, string | number | boolean> | null | undefined): unknown[] {
+  const leaf = Object.entries(options ?? {}).map(([name, value]) => ({
+    name,
+    type: typeof value === "number" ? 4 : typeof value === "boolean" ? 5 : 3,
+    value,
+  }));
+  return path.reduceRight<unknown[]>((inner, name, index) => [{ name, type: index === 0 && path.length === 2 ? 2 : 1, options: inner }], leaf);
 }
