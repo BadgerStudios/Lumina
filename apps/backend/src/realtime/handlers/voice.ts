@@ -88,6 +88,14 @@ async function leaveVoice(io: SocketIOServer, socket: Socket): Promise<void> {
   socket.data.handRaised = undefined;
   io.to(room).emit(ServerEvents.VOICE_PARTICIPANT_LEFT, { userId: socket.data.userId as string, socketId: socket.id });
   void broadcastRoster(io, voiceKey);
+  // The last person left a DM call: nobody is left to answer, so stop everyone's ring. Without this a
+  // caller who hung up before an answer left the other person's phone ringing until they tapped it.
+  if (isDmKey(voiceKey)) {
+    const remaining = await io.in(room).fetchSockets();
+    if (remaining.length === 0) {
+      io.to(dmKey(voiceKey.slice(DM_PREFIX.length))).emit(ServerEvents.CALL_ENDED, { conversationId: voiceKey.slice(DM_PREFIX.length) });
+    }
+  }
 }
 
 /** Resolve and authorize the call the socket wants to join, returning its voice key + (stage) role. */
@@ -169,6 +177,12 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
           io.to(room).except(socket.id).emit(ServerEvents.VOICE_PARTICIPANT_JOINED, joinedPayload);
         }
         void broadcastRoster(io, voiceKey);
+        // Answering a DM call on one device must silence the ring on this person's other devices.
+        // CALL_ENDED only clears a pending ring (useSocketEvents onCallEnded), so it is the right
+        // signal for "handled elsewhere" too.
+        if (isDmKey(voiceKey)) {
+          io.to(`user:${userId}`).except(socket.id).emit(ServerEvents.CALL_ENDED, { conversationId: voiceKey.slice(DM_PREFIX.length) });
+        }
 
         ack?.({ ok: true, participants });
       } catch (err) {

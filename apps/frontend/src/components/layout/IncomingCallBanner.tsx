@@ -13,6 +13,8 @@ import { startRingtone, stopRingtone } from "../../lib/ringtone";
  * looping ringtone and — if the tab is hidden and notifications are granted — raises an OS
  * notification. All of it stops the moment the call is answered, declined, or ends.
  */
+const RING_TIMEOUT_MS = 60_000;
+
 export function IncomingCallBanner() {
   const incomingCall = useVoiceStore((s) => s.incomingCall);
   const acceptCall = useVoiceStore((s) => s.acceptCall);
@@ -24,6 +26,11 @@ export function IncomingCallBanner() {
   useEffect(() => {
     if (!conversationId) return;
     startRingtone();
+    // A phone stops ringing after a while; so does this. The caller may still be waiting in the call,
+    // and the conversation's call button still joins them.
+    const giveUp = window.setTimeout(() => {
+      if (useVoiceStore.getState().incomingCall?.conversationId === conversationId) useVoiceStore.getState().setIncomingCall(null);
+    }, RING_TIMEOUT_MS);
     let notif: Notification | null = null;
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
@@ -37,6 +44,7 @@ export function IncomingCallBanner() {
       // Notification construction can throw in some embedded WebViews — the banner still shows.
     }
     return () => {
+      window.clearTimeout(giveUp);
       stopRingtone();
       try {
         notif?.close();
