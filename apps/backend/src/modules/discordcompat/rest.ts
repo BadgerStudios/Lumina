@@ -11,7 +11,7 @@ import { computeEffectivePermissions, checkChannelPermission } from "../../permi
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
 import { serializeMessage } from "../../lib/serialize.js";
-import { messageInclude, editMessage, createChannelMessage } from "../messages/service.js";
+import { messageInclude, editMessage, createChannelMessage, deleteMessage } from "../messages/service.js";
 import { parseBigIntId } from "../../lib/parseBigIntId.js";
 
 /**
@@ -409,7 +409,21 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const embedText = flattenEmbeds(body.embeds);
     const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
     if (!content && attachments.length === 0) throw new BadRequestError("content, embeds or files required");
-    const dto = (await createChannelMessage({ userId: botUserId, channelId: interaction.channelId, content, attachments })) as Parameters<typeof mapMessage>[0];
+    // Discord's rule: the first follow-up after a deferred response BECOMES the response. Lumina's
+    // deferral is a "…" placeholder message, so that placeholder is replaced — edited in place, or
+    // (when files arrive, which an edit cannot carry) removed once the real answer is posted —
+    // rather than left hanging above every Ree6 answer.
+    const placeholder = interaction.replyMessageId
+      ? await prisma.message.findUnique({ where: { id: interaction.replyMessageId }, select: { id: true, content: true, deletedAt: true } })
+      : null;
+    const deferred = !!placeholder && !placeholder.deletedAt && placeholder.content === "…";
+    let dto: Parameters<typeof mapMessage>[0];
+    if (deferred && attachments.length === 0 && content) {
+      dto = (await editMessage({ userId: botUserId, messageId: placeholder!.id.toString(), content })) as Parameters<typeof mapMessage>[0];
+    } else {
+      dto = (await createChannelMessage({ userId: botUserId, channelId: interaction.channelId, content, attachments })) as Parameters<typeof mapMessage>[0];
+      if (deferred) await deleteMessage({ userId: botUserId, messageId: placeholder!.id.toString() }).catch(() => undefined);
+    }
     const luminaComponents = componentsToLumina(body.components);
     if (luminaComponents) {
       await attachComponents(dto.id, luminaComponents, interaction.channelId, null);
