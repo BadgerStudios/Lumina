@@ -182,6 +182,7 @@ export class DiscordVoiceServer {
         internal: params.internal,
         iceServers: turnIceServers(params.botUserId),
         additionalHostAddresses: [env.DISCORD_VOICE_PUBLIC_IP!],
+        icePortRange: [env.DISCORD_VOICE_ICE_PORT_MIN, env.DISCORD_VOICE_ICE_PORT_MAX],
         onIncomingAudio: (socketId, userId, rtp) => this.forwardToBot(session, socketId, userId, rtp),
         onParticipant: (userId, present) => void this.announceParticipant(session, userId, present),
         log: (line) => this.log(`bridge ${params.botUserId}: ${line}`),
