@@ -241,13 +241,28 @@ export function flattenEmbeds(embeds: unknown): string {
   if (!Array.isArray(embeds)) return "";
   const parts: string[] = [];
   for (const e of embeds) {
-    const emb = e as { title?: string; description?: string; fields?: { name?: string; value?: string }[]; footer?: { text?: string } };
+    if (!e || typeof e !== "object") continue;
+    const emb = e as {
+      title?: string;
+      url?: string;
+      description?: string;
+      author?: { name?: string };
+      fields?: { name?: string; value?: string }[];
+      footer?: { text?: string };
+      image?: { url?: string };
+      thumbnail?: { url?: string };
+    };
     const lines: string[] = [];
-    if (emb.title) lines.push(`**${emb.title}**`);
+    if (emb.author?.name) lines.push(emb.author.name);
+    if (emb.title) lines.push(emb.url ? `**${emb.title}** ${emb.url}` : `**${emb.title}**`);
     if (emb.description) lines.push(emb.description);
     for (const f of emb.fields ?? []) if (f?.name && f?.value) lines.push(`**${f.name}**\n${f.value}`);
+    if (emb.image?.url) lines.push(emb.image.url);
+    else if (emb.thumbnail?.url) lines.push(emb.thumbnail.url);
     if (emb.footer?.text) lines.push(`_${emb.footer.text}_`);
-    if (lines.length) parts.push(lines.join("\n"));
+    // An embed with no words at all (a colour bar, an empty template) still IS a reply: post
+    // something rather than answer the bot 400 and leave the person with a "…" forever.
+    parts.push(lines.length ? lines.join("\n") : "[embed]");
   }
   return parts.join("\n\n");
 }

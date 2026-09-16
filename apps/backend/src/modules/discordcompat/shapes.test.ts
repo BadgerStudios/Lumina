@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly, compatReplyShape, rateLimitHeaders, discordCommandToLumina, nestInteractionOptions, mapMessage } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly, compatReplyShape, rateLimitHeaders, discordCommandToLumina, nestInteractionOptions, mapMessage, flattenEmbeds } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -198,5 +198,19 @@ describe("message kinds", () => {
     const base = { id: "1", channelId: "c", authorId: "u", author: { id: "u", username: "x" }, content: "", editedAt: null, pinned: false, replyToId: null, createdAt: new Date().toISOString() };
     expect((await mapMessage({ ...base, type: "MEMBER_JOIN" })).type).toBe(7);
     expect((await mapMessage({ ...base, type: "DEFAULT" })).type).toBe(0);
+  });
+});
+
+describe("embeds as text", () => {
+  it("keeps every readable part of an embed", () => {
+    const text = flattenEmbeds([{ author: { name: "Ree6" }, title: "Level roles", url: "https://x", description: "d", fields: [{ name: "Level 5", value: "@Regular" }], footer: { text: "f" }, thumbnail: { url: "https://img" } }]);
+    expect(text).toBe("Ree6\n**Level roles** https://x\nd\n**Level 5**\n@Regular\nhttps://img\n_f_");
+  });
+  // Ree6's /levelrole list answered with an embed that had no text; flattening it to "" made the
+  // compat layer refuse the bot's own follow-up with 400 "content or embeds required".
+  it("never turns a present embed into nothing", () => {
+    expect(flattenEmbeds([{ color: 0x5b7cfa }])).toBe("[embed]");
+    expect(flattenEmbeds([])).toBe("");
+    expect(flattenEmbeds(undefined)).toBe("");
   });
 });
