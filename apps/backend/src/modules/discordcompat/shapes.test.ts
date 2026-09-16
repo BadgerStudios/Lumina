@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly, compatReplyShape } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -142,5 +142,22 @@ describe("command kinds", () => {
   it("registers chat-input commands and drops context menus rather than failing the set", () => {
     const sent = [{ name: "ping" }, { name: "level", type: 1 }, { name: "Report Message", type: 3 }, { name: "Avatar", type: 2 }];
     expect(chatInputOnly(sent).map((c) => c.name)).toEqual(["ping", "level"]);
+  });
+});
+
+describe("the compat reply hook", () => {
+  it("leaves a no-content reply alone (no header to set)", () => {
+    const r = compatReplyShape(204, undefined, undefined);
+    expect(r).not.toHaveProperty("contentType");
+    expect(r.payload).toBeUndefined();
+  });
+  it("bares the JSON content-type and reshapes error bodies", () => {
+    expect(compatReplyShape(200, "application/json; charset=utf-8", "{}")).toEqual({ contentType: "application/json", payload: "{}" });
+    const err = compatReplyShape(404, "application/json; charset=utf-8", JSON.stringify({ error: "Unknown Guild", code: "NOT_FOUND" }));
+    expect(JSON.parse(err.payload as string)).toEqual({ code: 10004, message: "Unknown Guild" });
+  });
+  it("does not touch an already-bare header or a non-JSON body", () => {
+    expect(compatReplyShape(200, "application/json", "{}")).toEqual({ payload: "{}" });
+    expect(compatReplyShape(500, "text/plain", "boom")).toEqual({ payload: "boom" });
   });
 });
