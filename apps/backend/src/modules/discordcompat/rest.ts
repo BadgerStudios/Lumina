@@ -1,3 +1,5 @@
+import { readDiscordBody } from "./multipart.js";
+import { uploadLimitsFor } from "../billing/premium.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth } from "../../plugins/authenticate.js";
@@ -220,20 +222,23 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
 
   fastify.post("/channels/:id/messages", { preHandler: [requireAuth] }, async (request, reply) => {
     const channel = await resolveChannel((request.params as { id: string }).id);
-    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown; message_reference?: { message_id?: string } };
+    const { body: raw, attachments } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
+    const body = raw as { content?: string; embeds?: unknown; components?: unknown; message_reference?: { message_id?: string } };
     // Embeds flatten to text (Lumina has no bot-authored embed cards), so an embeds-only
     // message — the normal shape for giveaway/announcement bots — still says everything.
     const embedText = flattenEmbeds(body.embeds);
     const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
-    if (!content) throw new BadRequestError("content or embeds required");
-    const res = await internal(request, "POST", `/channels/${channel.id}/messages`, {
+    if (!content && attachments.length === 0) throw new BadRequestError("content, embeds or files required");
+    // Straight to the service (as the follow-up route already does): it runs every permission,
+    // slow-mode and AutoMod check itself, and it is the only path that takes attachments.
+    const dto = (await createChannelMessage({
+      userId: request.userId!,
+      channelId: channel.id,
       content,
-      ...(body.message_reference?.message_id ? { replyToId: body.message_reference.message_id } : {}),
-    });
-    // Lumina answers 201 for creation; Discord answers 200 and libraries assert on it.
-    reply.code(res.status >= 400 ? res.status : 200);
-    if (res.status >= 400) return res.json;
-    const dto = res.json as Parameters<typeof mapMessage>[0];
+      replyToId: body.message_reference?.message_id ?? null,
+      attachments,
+    })) as Parameters<typeof mapMessage>[0];
+    reply.code(200);
     const luminaComponents = componentsToLumina(body.components);
     if (luminaComponents) {
       await attachComponents(dto.id, luminaComponents, channel.id, null);
@@ -245,7 +250,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   fastify.patch("/channels/:id/messages/:messageId", { preHandler: [requireAuth] }, async (request, reply) => {
     const channel = await resolveChannel((request.params as { id: string }).id);
     const { messageId } = request.params as { messageId: string };
-    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown };
+    const body = (await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes)).body as { content?: string; embeds?: unknown; components?: unknown };
     const embedText = flattenEmbeds(body.embeds);
     const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
     const res = await internal(request, "PATCH", `/messages/${messageId}`, { content });
@@ -369,12 +374,17 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const { token } = request.params as { token: string };
     const { interaction, botUserId } = await interactionByToken(token);
     if (!interaction.replyMessageId) throw new NotFoundError("No reply yet");
-    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown };
+    const { body: raw, attachments } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
+    const body = raw as { content?: string; embeds?: unknown; components?: unknown };
     const embedText = flattenEmbeds(body.embeds);
     const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
     let dto: Parameters<typeof mapMessage>[0] | null = null;
     if (content) {
       dto = (await editMessage({ userId: botUserId, messageId: interaction.replyMessageId.toString(), content })) as Parameters<typeof mapMessage>[0];
+    }
+    if (attachments.length && interaction.channelId) {
+      // An edit cannot grow attachments on the original; the files follow as the bot's own message.
+      await createChannelMessage({ userId: botUserId, channelId: interaction.channelId, content: "", attachments });
     }
     const luminaComponents = componentsToLumina(body.components);
     if (luminaComponents) {
@@ -394,11 +404,12 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const { token } = request.params as { token: string };
     const { interaction, botUserId } = await interactionByToken(token);
     if (!interaction.channelId) throw new BadRequestError("No channel to follow up in");
-    const body = (request.body ?? {}) as { content?: string; embeds?: unknown; components?: unknown };
+    const { body: raw, attachments } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
+    const body = raw as { content?: string; embeds?: unknown; components?: unknown };
     const embedText = flattenEmbeds(body.embeds);
     const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
-    if (!content) throw new BadRequestError("content or embeds required");
-    const dto = (await createChannelMessage({ userId: botUserId, channelId: interaction.channelId, content })) as Parameters<typeof mapMessage>[0];
+    if (!content && attachments.length === 0) throw new BadRequestError("content, embeds or files required");
+    const dto = (await createChannelMessage({ userId: botUserId, channelId: interaction.channelId, content, attachments })) as Parameters<typeof mapMessage>[0];
     const luminaComponents = componentsToLumina(body.components);
     if (luminaComponents) {
       await attachComponents(dto.id, luminaComponents, interaction.channelId, null);
@@ -411,7 +422,8 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   // ---- interactions (respond via the real interaction machinery)
   fastify.post("/interactions/:id/:token/callback", async (request, reply) => {
     const { token } = request.params as { token: string };
-    const body = (request.body ?? {}) as { type?: number; data?: { content?: string; embeds?: unknown; components?: unknown } };
+    const { body: raw, attachments } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
+    const body = raw as { type?: number; data?: { content?: string; embeds?: unknown; components?: unknown } };
 
     // Type 6 (DEFERRED_UPDATE_MESSAGE): a silent component acknowledgement — the bot will edit
     // (or not) at its leisure. Posting a placeholder here would spam the channel, so it only
@@ -443,12 +455,19 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
 
     // Type 4 (respond with message) and 5 (deferred response placeholder).
     const embedText = flattenEmbeds(body.data?.embeds);
-    const content = [body.data?.content, embedText].filter(Boolean).join("\n\n") || (body.type === 5 ? "…" : undefined);
+    const content =
+      [body.data?.content, embedText].filter(Boolean).join("\n\n") ||
+      (attachments.length ? attachments.map((a) => a.fileName).join(", ") : body.type === 5 ? "…" : undefined);
     if (content === undefined) throw new BadRequestError("Unsupported interaction callback type");
     const res = await internal(request, "POST", `/interactions/${token}/respond`, {
       content,
       ...(body.data?.components ? { components: componentsToLumina(body.data.components) } : {}),
     });
+    if (res.status < 400 && attachments.length) {
+      // The reply itself has no attachment slot; the files follow as the bot's own message.
+      const { interaction, botUserId } = await interactionByToken(token);
+      if (interaction.channelId) await createChannelMessage({ userId: botUserId, channelId: interaction.channelId, content: "", attachments });
+    }
     return reply.code(res.status >= 400 ? res.status : 204).send();
   });
 
