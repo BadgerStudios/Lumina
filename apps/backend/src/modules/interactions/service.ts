@@ -62,7 +62,10 @@ function validateCommand(raw: unknown, index: number): { name: string; descripti
   const cmd = raw as Record<string, unknown>;
   const name = typeof cmd.name === "string" ? cmd.name.trim().toLowerCase() : "";
   if (!NAME_RE.test(name)) {
-    throw new BadRequestError(`Command ${index}: name must be 1-32 lowercase characters (a-z, 0-9, _, -) starting with a letter`);
+    // Quote what was sent: a bot author reading "Command 62" in a log has to count; "Command 62
+    // (\"Report Message\")" tells them which one.
+    const shown = JSON.stringify(String(cmd.name ?? "")).slice(0, 40);
+    throw new BadRequestError(`Command ${index} (${shown}): name must be 1-32 lowercase characters (a-z, 0-9, _, -) starting with a letter`);
   }
   const description = typeof cmd.description === "string" ? cmd.description.trim() : "";
   if (!description || description.length > 200) {
