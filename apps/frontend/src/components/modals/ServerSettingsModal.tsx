@@ -5,9 +5,8 @@ import { ServerAutoModPanel } from "./ServerAutoModPanel";
 import { ServerOnboardingPanel } from "./ServerOnboardingPanel";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import * as Dialog from "@radix-ui/react-dialog";
 import { DoorOpen,
-  Copy, Check, Trash2, X, Settings as SettingsIcon, ShieldCheck, Users, Smile,
+  Copy, Check, Trash2, Settings as SettingsIcon, ShieldCheck, Users, Smile,
   Tags, Ban, ScrollText, Webhook, ShieldAlert, Puzzle, Bot, ChevronUp, ChevronDown,
 } from "lucide-react";
 import type { RoleDTO } from "@lumina/shared";
@@ -25,6 +24,7 @@ import { cn } from "../../lib/cn";
 import { ModerationPanel, CommunityPanel } from "./ServerSettingsPanels";
 import { ExpressionsSettingsPanel } from "./ExpressionsSettingsPanel";
 import { ServerTemplateSection } from "./ServerTemplateSection";
+import { SettingsShell, type SettingsGroup } from "./SettingsShell";
 
 type Tab = "overview" | "onboarding" | "moderation" | "community" | "emoji" | "roles" | "bans" | "auditLog" | "webhooks" | "automod" | "addons" | "bots";
 
@@ -131,7 +131,7 @@ function WebhooksTab({ serverId }: { serverId: string }) {
             </div>
           ))
         ) : (
-          <p className="text-sm text-signal-faint">No webhooks in this server yet.</p>
+          <p className="text-sm text-signal-faint">No webhooks in this space yet.</p>
         )}
       </div>
     </div>
@@ -175,7 +175,7 @@ export function ServerSettingsModal() {
   const [name, setName] = useState(server?.name ?? "");
   const [accentColor, setAccentColor] = useState<string>(colorToHex(server?.accentColor ?? null));
   // Deleting is a two-step: reveal the panel, then type the name into it. confirm() put an
-  // OK button directly under the cursor of someone who had just clicked "Delete Server".
+  // OK button directly under the cursor of someone who had just clicked "Delete space".
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
@@ -217,81 +217,50 @@ export function ServerSettingsModal() {
     reorderRoles.mutate(reordered.map((r, i) => ({ id: r.id, position: reordered.length - i })));
   }
 
-  // Icons are not decoration here — they are the entire label on a phone, where the rail
-  // collapses to 64px. A tab without one would be a blank button.
-  const tabs: Array<{ key: Tab; label: string; icon: typeof SettingsIcon }> = [
-    { key: "overview", label: "Overview", icon: SettingsIcon },
-    { key: "onboarding", label: "Onboarding", icon: DoorOpen },
-    { key: "moderation", label: "Moderation", icon: ShieldCheck },
-    { key: "community", label: "Community", icon: Users },
-    { key: "emoji", label: "Expressions", icon: Smile },
-    { key: "roles", label: "Roles", icon: Tags },
-    { key: "bans", label: "Bans", icon: Ban },
-    { key: "auditLog", label: "Audit Log", icon: ScrollText },
-    { key: "webhooks", label: "Webhooks", icon: Webhook },
-    { key: "automod", label: "AutoMod", icon: ShieldAlert },
-    { key: "addons", label: "Addons", icon: Puzzle },
-    { key: "bots", label: "Bots", icon: Bot },
+  // Grouped, with a one-line hint each: on a phone the list IS the navigation, and twelve bare
+  // icons told nobody where Bans lived. Hints say what a section holds, in the words a member uses.
+  const groups: SettingsGroup<Tab>[] = [
+    {
+      title: "Space",
+      items: [
+        { key: "overview", label: "Overview", icon: SettingsIcon, hint: "Name, icon, banner and theme color" },
+        { key: "onboarding", label: "Onboarding", icon: DoorOpen, hint: "Welcome, rules and questions for newcomers" },
+        { key: "emoji", label: "Expressions", icon: Smile, hint: "Emoji, stickers and soundboard" },
+        { key: "roles", label: "Roles", icon: Tags, hint: "Permissions, colors and order" },
+      ],
+    },
+    {
+      title: "Community",
+      items: [
+        { key: "community", label: "Community", icon: Users, hint: "Rules channel and inactive channel" },
+        { key: "moderation", label: "Moderation", icon: ShieldCheck, hint: "Who and what gets scanned" },
+        { key: "automod", label: "AutoMod", icon: ShieldAlert, hint: "Automatic rules for messages" },
+        { key: "bans", label: "Bans", icon: Ban, hint: "Who is kept out" },
+        { key: "auditLog", label: "Audit log", icon: ScrollText, hint: "Every change and who made it" },
+      ],
+    },
+    {
+      title: "Integrations",
+      items: [
+        { key: "webhooks", label: "Webhooks", icon: Webhook, hint: "Post here from other tools" },
+        { key: "addons", label: "Addons", icon: Puzzle, hint: "Directory and installed addons" },
+        { key: "bots", label: "Bots", icon: Bot, hint: "Add and manage bots" },
+      ],
+    },
   ];
 
   return (
-    /**
-     * Full-viewport, matching UserSettingsModal — NOT the shared centred `Modal` box.
-     *
-     * It used to be that box at `max-w-2xl` with a hardcoded `w-40` tab column inside. On a 375px
-     * phone that left roughly 113px for the content, and every panel was clipped mid-word: the
-     * addon directory read "Nothing installed ye", the search field "Search publishe". Nothing
-     * overflowed in a way a scrollWidth check could see, because the container simply cut it off —
-     * which is why this survived a responsive pass that was looking for horizontal scroll.
-     */
-    <Dialog.Root open={open} onOpenChange={(o) => !o && closeModal()}>
-      <Dialog.Portal>
-        {/* z-[55]/z-[60]: clear the app's mobile bottom nav (fixed z-50) which otherwise tied a z-50
-            content and painted over the panel. Matches UserSettingsModal. */}
-        <Dialog.Overlay className="fixed inset-0 z-[55] bg-black/60" />
-        {/* Safe-area inset the content so it clears the device system bars (viewport-fit=cover);
-            matches UserSettingsModal. */}
-        <Dialog.Content
-          className="fixed inset-0 z-[60] flex focus:outline-none"
-          style={{
-            paddingTop: "var(--safe-top)",
-            paddingBottom: "var(--safe-bottom)",
-            paddingLeft: "max(env(safe-area-inset-left), var(--android-safe-left, 0px))",
-            paddingRight: "max(env(safe-area-inset-right), var(--android-safe-right, 0px))",
-          }}
-        >
-          <Dialog.Title className="sr-only">{server?.name ?? "Server"} Settings</Dialog.Title>
-
-          <div className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-base-900/60 bg-base-800 p-3 max-md:w-16">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                title={t.label}
-                className={cn(
-                  "flex items-center gap-2.5 rounded px-3 py-2 text-left text-sm font-medium max-md:justify-center max-md:px-0",
-                  tab === t.key ? "bg-base-500 text-signal" : "text-signal-dim hover:bg-base-700 hover:text-signal",
-                )}
-              >
-                <t.icon size={17} className="shrink-0" />
-                <span className="truncate max-md:hidden">{t.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="flex min-w-0 flex-1 flex-col bg-base-700">
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-base-900/60 px-5 py-4">
-              <h1 className="min-w-0 truncate text-xl font-bold text-signal">
-                {tabs.find((t) => t.key === tab)?.label}
-              </h1>
-              <Dialog.Close asChild>
-                <button className="shrink-0 text-signal-dim hover:text-signal" aria-label="Close">
-                  <X size={22} />
-                </button>
-              </Dialog.Close>
-            </div>
-
-            <div className="min-w-0 flex-1 overflow-y-auto p-5">
+    <SettingsShell<Tab>
+      open={open}
+      onOpenChange={(o) => !o && closeModal()}
+      title={`${server?.name ?? "Space"} settings`}
+      identity={{ name: server?.name ?? "Space", caption: "Space settings", imageUrl: server?.iconUrl ? resolveAssetUrl(server.iconUrl) : null }}
+      groups={groups}
+      active={tab}
+      onSelect={setTab}
+      // Sent to a specific section (the Bots panel does this) — land there, not on the list.
+      startOnList={!modalPayload?.tab}
+    >
           {tab === "overview" && (
             <div className="flex flex-col gap-4">
               <button
@@ -344,11 +313,11 @@ export function ServerSettingsModal() {
                     e.target.value = "";
                   }}
                 />
-                <span className="text-xs text-signal-faint">Server icon — click to change</span>
+                <span className="text-xs text-signal-faint">Space icon — tap to change</span>
               </div>
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-bold uppercase text-signal-dim">Server name</span>
+                <span className="text-xs font-bold uppercase text-signal-dim">Space name</span>
                 <input
                   value={name || server?.name || ""}
                   onChange={(e) => setName(e.target.value)}
@@ -357,11 +326,11 @@ export function ServerSettingsModal() {
               </label>
 
               <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-bold uppercase text-signal-dim">Server theme color</span>
-                <p className="text-xs text-signal-faint">Recolors buttons and highlights for EVERY member while they're viewing this server.</p>
+                <span className="text-xs font-bold uppercase text-signal-dim">Space theme color</span>
+                <p className="text-xs text-signal-faint">Recolors buttons and highlights for EVERY member while they're viewing this space.</p>
                 <div className="flex items-center gap-2">
                   <input
-                    aria-label="Server theme colour"
+                    aria-label="Space theme color"
                     type="color"
                     value={accentColor}
                     onChange={(e) => setAccentColor(e.target.value)}
@@ -422,7 +391,7 @@ export function ServerSettingsModal() {
                           disabled={deleteServer.isPending || deleteConfirm.trim() !== (server?.name ?? "").trim()}
                           className="rounded bg-dnd px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
                         >
-                          Delete this server
+                          Delete this space
                         </button>
                         <button
                           onClick={() => {
@@ -440,7 +409,7 @@ export function ServerSettingsModal() {
                       onClick={() => setDeleteOpen(true)}
                       className="text-sm font-medium text-dnd hover:underline"
                     >
-                      Delete Server
+                      Delete space
                     </button>
                   )
                 ) : (
@@ -457,7 +426,7 @@ export function ServerSettingsModal() {
                     }}
                     className="text-sm font-medium text-dnd hover:underline"
                   >
-                    Leave Server
+                    Leave space
                   </button>
                 )}
               </div>
@@ -579,10 +548,6 @@ export function ServerSettingsModal() {
           )}
 
           {tab === "webhooks" && <WebhooksTab serverId={serverId} />}
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </SettingsShell>
   );
 }
