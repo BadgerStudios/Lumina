@@ -32,6 +32,46 @@ BUILD_LOGS="/tmp/lumina-native-build-logs-$(id -un)"
 WEB_ONLY=false
 [[ "${1:-}" == "--web-only" ]] && WEB_ONLY=true
 
+# Mounted secrets keep the modes compose.yml documents: secrets/ is 0700 (no other host user can
+# traverse it) and the files the backend mounts are 0604, because the backend runs as uid 100 and
+# cannot read a 0600 file owned by uid 1000. The DKIM key had drifted to 0600, and the backend
+# quietly sent every verification and reset email UNSIGNED until this was put back.
+if [[ -d secrets ]]; then
+  chmod 0700 secrets
+  for f in secrets/dkim.key secrets/vm-east-submission.pem; do
+    [[ -f "$f" ]] && chmod 0604 "$f"
+  done
+fi
+
+# coturn's config file, carrying the TURN shared secret that used to sit on its command line (see
+# the coturn service in compose.yml). Rewritten from .env on every deploy so a rotated secret reaches
+# coturn and the backend together. Written even without a secret: a bind mount of a missing file
+# makes Docker create a directory in its place and coturn then refuses to start.
+python3 - <<'TURNCONF'
+import os, re
+secret = ""
+if os.path.exists(".env"):
+    for line in open(".env", encoding="utf-8"):
+        m = re.match(r"\s*(?:export\s+)?TURN_SECRET\s*=\s*(.*?)\s*$", line)
+        if not m:
+            continue
+        v = m.group(1)
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        else:
+            v = re.sub(r"\s+#.*$", "", v)
+        secret = v
+os.makedirs("secrets", mode=0o700, exist_ok=True)
+tmp = "secrets/turnserver.conf.tmp"
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    f.write("# Written by deploy.sh from .env. Do not edit here.\n")
+    if secret:
+        f.write(f"static-auth-secret={secret}\n")
+os.chmod(tmp, 0o604)
+os.replace(tmp, "secrets/turnserver.conf")
+TURNCONF
+
 # The native apps BUNDLE the frontend (capacitor webDir / electron renderer), so any deploy that
 # changes the UI but skips the native builds strands every installed app on the old interface
 # until someone remembers to run a full deploy. --web-only therefore only actually stays web-only

@@ -325,19 +325,27 @@ services:
     # sidesteps the whole translation problem: coturn binds the real interface directly.
     network_mode: host
     command:
-      - -n
+      # No `-n` (it means "ignore config files"): the shared secret comes from the file below.
+      - -c
+      - /etc/coturn/turnserver.conf
       - --log-file=stdout
       - --listening-port=3478
       - --min-port=49160
       - --max-port=49200
       - --realm=${TURN_HOST}
       - --use-auth-secret
-      - --static-auth-secret=${TURN_SECRET}
       - --external-ip=${TURN_EXTERNAL_IP}
       - --no-cli
       - --no-tls
       - --no-dtls
       - --no-multicast-peers
+    # The TURN shared secret lives in this file, never on the command line: with host networking
+    # coturn is an ordinary host process, and every local user can read any process's arguments
+    # through `ps`. deploy.sh writes the file from TURN_SECRET in .env (so .env stays the only
+    # source, shared with the backend) as 0604 inside the 0700 secrets/ directory, since coturn
+    # runs as nobody.
+    volumes:
+      - ./secrets/turnserver.conf:/etc/coturn/turnserver.conf:ro
     mem_limit: 128m
     security_opt:
       - no-new-privileges:true
