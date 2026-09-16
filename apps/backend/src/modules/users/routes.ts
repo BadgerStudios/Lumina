@@ -10,6 +10,7 @@ import { BadRequestError, ConflictError, NotFoundError, UnauthorizedError } from
 import { listMyMentions } from "../messages/service.js";
 import { getGlobalUnread } from "../readState/service.js";
 import { saveProfileImage, deleteProfileImage } from "../../lib/profileImage.js";
+import { isBlockedEitherWay } from "../friends/service.js";
 
 const updateMeSchema = z.object({
   displayName: z.string().min(1).max(64).nullable().optional(),
@@ -49,6 +50,44 @@ export default async function usersRoutes(fastify: FastifyInstance) {
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundError("User not found");
     return serializeUser(user);
+  });
+
+  /**
+   * The profile card's extras: when they joined Lumina, and the spaces and friends you share.
+   * Mutuals are computed from the viewer's side, so they only ever reveal spaces the viewer is in and
+   * friends the viewer has; with a block either way they are simply empty.
+   */
+  fastify.get("/:id/profile", { preHandler: [requireAuth] }, async (request) => {
+    const viewer = request.userId!;
+    const raw = (request.params as { id: string }).id;
+    const id = raw === "me" ? viewer : raw;
+    const user = await prisma.user.findUnique({ where: { id }, select: { id: true, createdAt: true } });
+    if (!user) throw new NotFoundError("User not found");
+    const empty = { createdAt: user.createdAt.toISOString(), mutualServers: [], mutualFriends: [] };
+    if (id === viewer || (await isBlockedEitherWay(viewer, id))) return empty;
+
+    const [mine, theirs] = await Promise.all([
+      prisma.membership.findMany({ where: { userId: viewer }, select: { serverId: true } }),
+      prisma.membership.findMany({ where: { userId: id }, select: { serverId: true } }),
+    ]);
+    const theirSet = new Set(theirs.map((m) => m.serverId));
+    const shared = mine.map((m) => m.serverId).filter((sid) => theirSet.has(sid));
+    const mutualServers = shared.length
+      ? await prisma.server.findMany({ where: { id: { in: shared } }, select: { id: true, name: true, iconUrl: true }, orderBy: { name: "asc" }, take: 50 })
+      : [];
+
+    const friendsOf = async (uid: string) => {
+      const rows = await prisma.friendRequest.findMany({
+        where: { status: "ACCEPTED", OR: [{ requesterId: uid }, { addresseeId: uid }] },
+        select: { requesterId: true, addresseeId: true },
+      });
+      return new Set(rows.map((r) => (r.requesterId === uid ? r.addresseeId : r.requesterId)));
+    };
+    const [a, b] = await Promise.all([friendsOf(viewer), friendsOf(id)]);
+    const mutualIds = [...a].filter((x) => b.has(x) && x !== id && x !== viewer).slice(0, 50);
+    const mutualFriends = mutualIds.length ? await prisma.user.findMany({ where: { id: { in: mutualIds } } }) : [];
+
+    return { createdAt: user.createdAt.toISOString(), mutualServers, mutualFriends: mutualFriends.map(serializeUser) };
   });
 
   fastify.patch("/me", { schema: { body: updateMeSchema }, preHandler: [requireAuth] }, async (request) => {

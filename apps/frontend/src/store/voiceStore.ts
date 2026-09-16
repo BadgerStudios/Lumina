@@ -13,6 +13,20 @@ const STUN_SERVER: RTCIceServer = { urls: "stun:stun.l.google.com:19302" };
 // TURN_SECRET configured (self-hosters who haven't stood up coturn) — never a hard failure.
 let iceServers: RTCIceServer[] = [STUN_SERVER];
 
+const USER_VOLUMES_KEY = "lumina.voice.userVolumes";
+/** The mute state to return to when un-deafening. */
+let mutedBeforeDeafen = false;
+function readUserVolumes(): Record<string, number> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(USER_VOLUMES_KEY) ?? "{}") as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(parsed)) if (typeof v === "number" && v >= 0 && v <= 100) out[k] = v;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 async function refreshIceServers(): Promise<void> {
   try {
     const res = await api.get<{ iceServers: RTCIceServer[] }>("/voice/turn-credentials");
@@ -131,6 +145,9 @@ interface VoiceState {
   leave: () => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
+  /** Per-person playback volume (0–100), remembered on this device. */
+  userVolumes: Record<string, number>;
+  setUserVolume: (userId: string, volume: number) => void;
   setMicMode: (mode: MicMode) => void;
   setVadSensitivity: (sensitivity: number) => void;
   setPttHeld: (held: boolean) => void;
@@ -395,6 +412,8 @@ function getOrCreatePeer(socketId: string): PeerEntry {
     }
     el.srcObject = stream;
     el.muted = useVoiceStore.getState().deafened;
+    const ownerId = useVoiceStore.getState().participants[socketId]?.userId;
+    if (ownerId) el.volume = Math.min(1, Math.max(0, (useVoiceStore.getState().userVolumes[ownerId] ?? 100) / 100));
     startSpeakingLoop(socketId, stream, (speaking) => {
       useVoiceStore.setState((s) => {
         const p = s.participants[socketId];
@@ -600,6 +619,65 @@ async function doConnect(opts: {
   for (const p of ack.participants ?? []) participants[p.socketId] = { ...p, speaking: false, hasVideo: false };
   store.setState({ connecting: false, participants, stageRole, handRaised: false });
   for (const p of ack.participants ?? []) getOrCreatePeer(p.socketId);
+  rememberVoiceSocket(opts.emit);
+}
+
+// ---- surviving a reconnect ---------------------------------------------------------------------
+// Voice room membership lives on the SOCKET. A network blip, a phone switching from wifi to mobile
+// data, a backend deploy, or simply creating a DM (which forces a reconnect, see reconnectSocket)
+// gives this client a new socket id; the server drops the old one from the room and everyone else
+// tears their connection to it down. The UI still said "connected" while nobody could hear anyone.
+// So: when the socket comes back under a new id while we are in a room, join the room again and
+// rebuild every peer, keeping the microphone we already hold.
+let voiceSocketId: string | null = null;
+let lastJoinEmit: { channelId?: string; conversationId?: string } | null = null;
+const pastVoiceSocketIds = new Set<string>();
+let reconnectWatchAttached = false;
+
+function rememberVoiceSocket(emit: { channelId?: string; conversationId?: string }): void {
+  voiceSocketId = getSocket().id ?? null;
+  if (voiceSocketId) pastVoiceSocketIds.add(voiceSocketId);
+  lastJoinEmit = emit;
+  if (reconnectWatchAttached) return;
+  reconnectWatchAttached = true;
+  const socket = getSocket();
+  socket.on("connect", () => {
+    if (!useVoiceStore.getState().channelId || !lastJoinEmit || !voiceSocketId || socket.id === voiceSocketId) return;
+    void rejoinAfterReconnect();
+  });
+}
+
+function forgetVoiceSocket(): void {
+  voiceSocketId = null;
+  lastJoinEmit = null;
+}
+
+async function rejoinAfterReconnect(): Promise<void> {
+  const store = useVoiceStore;
+  const emit = lastJoinEmit;
+  if (!emit) return;
+  for (const socketId of Array.from(peers.keys())) closePeer(socketId);
+  store.setState({ connecting: true, participants: {} });
+  await refreshIceServers();
+  const ack = await new Promise<{ ok: boolean; participants?: VoiceParticipantDTO[]; stageRole?: "speaker" | "audience"; error?: string }>((resolve) => {
+    getSocket().emit(ClientEvents.VOICE_JOIN, emit, resolve);
+  });
+  if (!store.getState().channelId || lastJoinEmit !== emit) return; // left (or moved) while this was in flight
+  if (!ack.ok) {
+    store.getState().leave();
+    store.setState({ error: ack.error ?? "Lost the voice connection. Join again." });
+    return;
+  }
+  voiceSocketId = getSocket().id ?? null;
+  if (voiceSocketId) pastVoiceSocketIds.add(voiceSocketId);
+  const stageRole = ack.stageRole ?? store.getState().stageRole;
+  if (stageRole === "speaker" && !localAudioStream) await acquireMic();
+  // The server may still list our previous socket until its ping times out — that is us, not a peer.
+  const others = (ack.participants ?? []).filter((p) => !pastVoiceSocketIds.has(p.socketId));
+  const participants: Record<string, VoiceParticipant> = {};
+  for (const p of others) participants[p.socketId] = { ...p, speaking: false, hasVideo: false };
+  store.setState({ connecting: false, participants, stageRole });
+  for (const p of others) getOrCreatePeer(p.socketId);
 }
 
 function teardown(): void {
@@ -632,6 +710,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   participants: {},
   roster: {},
   error: null,
+  userVolumes: readUserVolumes(),
 
   setChannelRoster: (channelId, participants) => {
     set((s) => ({ roster: { ...s.roster, [channelId]: participants } }));
@@ -699,6 +778,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   leave: () => {
     if (!get().channelId) return;
     getSocket().emit(ClientEvents.VOICE_LEAVE);
+    forgetVoiceSocket();
     teardown();
     set({
       serverId: null,
@@ -717,18 +797,44 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   toggleMute: () => {
-    set({ muted: !get().muted });
+    if (get().deafened) {
+      // Discord's rule: unmuting while deafened undeafens too — you asked to talk, and talking into a
+      // room you cannot hear is never what that click means.
+      for (const el of remoteAudioEls.values()) el.muted = false;
+      set({ deafened: false, muted: false });
+    } else {
+      set({ muted: !get().muted });
+    }
     applyMicGate();
   },
 
   toggleDeafen: () => {
     const deafened = !get().deafened;
     for (const el of remoteAudioEls.values()) el.muted = deafened;
-    // Deafening also mutes the mic (matches Discord — talking while unable to hear anyone
-    // respond isn't useful, and it's a clearer mental model than two independently-tracked
-    // states that can silently drift apart).
-    set({ deafened, muted: deafened ? true : get().muted });
+    // Deafening also mutes the mic (matches Discord — talking while unable to hear anyone respond
+    // isn't useful). Un-deafening puts the mic back the way it was: it used to leave it muted, so
+    // anyone who deafened and came back was silently still muted until they found the mute button.
+    if (deafened) {
+      mutedBeforeDeafen = get().muted;
+      set({ deafened: true, muted: true });
+    } else {
+      set({ deafened: false, muted: mutedBeforeDeafen });
+    }
     applyMicGate();
+  },
+
+  setUserVolume: (userId, volume) => {
+    const v = Math.min(100, Math.max(0, Math.round(volume)));
+    const next = { ...get().userVolumes, [userId]: v };
+    set({ userVolumes: next });
+    try {
+      window.localStorage.setItem(USER_VOLUMES_KEY, JSON.stringify(next));
+    } catch {
+      // storage full or blocked: the volume still applies for this session
+    }
+    for (const [socketId, el] of remoteAudioEls) {
+      if (get().participants[socketId]?.userId === userId) el.volume = v / 100;
+    }
   },
 
   setMicMode: (micMode) => {

@@ -757,3 +757,10 @@ export const DEFAULT_PREFERENCES: UserPreferencesDTO = {
   accessibility: { reducedMotion: false, fontScale: 100 },
   notifications: { push: { message: true, direct: true, mention: true, channel: true } },
 };
+
+/** What a profile card shows beyond the UserDTO: how long they have been on Lumina, and what you share. */
+export interface UserProfileExtrasDTO {
+  createdAt: string;
+  mutualServers: Array<{ id: string; name: string; iconUrl: string | null }>;
+  mutualFriends: UserDTO[];
+}

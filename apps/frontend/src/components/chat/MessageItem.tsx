@@ -12,7 +12,7 @@ import { StaffBadge } from "../common/StaffBadge";
 import { PremiumBadge } from "../common/PremiumBadge";
 import type { MessageDTO } from "@lumina/shared";
 import { UserAvatar } from "../common/UserAvatar";
-import { UserProfileCard } from "../common/UserProfileCard";
+import { ServerProfileCard } from "../common/ServerProfileCard";
 import { MessageContent, SpoilerAttachment, stripSpoilerPrefix } from "./MessageContent";
 import { PollCard } from "./PollCard";
 import { LinkEmbeds } from "./LinkEmbeds";
@@ -204,7 +204,7 @@ export function MessageItem({
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content align="start" className="z-50">
-                  <UserProfileCard user={author} onMessage={!isOwn ? () => void openAuthorDM() : undefined} />
+                  <ServerProfileCard user={author} serverId={serverId} onMessage={!isOwn ? () => void openAuthorDM() : undefined} />
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
@@ -247,7 +247,7 @@ export function MessageItem({
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content align="start" className="z-50">
-                    <UserProfileCard user={author} onMessage={!isOwn ? () => void openAuthorDM() : undefined} />
+                    <ServerProfileCard user={author} serverId={serverId} onMessage={!isOwn ? () => void openAuthorDM() : undefined} />
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>

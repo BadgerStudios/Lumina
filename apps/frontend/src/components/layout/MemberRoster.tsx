@@ -15,7 +15,7 @@ import { BotBadge } from "../common/BotBadge";
 import { OfficialBadge } from "../common/OfficialBadge";
 import { StaffBadge } from "../common/StaffBadge";
 import { PremiumBadge } from "../common/PremiumBadge";
-import { UserProfileCard } from "../common/UserProfileCard";
+import { ServerProfileCard } from "../common/ServerProfileCard";
 import { useConfirm } from "../common/ConfirmDialog";
 import { can } from "../../lib/permissions";
 import { ApiError } from "../../lib/apiClient";
@@ -367,11 +367,9 @@ function MemberRow({
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content side="left" align="start" className="z-50">
-            <UserProfileCard
+            <ServerProfileCard
               user={{ ...member.user, presence }}
-              nickname={member.nickname}
-              roles={roles}
-              member={member}
+              serverId={serverId}
               onMessage={!isSelf && !member.user.isBot ? () => onMessage(member.userId) : undefined}
             />
           </DropdownMenu.Content>

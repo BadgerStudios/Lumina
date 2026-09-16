@@ -1,5 +1,5 @@
-import { useMutation } from "@tanstack/react-query";
-import type { PresenceStatus, UserDTO } from "@lumina/shared";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import type { PresenceStatus, UserDTO, UserProfileExtrasDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { useAuthStore } from "../store/authStore";
 import { reportError } from "../store/toastStore";
@@ -97,5 +97,16 @@ export function useExportAccountData() {
       URL.revokeObjectURL(url);
     },
     onError: (e) => reportError(e, "Couldn't export your data"),
+  });
+}
+
+/** Joined-Lumina date and mutual spaces/friends for a profile card. Cached a minute: opening the same
+ * card twice in a conversation should not refetch. */
+export function useUserProfileExtras(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["user-profile-extras", userId],
+    queryFn: () => api.get<UserProfileExtrasDTO>(`/users/${userId!}/profile`),
+    enabled: Boolean(userId),
+    staleTime: 60_000,
   });
 }
