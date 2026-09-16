@@ -364,3 +364,19 @@ export function toDiscordError(status: number, body: unknown): { code: number; m
   const errors = b.issues ?? b.details;
   return { code, message, ...(errors !== undefined ? { errors } : {}) };
 }
+
+/**
+ * Discord application-command option types → Lumina's palette types. Lumina models the five
+ * kinds its command palette can render; everything else arrives as a string, which every
+ * library still parses on its side (JDA's getAsDouble/getAsRole read the raw value). "number"
+ * (Discord 10) used to be emitted verbatim and Lumina's validator rejected the whole command
+ * set — Ree6's /embed has a numeric timestamp, so none of its ~90 commands registered.
+ * Subcommands (1) and groups (2) are not modelled yet and surface as a string option named
+ * after the subcommand, which registers but cannot be invoked properly — a known gap.
+ */
+const OPTION_TYPE_TO_LUMINA: Record<number, "string" | "integer" | "boolean" | "user" | "channel"> = {
+  3: "string", 4: "integer", 5: "boolean", 6: "user", 7: "channel",
+};
+export function optionTypeToLumina(discordType: number | undefined): "string" | "integer" | "boolean" | "user" | "channel" {
+  return OPTION_TYPE_TO_LUMINA[discordType ?? 3] ?? "string";
+}

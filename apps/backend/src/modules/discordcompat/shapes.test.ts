@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -117,5 +117,23 @@ describe("error bodies", () => {
   it("survives bodies that are not Lumina errors", () => {
     expect(toDiscordError(500, "boom")).toEqual({ code: 0, message: "HTTP 500" });
     expect(toDiscordError(400, { error: "Validation failed", issues: [{ path: ["name"] }] }).errors).toEqual([{ path: ["name"] }]);
+  });
+});
+
+describe("command option types", () => {
+  // The set interactions/service.ts validateCommand accepts. Anything outside it fails the whole
+  // PUT /applications/:id/commands, i.e. the bot registers nothing.
+  const LUMINA_TYPES = ["string", "integer", "boolean", "user", "channel"];
+  it("maps every Discord option type onto one Lumina knows", () => {
+    for (const t of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, undefined, 99]) {
+      expect(LUMINA_TYPES, `type ${t}`).toContain(optionTypeToLumina(t));
+    }
+  });
+  it("keeps the exact kinds where they exist", () => {
+    expect(optionTypeToLumina(4)).toBe("integer");
+    expect(optionTypeToLumina(5)).toBe("boolean");
+    expect(optionTypeToLumina(6)).toBe("user");
+    expect(optionTypeToLumina(7)).toBe("channel");
+    expect(optionTypeToLumina(10)).toBe("string");
   });
 });

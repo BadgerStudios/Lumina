@@ -4,7 +4,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, compatContentType, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina } from "./shapes.js";
 import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
@@ -327,7 +327,6 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   // PUT /applications/:id/commands with Discord's NUMERIC option types. Translate onto Lumina's
   // bulk overwrite (authenticated as the bot itself, so :id is informational — the token names
   // the application, exactly like Lumina's own route).
-  const OPTION_TYPE: Record<number, string> = { 3: "string", 4: "integer", 5: "boolean", 6: "user", 7: "channel", 10: "number" };
   fastify.put("/applications/:id/commands", async (request, reply) => {
     const commands = Array.isArray(request.body) ? (request.body as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[]) : [];
     const mapped = commands.map((c) => ({
@@ -336,7 +335,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       options: (c.options ?? []).map((o) => ({
         name: o.name,
         description: o.description ?? "",
-        type: OPTION_TYPE[o.type ?? 3] ?? "string",
+        type: optionTypeToLumina(o.type),
         required: !!o.required,
       })),
     }));
@@ -700,7 +699,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
         options: (c.options ?? []).map((o) => ({
           name: o.name,
           description: o.description ?? "",
-          type: OPTION_TYPE[o.type ?? 3] ?? "string",
+          type: optionTypeToLumina(o.type),
           required: !!o.required,
         })),
       }));
