@@ -33,12 +33,12 @@ export async function syncMessageMentions(params: {
   authorId: string;
   content: string;
   dto: MessageDTO;
-}): Promise<void> {
+}): Promise<Set<string>> {
   await prisma.messageMention.deleteMany({ where: { messageId: params.messageId } });
 
   const tokens = new Set<string>();
   for (const m of params.content.matchAll(MENTION_TOKEN_RE)) tokens.add(m[1].toLowerCase());
-  if (tokens.size === 0) return;
+  if (tokens.size === 0) return new Set();
 
   const everyoneRequested = tokens.has("everyone");
   tokens.delete("everyone");
@@ -86,7 +86,7 @@ export async function syncMessageMentions(params: {
     }
   }
 
-  if (mentionedUserIds.size === 0 && mentionedRoleIds.size === 0 && !everyoneGranted) return;
+  if (mentionedUserIds.size === 0 && mentionedRoleIds.size === 0 && !everyoneGranted) return new Set();
 
   await prisma.messageMention.createMany({
     data: [
@@ -113,7 +113,7 @@ export async function syncMessageMentions(params: {
   }
   notifyUserIds.delete(params.authorId);
 
-  if (notifyUserIds.size === 0) return;
+  if (notifyUserIds.size === 0) return notifyUserIds;
   const io = getIO();
   const payload = { message: params.dto, serverId: params.serverId, channelId: params.channelId };
   const authorName = params.dto.author?.displayName ?? params.dto.author?.username ?? "Someone";
@@ -141,4 +141,5 @@ export async function syncMessageMentions(params: {
       });
     });
   }
+  return notifyUserIds;
 }

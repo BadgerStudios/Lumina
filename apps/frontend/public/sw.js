@@ -18,9 +18,16 @@ self.addEventListener("push", (event) => {
   } catch {
     return;
   }
-  const { title, body, url, tag, urgent } = payload;
-  event.waitUntil(
-    self.registration.showNotification(title || "Lumina", {
+  const { title, body, url, tag, kind } = payload;
+  event.waitUntil((async () => {
+    // Someone with that very page focused is reading it already — no need to shout.
+    try {
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (url && wins.some((w) => w.focused && new URL(w.url).pathname === url)) return;
+    } catch {
+      // fall through and show it
+    }
+    await self.registration.showNotification(title || "Lumina", {
       body,
       tag,
       icon: "/icons/pwa-192.png",
@@ -40,7 +47,7 @@ self.addEventListener("push", (event) => {
       // one buzz per new message per conversation, which is the behaviour people actually want.
       renotify: Boolean(tag),
       // Short and distinct. A long pattern on a watch is unpleasant rather than more noticeable.
-      vibrate: urgent ? [90, 60, 90] : [60],
+      vibrate: kind === "direct" || kind === "mention" ? [90, 60, 90] : [60],
       // Never sticky. A notification a watch refuses to dismiss on its own is the single fastest
       // way to get notifications turned off entirely.
       requireInteraction: false,
@@ -49,8 +56,8 @@ self.addEventListener("push", (event) => {
       // waking the phone.
       actions: [{ action: "dismiss", title: "Dismiss" }],
       timestamp: Date.now(),
-    }),
-  );
+    });
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {

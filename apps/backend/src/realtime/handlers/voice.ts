@@ -249,19 +249,17 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
           conversationId: payload.conversationId,
           from: serializeUser(caller),
         });
-        // A call is time-sensitive: if the callee has no live socket to show the ring banner (app
-        // closed, or backgrounded on mobile), push-notify them instead. Gated on "no live socket"
-        // so an active session isn't double-notified by both the in-app banner and an OS push.
-        void (async () => {
-          const live = await io.in(`user:${o.userId}`).fetchSockets();
-          if (live.length > 0) return;
-          await sendPushToUser(o.userId, {
-            title: `${callerName} is calling…`,
-            body: "Tap to answer",
-            url: `/dm/${payload.conversationId}`,
-            tag: `call-${payload.conversationId}`,
-          });
-        })().catch(() => undefined);
+        // A call is time-sensitive. The push itself decides whether it is redundant (someone active on
+        // a desktop sees the banner) — a backgrounded phone keeps its socket for a while, and gating on
+        // "any live socket" used to swallow the ring exactly then. A ring is worthless after a minute.
+        void sendPushToUser(o.userId, {
+          title: `${callerName} is calling…`,
+          body: "Tap to answer",
+          url: `/dm/${payload.conversationId}`,
+          tag: `call-${payload.conversationId}`,
+          kind: "direct",
+          ttlSeconds: 60,
+        }).catch(() => undefined);
       }
     })();
   });

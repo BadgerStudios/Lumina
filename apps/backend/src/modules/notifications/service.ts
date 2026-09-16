@@ -4,31 +4,50 @@ import { prisma } from "../../db/prisma.js";
 // See schema.prisma's NotificationOverride model comment for why this is "" and not null.
 export const SERVER_LEVEL_CHANNEL = "";
 
-/** Channel override -> server override -> global default (ALL, matches Discord's own default —
- * opt-out, not opt-in). Only ever two rows can apply to a given (userId, serverId, channelId):
- * the exact channel row and the server-wide ("" channelId) row, so this is a single query
- * rather than walking a hierarchy. */
+/** Channel override -> server override -> the space's own default (Space settings → Community →
+ * "Default notifications", ALL unless changed). Only ever two rows can apply to a given
+ * (userId, serverId, channelId): the exact channel row and the server-wide ("" channelId) row. */
 export async function getEffectiveNotificationLevel(
   userId: string,
   serverId: string,
   channelId: string,
 ): Promise<NotificationLevel> {
-  const rows = await prisma.notificationOverride.findMany({
-    where: { userId, serverId, channelId: { in: [channelId, SERVER_LEVEL_CHANNEL] } },
-  });
-  const channelRow = rows.find((r) => r.channelId === channelId);
-  if (channelRow) return channelRow.level;
-  const serverRow = rows.find((r) => r.channelId === SERVER_LEVEL_CHANNEL);
-  if (serverRow) return serverRow.level;
-  return "ALL";
+  const levels = await effectiveLevelsForServer(serverId, channelId, [userId]);
+  return levels.get(userId) ?? "ALL";
 }
 
-/** Whether a push notification should actually be sent. `isMention` is always true for the one
- * caller today (modules/messages/mentions.ts) — plain non-mention channel messages never push
- * at all regardless of level (matches Discord's default behavior, see roadmap memory), so ALL
- * vs MENTIONS has no observable difference yet. Both tiers are still stored/computed for real
- * rather than collapsed into a boolean, since a future "push for every message" feature would
- * need ALL to already mean something rather than retrofitting it later. */
+/** The same resolution for many members at once — one query for the overrides, one for the space default. */
+export async function effectiveLevelsForServer(
+  serverId: string,
+  channelId: string,
+  userIds: string[],
+): Promise<Map<string, NotificationLevel>> {
+  const out = new Map<string, NotificationLevel>();
+  if (userIds.length === 0) return out;
+  const [rows, server] = await Promise.all([
+    prisma.notificationOverride.findMany({
+      where: { serverId, userId: { in: userIds }, channelId: { in: [channelId, SERVER_LEVEL_CHANNEL] } },
+    }),
+    prisma.server.findUnique({ where: { id: serverId }, select: { defaultNotificationLevel: true } }),
+  ]);
+  const fallback: NotificationLevel = server?.defaultNotificationLevel ?? "ALL";
+  const byUser = new Map<string, { channel?: NotificationLevel; server?: NotificationLevel }>();
+  for (const r of rows) {
+    const slot = byUser.get(r.userId) ?? {};
+    if (r.channelId === channelId) slot.channel = r.level;
+    else slot.server = r.level;
+    byUser.set(r.userId, slot);
+  }
+  for (const id of userIds) {
+    const slot = byUser.get(id);
+    out.set(id, slot?.channel ?? slot?.server ?? fallback);
+  }
+  return out;
+}
+
+/** Whether a push notification should actually be sent. Mentions and replies pass `isMention`
+ * (they push at ALL and MENTIONS); plain channel messages are pushed by
+ * modules/messages/channelPush.ts to members whose level resolves to ALL. */
 export async function shouldNotify(userId: string, serverId: string, channelId: string, isMention: boolean): Promise<boolean> {
   const level = await getEffectiveNotificationLevel(userId, serverId, channelId);
   if (level === "NONE") return false;

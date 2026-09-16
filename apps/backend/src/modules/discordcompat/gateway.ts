@@ -12,6 +12,7 @@ import { computeEffectiveChannelPermissions } from "../../permissions/permission
 import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
 import { parseBigIntId } from "../../lib/parseBigIntId.js";
+import { getIO } from "../../realtime/io.js";
 
 /**
  * Discord-gateway-compatible websocket at /discord/gateway.
@@ -56,6 +57,8 @@ interface GatewaySession {
   botUserId: string | null;
   /** The bot's seat in a voice channel, while it has one (voice/server.ts). */
   voice: VoiceSession | null;
+  /** Who this session last told the bot is in each voice channel, so roster broadcasts become deltas. */
+  voiceRosters: Map<string, Set<string>>;
 }
 
 function send(session: GatewaySession, op: number, d: unknown, t?: string): void {
@@ -98,6 +101,62 @@ async function guildIdForChannel(session: GatewaySession, channelId: string | nu
 }
 
 /** One guild, in full, as GUILD_CREATE — at identify for every membership, and again live when the bot is added to a space. */
+/** A person's voice state in Discord's shape; `member` rides along so a library that has not chunked the guild can still place them. */
+async function humanVoiceState(guildSnow: string, serverId: string, channelSnow: string | null, userId: string) {
+  const membership = await prisma.membership.findUnique({ where: { userId_serverId: { userId, serverId } }, include: { user: true } });
+  return {
+    guild_id: guildSnow,
+    channel_id: channelSnow,
+    user_id: await toSnowflake("user", userId),
+    session_id: `lumina-${userId}`,
+    deaf: false,
+    mute: false,
+    self_deaf: false,
+    self_mute: false,
+    self_video: false,
+    suppress: false,
+    request_to_speak_timestamp: null,
+    ...(membership
+      ? {
+          member: {
+            user: await mapUser(membership.user),
+            nick: membership.nickname ?? null,
+            roles: [],
+            joined_at: membership.joinedAt.toISOString(),
+            ...MEMBER_DEFAULTS,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * Everyone currently in the guild's voice channels, from the live `voice:<channel>` rooms — the
+ * `voice_states` of GUILD_CREATE. A music bot's "join the channel you are in" needs this; before it
+ * existed a bot only ever heard about a channel it had itself joined. Seeds the session's rosters.
+ */
+async function voiceStatesFor(session: GatewaySession, serverId: string, guildSnow: string, channels: Array<{ id: string; type: string }>, skipUserId: string) {
+  const states: unknown[] = [];
+  const io = getIO();
+  for (const c of channels) {
+    if (c.type !== "VOICE" && c.type !== "STAGE") continue;
+    const users = new Set<string>();
+    try {
+      for (const s of await io.in(`voice:${c.id}`).fetchSockets()) {
+        if (typeof s.data.userId === "string") users.add(s.data.userId);
+      }
+    } catch {
+      continue;
+    }
+    session.voiceRosters.set(c.id, users);
+    const channelSnow = await toSnowflake("channel", c.id);
+    for (const u of users) {
+      if (u !== skipUserId) states.push(await humanVoiceState(guildSnow, serverId, channelSnow, u));
+    }
+  }
+  return states;
+}
+
 async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<typeof mapUser>[0], serverId: string, live = false): Promise<void> {
   const server = await prisma.server.findUnique({ where: { id: serverId } });
   if (!server) return;
@@ -120,6 +179,7 @@ async function dispatchGuildCreate(session: GatewaySession, botUser: Parameters<
     },
   ] as never;
   guild.member_count = await prisma.membership.count({ where: { serverId } });
+  (guild as { voice_states?: unknown[] }).voice_states = await voiceStatesFor(session, serverId, guild.id as string, channels, botUser.id);
   // Discord.Net reads `unavailable: false` as "a guild from READY became available" and, finding
   // no such guild, logs Unknown Guild and drops it (NadekoBot, added live to a space). A real
   // join carries no `unavailable` key at all — that absence is what selects the join path.
@@ -203,6 +263,32 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
       if (!wantsMessages) return;
       const channels = await prisma.channel.findMany({ where: { serverId, type: { in: ["TEXT", "THREAD"] } }, select: { id: true } });
       for (const c of channels) internal.emit("channel:join", { channelId: c.id });
+    })().catch(() => undefined);
+  });
+
+  // Who is in which voice channel. Lumina broadcasts the full roster of a channel to the whole space
+  // on every join/leave; the bot gets the difference as VOICE_STATE_UPDATEs — how a music bot knows
+  // which channel the person who typed "play" is sitting in. The channel the bot itself is in is
+  // narrated by its voice session (voice/server.ts), so it is skipped here to avoid doubles.
+  internal.on("voice:roster-update", (payload: { channelId?: string; participants?: Array<{ userId?: string }> }) => {
+    const channelId = payload?.channelId;
+    if (!channelId || channelId.startsWith("dm:")) return;
+    void (async () => {
+      const now = new Set<string>();
+      for (const p of payload.participants ?? []) if (typeof p?.userId === "string") now.add(p.userId);
+      const before = session.voiceRosters.get(channelId) ?? new Set<string>();
+      session.voiceRosters.set(channelId, now);
+      if (session.voice && session.voice.channelId === channelId) return;
+      const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { serverId: true } });
+      if (!channel) return;
+      const guildSnow = await toSnowflake("guild", channel.serverId);
+      const channelSnow = await toSnowflake("channel", channelId);
+      for (const u of now) {
+        if (!before.has(u) && u !== botUser.id) send(session, 0, await humanVoiceState(guildSnow, channel.serverId, channelSnow, u), "VOICE_STATE_UPDATE");
+      }
+      for (const u of before) {
+        if (!now.has(u) && u !== botUser.id) send(session, 0, await humanVoiceState(guildSnow, channel.serverId, null, u), "VOICE_STATE_UPDATE");
+      }
     })().catch(() => undefined);
   });
 
@@ -489,6 +575,7 @@ export function attachDiscordGateway(server: HttpServer): void {
       sendChain: Promise.resolve(),
       botUserId: null,
       voice: null,
+      voiceRosters: new Map(),
     };
     session.deflate?.stream.on("error", () => ws.close(4000, "Compression failed"));
     send(session, 10, { heartbeat_interval: HEARTBEAT_INTERVAL_MS });

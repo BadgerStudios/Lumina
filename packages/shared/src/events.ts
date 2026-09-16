@@ -11,6 +11,9 @@ export const ClientEvents = {
   TYPING_START: "typing:start",
   TYPING_STOP: "typing:stop",
   PRESENCE_SET: "presence:set",
+  // "I am looking at Lumina right now" (visible + recent input) or not. The server uses it to decide
+  // whether a push is redundant — someone active on a desktop does not need their phone to buzz.
+  PRESENCE_ACTIVITY: "presence:activity",
   // Mesh WebRTC signaling relay (realtime/handlers/voice.ts) — the server never touches media,
   // it only relays offer/answer/ICE payloads between specific socket ids and tracks room
   // membership. See roadmap Phase 8 for why mesh (not an SFU) was the deliberate choice.

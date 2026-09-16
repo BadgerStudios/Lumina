@@ -223,6 +223,14 @@ export async function registerPresenceHandlers(io: SocketIOServer, socket: Socke
     if (!["ONLINE", "IDLE", "DND", "INVISIBLE"].includes(payload?.presence)) return;
     await setPresenceAndBroadcast(io, userId, payload.presence);
   });
+
+  // Activity is per SOCKET, not per user: a phone in a pocket and a desktop being typed on are two
+  // different answers to "is a push redundant?". Unset (an older client) reads as "not active", so a
+  // client that never reports keeps getting every push it got before.
+  socket.on(ClientEvents.PRESENCE_ACTIVITY, (payload: { active?: boolean; client?: string }) => {
+    socket.data.active = payload?.active === true;
+    socket.data.client = typeof payload?.client === "string" ? payload.client.slice(0, 16) : "web";
+  });
 }
 
 export async function handlePresenceDisconnect(io: SocketIOServer, socket: Socket): Promise<void> {

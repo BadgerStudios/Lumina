@@ -1,5 +1,7 @@
 import { io, type Socket } from "socket.io-client";
 import { useAuthStore } from "../store/authStore";
+import { ClientEvents } from "@lumina/shared";
+import { CLIENT_TYPE } from "../lib/platform";
 
 // Web build connects same-origin (relative "/", proxied by Vite dev / nginx in prod). The
 // mobile (Capacitor) build has no such same-origin proxy to ride along with, so it points at
@@ -22,8 +24,52 @@ export function getSocket(): Socket {
       auth: (cb) => cb({ accessToken: useAuthStore.getState().accessToken }),
       transports: ["websocket", "polling"],
     });
+    startActivityReporting(socket);
   }
   return socket;
+}
+
+// ---- "am I looking at this right now?" -----------------------------------------------------------
+// Visible tab + input in the last five minutes = active. The server treats an active desktop as
+// "no push needed, they can see it" and an active phone as "deliver it to the open app as a toast"
+// (see realtime/handlers/presence.ts and lib/push.ts). Only changes are sent, plus one report on
+// every (re)connect; nothing is sent while disconnected.
+const IDLE_MS = 5 * 60_000;
+let lastInput = Date.now();
+let reported: boolean | null = null;
+let activityStarted = false;
+
+function computeActive(): boolean {
+  if (typeof document === "undefined") return true;
+  if (document.visibilityState !== "visible") return false;
+  return Date.now() - lastInput < IDLE_MS;
+}
+
+function reportActivity(force = false): void {
+  const s = socket;
+  if (!s || !s.connected) return;
+  const active = computeActive();
+  if (!force && reported === active) return;
+  reported = active;
+  s.emit(ClientEvents.PRESENCE_ACTIVITY, { active, client: CLIENT_TYPE ?? "web" });
+}
+
+function startActivityReporting(s: Socket): void {
+  if (activityStarted || typeof window === "undefined") return;
+  activityStarted = true;
+  const touch = () => {
+    lastInput = Date.now();
+    reportActivity();
+  };
+  for (const ev of ["pointerdown", "keydown", "touchstart", "wheel"] as const) window.addEventListener(ev, touch, { passive: true });
+  document.addEventListener("visibilitychange", () => reportActivity());
+  window.addEventListener("focus", () => reportActivity());
+  window.addEventListener("blur", () => reportActivity());
+  window.setInterval(() => reportActivity(), 30_000);
+  s.on("connect", () => {
+    reported = null;
+    reportActivity(true);
+  });
 }
 
 export function connectSocket(): void {

@@ -8,6 +8,8 @@ import { BadRequestError, ForbiddenError, NotFoundError, TooManyRequestsError } 
 import { getIO } from "../../realtime/io.js";
 import { parseCursor, parseLimit } from "../../lib/pagination.js";
 import { syncMessageMentions } from "./mentions.js";
+import { pushChannelMessage } from "./channelPush.js";
+import { shouldNotify } from "../notifications/service.js";
 import { sendPushToUser } from "../../lib/push.js";
 import { runMessageAutomations } from "../addons/runtime.js";
 import { assertPassesAutoMod } from "../automod/service.js";
@@ -393,6 +395,7 @@ export async function createChannelMessage(params: {
   // between an author and their sent message.
   void awardMessageXp(params.userId, channel.serverId, message.id).catch(() => undefined);
   const replyToNotify = parseBigIntId(params.replyToId);
+  const authorName = dto.author?.displayName ?? dto.author?.username ?? "Someone";
   if (replyToNotify !== null) {
     void (async () => {
       const parent = await prisma.message.findUnique({
@@ -410,6 +413,16 @@ export async function createChannelMessage(params: {
           serverId: channel.serverId,
           preview: params.content.slice(0, 140),
         });
+        // A reply is addressed to someone the way a mention is: it pushes at ALL and MENTIONS alike.
+        if (parent.authorId !== params.userId && (await shouldNotify(parent.authorId, channel.serverId, params.channelId, true))) {
+          await sendPushToUser(parent.authorId, {
+            title: `${authorName} replied to you`,
+            body: params.content.slice(0, 150) || "Sent an attachment",
+            url: `/channels/${channel.serverId}/${params.channelId}`,
+            tag: `reply-${message.id}`,
+            kind: "mention",
+          });
+        }
       }
     })().catch(() => undefined);
   }
@@ -417,7 +430,7 @@ export async function createChannelMessage(params: {
   // channels, and fire-and-forget for the same reason link previews are: a bookkeeping write must
   // never sit between the author and their sent message.
   void touchThreadActivity(params.channelId).catch(() => undefined);
-  await syncMessageMentions({
+  const mentionedUserIds = await syncMessageMentions({
     messageId: message.id,
     serverId: channel.serverId,
     channelId: params.channelId,
@@ -425,6 +438,16 @@ export async function createChannelMessage(params: {
     content: params.content,
     dto,
   });
+  // Everyone else who follows this channel ("All messages") — after mentions, so nobody is pinged twice.
+  void pushChannelMessage({
+    serverId: channel.serverId,
+    channelId: params.channelId,
+    channelName: channel.name,
+    authorId: params.userId,
+    authorName,
+    content: params.content,
+    alreadyNotified: mentionedUserIds,
+  }).catch(() => undefined);
 
   // Installed addons run here, deliberately AFTER the message exists and has been broadcast, and
   // deliberately not awaited. An automation must never be able to make someone's message slower to

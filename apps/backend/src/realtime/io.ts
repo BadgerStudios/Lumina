@@ -32,6 +32,36 @@ export function getIO(): SocketIOServer {
  * the Redis adapter, so it reaches the target's sockets wherever they're connected. Best-effort and
  * swallowed: a moderation action must never fail because a realtime eviction hiccuped.
  */
+/**
+ * Is the person demonstrably looking at Lumina on a desktop or in a browser right now? That is the
+ * one case a push is noise: they will see the message where they are. A phone in the foreground is
+ * NOT counted — Android hands a push to the open app as an in-app toast, which is exactly right — and
+ * a client that never reported activity (an older build) is not counted either, so it keeps its pushes.
+ */
+export async function userIsActive(userId: string): Promise<boolean> {
+  if (!io) return false;
+  try {
+    const sockets = await io.in(`user:${userId}`).fetchSockets();
+    return sockets.some((s) => s.data.active === true && s.data.client !== "mobile");
+  } catch {
+    return false;
+  }
+}
+
+/** Everyone with an active socket in a space, phones included — the people who are in the app and will see a channel light up on their own. */
+export async function activeUserIdsInServer(serverId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!io) return out;
+  try {
+    for (const s of await io.in(`server:${serverId}`).fetchSockets()) {
+      if (s.data.active === true && typeof s.data.userId === "string") out.add(s.data.userId);
+    }
+  } catch {
+    // an adapter hiccup must not turn into "nobody is active": that just means a few extra pushes
+  }
+  return out;
+}
+
 export async function evictUserFromServer(userId: string, serverId: string): Promise<void> {
   if (!io) return;
   try {

@@ -152,6 +152,8 @@ export interface FcmMessage {
   tag?: string;
   /** Which of the person's tones this plays, and therefore which channel it names. Default "message". */
   kind?: PushKind;
+  /** Store-and-forward lifetime; see PushPayload.ttlSeconds. */
+  ttlSeconds?: number;
 }
 
 
@@ -180,11 +182,13 @@ export async function sendFcmToToken(token: string, message: FcmMessage, tones: 
           notification: { title: message.title, body: message.body },
           data: { url: message.url },
           android: {
-            // Doze batches NORMAL messages until the device next wakes, which for an overnight
-            // phone can be hours. HIGH is delivered immediately, and is reserved for the things a
-            // person is waiting on — a mention, a DM — because an app that marks everything high
-            // priority is one Google eventually starts rate-limiting.
-            priority: kind === "direct" || kind === "mention" ? "HIGH" : "NORMAL",
+            // Doze batches NORMAL messages until the device next wakes, which for a phone in a
+            // pocket can be hours — a friend request or a call arriving that evening reads as
+            // "notifications are broken". Every push here draws a notification the person sees,
+            // which is the one condition Google attaches to HIGH, so everything is HIGH; what is
+            // rate-limited is high-priority pushes that never surface anything.
+            priority: "HIGH",
+            ttl: `${Math.max(0, Math.round(message.ttlSeconds ?? 86_400))}s`,
             // Collapsing happens server-side too, so a phone that was off does not wake to forty
             // separate notifications from one conversation.
             ...(message.tag ? { collapse_key: message.tag } : {}),

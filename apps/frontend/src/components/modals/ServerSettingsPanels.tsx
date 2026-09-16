@@ -111,7 +111,7 @@ export function ModerationPanel({ server, serverId }: PanelProps) {
 
       <Field
         label="Default notifications for new members"
-        hint="Only decides the starting point. A member who has set their own preference keeps it."
+        hint="All messages pushes every message to members who are away from the app; Only @mentions pushes mentions and replies. A member who set their own preference keeps it."
       >
         <select
           className={SELECT_CLASS}
