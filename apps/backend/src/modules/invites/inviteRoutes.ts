@@ -158,6 +158,8 @@ export default async function inviteRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { code } = request.params as { code: string };
       await prisma.invite.update({ where: { code }, data: { revokedAt: new Date() } });
+      // For Discord-compatible bots (INVITE_DELETE); native clients ignore it.
+      getIO().to(`server:${request.serverId!}`).emit("invite:delete", { serverId: request.serverId!, code });
 
       await recordAuditLog({
         serverId: request.serverId!,

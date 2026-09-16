@@ -6,6 +6,7 @@ import { serializeInvite } from "../../lib/serialize.js";
 import { requireAuth, requireMembership, requirePermission, resolveServerId } from "../../plugins/authenticate.js";
 import { generateInviteCode } from "../../lib/nanoid.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
+import { getIO } from "../../realtime/io.js";
 
 // preprocess so a request with no body at all (previously handled by `.parse(request.body ??
 // {})` in the handler) still validates now that the schema is attached to Fastify's own
@@ -53,7 +54,10 @@ export default async function serverInvitesRoutes(fastify: FastifyInstance) {
       });
 
       reply.code(201);
-      return serializeInvite(invite);
+      const dto = serializeInvite(invite);
+      // For Discord-compatible bots (INVITE_CREATE); native clients ignore it.
+      getIO().to(`server:${invite.serverId}`).emit("invite:create", dto);
+      return dto;
     },
   );
 

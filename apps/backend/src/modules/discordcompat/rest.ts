@@ -14,6 +14,8 @@ import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude, editMessage, createChannelMessage, deleteMessage } from "../messages/service.js";
 import { parseBigIntId } from "../../lib/parseBigIntId.js";
 import { memberRoleSnowflakes, memberRoleSnowflakesBulk, threadOwnerId } from "./members.js";
+import { contentFromDiscord, guildEmojis, reactionKeyFromDiscord } from "./emojis.js";
+import { shapeInvite, type InviteJson } from "./invites.js";
 
 /**
  * Discord-shaped REST subset. Registered under BOTH /discord/api and /discord/api/v10 (libraries
@@ -144,6 +146,23 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     return mapGuild(server, roles, channels);
   });
 
+  // A guild's custom emoji — where a bot learns the ids it writes as <:name:id>.
+  fastify.get("/guilds/:id/emojis", { preHandler: [requireAuth] }, async (request) => {
+    const luminaId = await fromSnowflake("guild", (request.params as { id: string }).id);
+    if (!luminaId) throw new NotFoundError("Unknown guild");
+    await assertGuildMember(request.userId!, luminaId);
+    return guildEmojis(luminaId);
+  });
+  fastify.get("/guilds/:id/emojis/:emojiId", { preHandler: [requireAuth] }, async (request) => {
+    const { id, emojiId } = request.params as { id: string; emojiId: string };
+    const luminaId = await fromSnowflake("guild", id);
+    if (!luminaId) throw new NotFoundError("Unknown guild");
+    await assertGuildMember(request.userId!, luminaId);
+    const emoji = (await guildEmojis(luminaId)).find((e) => e.id === emojiId);
+    if (!emoji) throw new NotFoundError("Unknown Emoji");
+    return emoji;
+  });
+
   fastify.get("/guilds/:id/channels", { preHandler: [requireAuth] }, async (request) => {
     const luminaId = await fromSnowflake("guild", (request.params as { id: string }).id);
     if (!luminaId) throw new NotFoundError("Unknown guild");
@@ -262,7 +281,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const { body: raw } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
     const b = (raw ?? {}) as { name?: string; auto_archive_duration?: number; message?: { content?: string; embeds?: unknown } };
     // A forum post carries its opening message; a text channel thread has none.
-    const opening = b.message ? [b.message.content?.trim(), flattenEmbeds(b.message.embeds)].filter(Boolean).join("\n\n") : undefined;
+    const opening = b.message ? [contentFromDiscord(b.message.content)?.trim(), flattenEmbeds(b.message.embeds)].filter(Boolean).join("\n\n") : undefined;
     const res = await internal(request, "POST", `/channels/${channel.id}/threads`, {
       name: String(b.name ?? "Thread").slice(0, 100) || "Thread",
       ...(archiveMinutes(b.auto_archive_duration) ? { autoArchiveMinutes: archiveMinutes(b.auto_archive_duration) } : {}),
@@ -311,20 +330,6 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
 
   // ---- invites. A Lumina invite opens the whole space, so it points at the space's system channel
   // (or its first text channel) — the channel a Discord invite would name.
-  const inviteContext = async (serverId: string) => {
-    const server = await prisma.server.findUnique({ where: { id: serverId }, select: { id: true, name: true, description: true, systemChannelId: true } });
-    const channel = server?.systemChannelId
-      ? await prisma.channel.findUnique({ where: { id: server.systemChannelId }, select: { id: true, name: true } })
-      : await prisma.channel.findFirst({ where: { serverId, type: "TEXT" }, orderBy: { position: "asc" }, select: { id: true, name: true } });
-    return { server, channel };
-  };
-  type InviteJson = { code: string; serverId: string; creatorId: string; maxUses: number | null; uses: number; expiresAt: string | null; createdAt: string };
-  const shapeInvite = async (inv: InviteJson, counts = false) => {
-    const { server, channel } = await inviteContext(inv.serverId);
-    const inviter = await prisma.user.findUnique({ where: { id: inv.creatorId } });
-    const members = counts ? await prisma.membership.count({ where: { serverId: inv.serverId } }) : undefined;
-    return mapInvite(inv, server, channel, inviter, members);
-  };
   fastify.get("/guilds/:id/invites", { preHandler: [requireAuth] }, async (request, reply) => {
     const luminaId = await fromSnowflake("guild", (request.params as { id: string }).id);
     if (!luminaId) throw new NotFoundError("Unknown guild");
@@ -372,7 +377,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     // Embeds flatten to text (Lumina has no bot-authored embed cards), so an embeds-only
     // message — the normal shape for giveaway/announcement bots — still says everything.
     const embedText = flattenEmbeds(body.embeds);
-    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+    const content = [contentFromDiscord(body.content)?.trim(), embedText].filter(Boolean).join("\n\n");
     if (!content && attachments.length === 0) throw new BadRequestError("content, embeds or files required");
     // Straight to the service (as the follow-up route already does): it runs every permission,
     // slow-mode and AutoMod check itself, and it is the only path that takes attachments.
@@ -399,7 +404,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     let dto: Parameters<typeof mapMessage>[0];
     if (body.content !== undefined || body.embeds !== undefined) {
       const embedText = flattenEmbeds(body.embeds);
-      const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+      const content = [contentFromDiscord(body.content)?.trim(), embedText].filter(Boolean).join("\n\n");
       const res = await internal(request, "PATCH", `/messages/${messageId}`, { content });
       reply.code(res.status);
       if (res.status >= 400) return res.json;
@@ -536,7 +541,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     if (mid === null) throw new NotFoundError("Unknown message");
     const msg = await prisma.message.findUnique({ where: { id: mid }, select: { channelId: true } });
     if (!msg || msg.channelId !== channel.id) throw new NotFoundError("Unknown message");
-    const name = decodeURIComponent(emoji).split(":")[0];
+    const name = await reactionKeyFromDiscord(emoji);
     const rows = await prisma.reaction.findMany({
       where: { messageId: mid, emoji: name },
       include: { user: true },
@@ -554,7 +559,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   fastify.delete("/channels/:id/messages/:messageId/reactions/:emoji/@me", { preHandler: [requireAuth] }, async (request, reply) => {
     const { messageId, emoji } = request.params as { messageId: string; emoji: string };
     const res = await internal(request, "DELETE", `/messages/${messageId}/reactions`, {
-      emoji: decodeURIComponent(emoji).split(":")[0],
+      emoji: await reactionKeyFromDiscord(emoji),
     });
     return reply.code(res.status >= 400 ? res.status : 204).send();
   });
@@ -562,7 +567,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   fastify.put("/channels/:id/messages/:messageId/reactions/:emoji/@me", { preHandler: [requireAuth] }, async (request, reply) => {
     const { messageId, emoji } = request.params as { messageId: string; emoji: string };
     const res = await internal(request, "POST", `/messages/${messageId}/reactions`, {
-      emoji: decodeURIComponent(emoji).split(":")[0],
+      emoji: await reactionKeyFromDiscord(emoji),
     });
     return reply.code(res.status >= 400 ? res.status : 204).send();
   });
@@ -614,7 +619,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const { body: raw, attachments } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
     const body = raw as { content?: string; embeds?: unknown; components?: unknown };
     const embedText = flattenEmbeds(body.embeds);
-    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+    const content = [contentFromDiscord(body.content)?.trim(), embedText].filter(Boolean).join("\n\n");
     let dto: Parameters<typeof mapMessage>[0] | null = null;
     if (content) {
       dto = (await editMessage({ userId: botUserId, messageId: interaction.replyMessageId.toString(), content })) as Parameters<typeof mapMessage>[0];
@@ -644,7 +649,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const { body: raw, attachments } = await readDiscordBody(request, uploadLimitsFor(null).attachmentBytes);
     const body = raw as { content?: string; embeds?: unknown; components?: unknown };
     const embedText = flattenEmbeds(body.embeds);
-    const content = [body.content?.trim(), embedText].filter(Boolean).join("\n\n");
+    const content = [contentFromDiscord(body.content)?.trim(), embedText].filter(Boolean).join("\n\n");
     if (!content && attachments.length === 0) throw new BadRequestError("content, embeds or files required");
     // Discord's rule: the first follow-up after a deferred response BECOMES the response. Lumina's
     // deferral is a "…" placeholder message, so that placeholder is replaced — edited in place, or
@@ -694,7 +699,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       const { interaction, botUserId } = await interactionByToken(token);
       if (!interaction.messageId || !interaction.channelId) throw new BadRequestError("No message to update");
       const embedText = flattenEmbeds(body.data?.embeds);
-      const content = [body.data?.content?.trim(), embedText].filter(Boolean).join("\n\n");
+      const content = [contentFromDiscord(body.data?.content)?.trim(), embedText].filter(Boolean).join("\n\n");
       if (content) await editMessage({ userId: botUserId, messageId: interaction.messageId.toString(), content });
       const luminaComponents = componentsToLumina(body.data?.components);
       if (luminaComponents) {
@@ -707,7 +712,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     // Type 4 (respond with message) and 5 (deferred response placeholder).
     const embedText = flattenEmbeds(body.data?.embeds);
     const content =
-      [body.data?.content, embedText].filter(Boolean).join("\n\n") ||
+      [contentFromDiscord(body.data?.content), embedText].filter(Boolean).join("\n\n") ||
       (attachments.length ? attachments.map((a) => a.fileName).join(", ") : body.type === 5 ? "…" : undefined);
     if (content === undefined) throw new BadRequestError("Unsupported interaction callback type");
     const res = await internal(request, "POST", `/interactions/${token}/respond`, {

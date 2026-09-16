@@ -9,7 +9,7 @@ import { prisma } from "../../db/prisma.js";
  * through CompatId rows — minted on first sight, stable forever after.
  */
 
-export type CompatKind = "user" | "guild" | "channel" | "role";
+export type CompatKind = "user" | "guild" | "channel" | "role" | "emoji";
 
 const cache = new Map<string, string>(); // `${kind}:${luminaId}` -> snowflake, and the reverse
 

@@ -14,6 +14,10 @@ import { serializeMessage } from "../../lib/serialize.js";
 import { messageInclude } from "../messages/service.js";
 import { parseBigIntId } from "../../lib/parseBigIntId.js";
 import { getIO } from "../../realtime/io.js";
+import { Permissions, hasPermission } from "@lumina/shared";
+import { computeEffectivePermissions } from "../../permissions/permissionService.js";
+import { guildEmojis, reactionEmojiToDiscord } from "./emojis.js";
+import { inviteCreateEvent, inviteDeleteEvent, type InviteJson } from "./invites.js";
 
 /**
  * Discord-gateway-compatible websocket at /discord/gateway.
@@ -36,6 +40,8 @@ const HEARTBEAT_INTERVAL_MS = 41_250;
 // (message content, member lists) additionally require the application's portal toggle. Same
 // two-key model as Discord's own dev portal: declaration in code AND a deliberate human switch.
 const INTENT_GUILD_MEMBERS = 1 << 1;
+const INTENT_GUILD_EXPRESSIONS = 1 << 3; // GUILD_EMOJIS_AND_STICKERS
+const INTENT_GUILD_INVITES = 1 << 6;
 const INTENT_GUILD_MESSAGES = 1 << 9;
 const INTENT_GUILD_MESSAGE_REACTIONS = 1 << 10;
 const INTENT_MESSAGE_CONTENT = 1 << 15;
@@ -468,13 +474,47 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
         message_id: payload.messageId,
         channel_id: await toSnowflake("channel", loc.channelId),
         ...(loc.serverId ? { guild_id: await toSnowflake("guild", loc.serverId) } : {}),
-        emoji: { id: null, name: payload.emoji },
+        emoji: await reactionEmojiToDiscord(payload.emoji, loc.serverId),
       }, t);
     })().catch(() => undefined);
   };
   if (wantsReactions) {
     internal.on("reaction:add", reactionDispatch("MESSAGE_REACTION_ADD"));
     internal.on("reaction:remove", reactionDispatch("MESSAGE_REACTION_REMOVE"));
+  }
+
+  // Invites. Discord only tells a bot about invites it could manage — the codes let anyone in — so
+  // this asks for the permission Lumina's own invite list requires. Invite-tracking bots diff the
+  // invite list on every join and need these to keep it current.
+  if ((intents & INTENT_GUILD_INVITES) !== 0) {
+    const mayManageInvites = async (serverId: string) =>
+      hasPermission(await computeEffectivePermissions(botUser.id, serverId).catch(() => 0n), Permissions.CREATE_INVITE);
+    internal.on("invite:create", (inv: InviteJson) => {
+      if (!inv?.serverId || !inv.code) return;
+      void (async () => {
+        if (!(await mayManageInvites(inv.serverId))) return;
+        send(session, 0, await inviteCreateEvent(inv), "INVITE_CREATE");
+      })().catch(() => undefined);
+    });
+    internal.on("invite:delete", (payload: { serverId?: string; code?: string }) => {
+      if (!payload?.serverId || !payload.code) return;
+      const { serverId, code } = payload;
+      void (async () => {
+        if (!(await mayManageInvites(serverId))) return;
+        send(session, 0, await inviteDeleteEvent(serverId, code), "INVITE_DELETE");
+      })().catch(() => undefined);
+    });
+  }
+
+  // A space's custom emoji changed: Discord sends the whole new list.
+  if ((intents & INTENT_GUILD_EXPRESSIONS) !== 0) {
+    internal.on("emoji:update", (payload: { serverId?: string }) => {
+      const serverId = payload?.serverId;
+      if (!serverId) return;
+      void (async () => {
+        send(session, 0, { guild_id: await toSnowflake("guild", serverId), emojis: await guildEmojis(serverId) }, "GUILD_EMOJIS_UPDATE");
+      })().catch(() => undefined);
+    });
   }
 
   internal.on(

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { toSnowflake } from "./ids.js";
+import { guildEmojis, contentToDiscord, reactionEmojiToDiscord } from "./emojis.js";
 
 /**
  * Lumina entities → Discord-shaped JSON. Only fields the mainstream libraries actually read;
@@ -132,7 +133,7 @@ export async function mapGuild(
     channels: await Promise.all(channels.map(mapChannel)),
     members: [],
     features: [],
-    emojis: [],
+    emojis: await guildEmojis(s.id),
     stickers: [],
     voice_states: [],
     presences: [],
@@ -289,7 +290,7 @@ export async function mapMessage(m: {
     author: m.author
       ? await mapUser(m.author)
       : { id: "0", username: "deleted user", discriminator: "0", global_name: "deleted user", avatar: null, bot: false },
-    content: m.content,
+    content: await contentToDiscord(m.content, guildLuminaId),
     timestamp: m.createdAt,
     edited_timestamp: m.editedAt,
     tts: false,
@@ -301,7 +302,7 @@ export async function mapMessage(m: {
     components: componentsToDiscord(m.components),
     // Discord's reaction summaries; `me` is false because the compat layer serializes for the
     // bot's view and Lumina's DTO carries reactedByMe per-viewer, not per-bot here.
-    reactions: (m.reactions ?? []).map((r) => ({ emoji: { id: null, name: r.emoji }, count: r.count, me: false })),
+    reactions: await Promise.all((m.reactions ?? []).map(async (r) => ({ emoji: await reactionEmojiToDiscord(r.emoji, guildLuminaId), count: r.count, me: false }))),
     pinned: m.pinned,
     // 7 = GUILD_MEMBER_JOIN: libraries render it as a system line and skip command parsing.
     type: m.type === "MEMBER_JOIN" ? 7 : m.replyToId ? 19 : 0,

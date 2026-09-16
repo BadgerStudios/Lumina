@@ -6,6 +6,14 @@ import { requireAuth, requireMembership, requirePermission, resolveServerId } fr
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { saveProfileImage, deleteProfileImage } from "../../lib/profileImage.js";
 import { recordAuditLog } from "../../lib/auditLog.js";
+import { getIO } from "../../realtime/io.js";
+import { forgetServerEmojis } from "./serverEmojiCache.js";
+
+/** A space's emoji changed: the Discord compat cache forgets it and connected bots get the new list. */
+function emojisChanged(serverId: string): void {
+  forgetServerEmojis(serverId);
+  getIO().to(`server:${serverId}`).emit("emoji:update", { serverId });
+}
 
 /**
  * Custom emoji.
@@ -144,6 +152,7 @@ export default async function emojiRoutes(fastify: FastifyInstance) {
         metadata: { name: emoji.name },
       });
 
+      emojisChanged(request.serverId!);
       return serialize(emoji);
     },
   );
@@ -176,6 +185,7 @@ export default async function emojiRoutes(fastify: FastifyInstance) {
       }
 
       const emoji = await prisma.customEmoji.update({ where: { id: emojiId }, data: { name } });
+      emojisChanged(request.serverId!);
       // Existing reactions keep pointing at this row by customEmojiId, so a rename does not split
       // one reaction into two — that is the whole reason Reaction carries the FK.
       return serialize(emoji);
@@ -212,6 +222,7 @@ export default async function emojiRoutes(fastify: FastifyInstance) {
         metadata: { name: existing.name },
       });
 
+      emojisChanged(request.serverId!);
       reply.code(204);
     },
   );

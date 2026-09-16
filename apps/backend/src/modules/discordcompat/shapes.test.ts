@@ -227,3 +227,20 @@ describe("quoteBigIntegers", () => {
     expect(quoteBigIntegers(src)).toBe(src);
   });
 });
+
+import { contentFromDiscord, parseReactionParam } from "./emojis.js";
+vi.mock("../../db/prisma.js", () => ({ prisma: {} }));
+vi.mock("../emoji/serverEmojiCache.js", () => ({ serverEmojis: async () => [], forgetServerEmojis: () => undefined }));
+
+describe("custom emoji across the Discord boundary", () => {
+  it("turns Discord emoji tokens into Lumina's :name: form", () => {
+    expect(contentFromDiscord("gg <:Party_Blob:112233445566778899> and <a:spin:123>")).toBe("gg :party_blob: and :spin:");
+    expect(contentFromDiscord("no tokens <here>")).toBe("no tokens <here>");
+    expect(contentFromDiscord(undefined)).toBeUndefined();
+  });
+  it("parses reaction URL segments", () => {
+    expect(parseReactionParam("blob%3A112233")).toEqual({ custom: { name: "blob", id: "112233" }, unicode: "blob:112233" });
+    expect(parseReactionParam("a:spin:99")).toEqual({ custom: { name: "spin", id: "99" }, unicode: "a:spin:99" });
+    expect(parseReactionParam(encodeURIComponent("👍"))).toEqual({ custom: null, unicode: "👍" });
+  });
+});
