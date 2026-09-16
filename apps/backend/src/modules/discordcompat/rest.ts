@@ -6,7 +6,7 @@ import { requireAuth } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { toSnowflake, fromSnowflake } from "./ids.js";
-import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, chatInputOnly, compatReplyShape, discordCommandToLumina, rateLimitHeaders } from "./shapes.js";
+import { mapUser, mapChannel, mapGuild, mapMessage, mapRole, mapApplication, componentsToLumina, flattenEmbeds, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor, chatInputOnly, compatReplyShape, discordCommandToLumina, rateLimitHeaders, quoteBigIntegers } from "./shapes.js";
 import { computeEffectivePermissions, checkChannelPermission } from "../../permissions/permissionService.js";
 import { Permissions } from "@lumina/shared";
 import { attachComponents } from "../interactions/service.js";
@@ -86,7 +86,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       done(null, undefined);
       return;
     }
-    defaultJson(request, body as string, done);
+    defaultJson(request, quoteBigIntegers(body as string), done);
   });
   // Bare `application/json` on every reply (success and error alike) — see compatContentType.
   fastify.addHook("onSend", async (request, reply, payload) => {
@@ -310,6 +310,9 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       return reply.code(400).send({ code: 50016, message: "Provided too few or too many messages to delete. Must provide at least 2 and fewer than 100 messages to delete." });
     }
     const res = await internal(request, "POST", `/channels/${channel.id}/messages/bulk-delete`, { messages: ids });
+    const deleted = Array.isArray((res.json as { deleted?: unknown[] } | null)?.deleted) ? (res.json as { deleted: unknown[] }).deleted.length : 0;
+    // eslint-disable-next-line no-console
+    console.log(`[compat] bulk-delete by ${request.userId} in ${channel.id}: asked ${ids.length}, deleted ${deleted}, status ${res.status}`);
     return reply.code(res.status >= 400 ? res.status : 204).send(res.status >= 400 ? res.json : undefined);
   });
 

@@ -6,7 +6,7 @@ vi.mock("./ids.js", () => ({
   fromSnowflake: async () => null,
 }));
 
-import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly, compatReplyShape, rateLimitHeaders, discordCommandToLumina, nestInteractionOptions, mapMessage, flattenEmbeds } from "./shapes.js";
+import { compatContentType, mapApplication, mapChannel, isVocal, MEMBER_DEFAULTS, gatewayUrlFor, toDiscordError, optionTypeToLumina, chatInputOnly, compatReplyShape, rateLimitHeaders, discordCommandToLumina, quoteBigIntegers, nestInteractionOptions, mapMessage, flattenEmbeds } from "./shapes.js";
 
 describe("content type on compat replies", () => {
   // discord.py's json_or_text compares the header with `== 'application/json'`; the charset
@@ -214,5 +214,16 @@ describe("embeds as text", () => {
     expect(flattenEmbeds([{ color: 0x5b7cfa }])).toBe("[embed]");
     expect(flattenEmbeds([])).toBe("");
     expect(flattenEmbeds(undefined)).toBe("");
+  });
+});
+
+describe("quoteBigIntegers", () => {
+  it("keeps snowflakes sent as bare numbers exact", () => {
+    const parsed = JSON.parse(quoteBigIntegers('{"messages":[1549874311098007603,1549874315812405300]}'));
+    expect(parsed.messages).toEqual(["1549874311098007603", "1549874315812405300"]);
+  });
+  it("leaves strings, decimals, negatives and small numbers alone", () => {
+    const src = '{"content":"call 1549874311098007603, ok","n":42,"f":12345678901234567.5,"neg":-1549874311098007603,"e":1234567890123456e3,"esc":"a\\"1549874311098007603"}';
+    expect(quoteBigIntegers(src)).toBe(src);
   });
 });

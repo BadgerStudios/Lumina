@@ -500,3 +500,53 @@ export function nestInteractionOptions(path: string[], options: Record<string, s
   }));
   return path.reduceRight<unknown[]>((inner, name, index) => [{ name, type: index === 0 && path.length === 2 ? 2 : 1, options: inner }], leaf);
 }
+
+/**
+ * Snowflakes are 17–20 digit integers; JSON.parse turns a bare one into a double and silently changes
+ * it (1549874311098007603 → 1549874311098007600). Discord accepts ids as numbers or strings, so a
+ * library that sends numbers would have its bulk delete, its role lists, its overwrites quietly
+ * point at other ids. Rewrites every bare non-negative integer of 16+ digits OUTSIDE string
+ * literals into a string, before parsing. Everything else — strings, decimals, small numbers — is
+ * left byte-for-byte alone.
+ */
+export function quoteBigIntegers(json: string): string {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  while (i < json.length) {
+    const ch = json[i];
+    if (inString) {
+      if (ch === "\\") {
+        out += json.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch >= "0" && ch <= "9" && !(i > 0 && (json[i - 1] === "-" || json[i - 1] === "." || (json[i - 1] >= "0" && json[i - 1] <= "9")))) {
+      let j = i;
+      while (j < json.length && json[j] >= "0" && json[j] <= "9") j++;
+      const next = json[j];
+      const integer = next !== "." && next !== "e" && next !== "E";
+      if (integer && j - i >= 16) {
+        out += `"${json.slice(i, j)}"`;
+      } else {
+        out += json.slice(i, j);
+      }
+      i = j;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
