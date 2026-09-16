@@ -52,12 +52,69 @@ interface ServerBot {
 const IN_FLIGHT = new Set(["QUEUED", "RESOLVING", "PREPARING"]);
 
 /**
- * Owner's call, 2026-08-22: hidden behind an under-development notice until the missing half is
- * built. Everything below still works — resolution, the shared recipe catalog, the install link,
- * the consent flow — but "add a bot" only pays off for bots you can already run yourself, and
- * that is not what the page promises. Flip this to false to bring it back; nothing else changed.
+ * Hidden 2026-08-22 (owner's call) while "add a bot" only paid off for bots you could host
+ * yourself. Opened again 2026-09-16: Lumina now runs bots on its own host (HOSTED_BOTS below),
+ * so the page has something that works with one tap. The notice component stays for the record.
  */
-const UNDER_DEVELOPMENT = true;
+const UNDER_DEVELOPMENT = false;
+
+/**
+ * Bots Lumina runs itself, on the bot host — nothing for a space owner to install or keep
+ * online. Curated by hand: these are the applications' ids on this instance, and each one has
+ * been seen answering in Lumina Official. Permissions are the standard bot grant.
+ */
+const HOSTED_BOTS: Array<{ clientId: string; name: string; blurb: string }> = [
+  { clientId: "cmu37utv6001dmo01jynwvmdv", name: "Red", blurb: "General-purpose: moderation, fun, utilities. Commands start with ! (try !ping)." },
+  { clientId: "cmu37uu1a001pmo01rmkl559a", name: "Nadeko", blurb: "Games, currency and utilities. Commands start with . (try .ping)." },
+  { clientId: "cmu39sd170009qr01hhk0j9sk", name: "Ree6", blurb: "Levelling, welcome messages and moderation. Slash commands (try /ping)." },
+];
+const HOSTED_BOT_PERMISSIONS = "491519";
+
+function HostedBots({ serverId, present }: { serverId: string; present: Set<string> }) {
+  const qc = useQueryClient();
+  const add = useMutation({
+    mutationFn: (clientId: string) =>
+      api.post<{ alreadyPresent: boolean }>("/oauth2/authorize", { clientId, scope: "bot", permissions: HOSTED_BOT_PERMISSIONS, guildId: serverId }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["serverBots", serverId] }),
+  });
+  return (
+    <section>
+      <h3 className="mb-1 font-semibold text-signal">Hosted by Lumina</h3>
+      <p className="mb-2 text-sm text-signal-dim">
+        These run on Lumina's own bot host. Nothing to set up: add one and it is in your space within a few seconds.
+      </p>
+      <div className="space-y-1">
+        {HOSTED_BOTS.map((b) => {
+          const here = present.has(b.name.toLowerCase());
+          return (
+            <div key={b.clientId} className="flex items-start gap-2 rounded bg-base-900 px-3 py-2">
+              <Bot size={15} className="mt-0.5 shrink-0 text-accent" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-signal">{b.name}</p>
+                <p className="text-xs text-signal-faint">{b.blurb}</p>
+              </div>
+              {here ? (
+                <span className="shrink-0 py-1 text-xs text-online">In this space</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={add.isPending}
+                  onClick={() => add.mutate(b.clientId)}
+                  className="shrink-0 rounded bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                >
+                  Add to this space
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {add.isError && (
+        <p className="mt-2 text-sm text-dnd">{add.error instanceof ApiError ? add.error.message : "Could not add that bot"}</p>
+      )}
+    </section>
+  );
+}
 
 /**
  * Bot onboarding for one server.
@@ -138,6 +195,8 @@ function ServerBotsPanelInner({ serverId }: { serverId: string }) {
 
   return (
     <div className="space-y-6">
+      <HostedBots serverId={serverId} present={new Set((bots ?? []).map((b) => b.username.toLowerCase()))} />
+
       <section>
         <h3 className="mb-1 font-semibold text-signal">Add a bot</h3>
         <p className="mb-2 text-sm text-signal-dim">
@@ -198,7 +257,7 @@ function ServerBotsPanelInner({ serverId }: { serverId: string }) {
       )}
 
       <section>
-        <h3 className="mb-2 font-semibold text-signal">Bots in this server</h3>
+        <h3 className="mb-2 font-semibold text-signal">Bots in this space</h3>
         {(bots ?? []).length === 0 ? (
           <p className="text-sm text-signal-dim">None yet.</p>
         ) : (

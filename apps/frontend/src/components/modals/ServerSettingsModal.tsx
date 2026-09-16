@@ -224,7 +224,7 @@ export function ServerSettingsModal() {
       title: "Space",
       items: [
         { key: "overview", label: "Overview", icon: SettingsIcon, hint: "Name, icon, banner and theme color" },
-        { key: "onboarding", label: "Onboarding", icon: DoorOpen, hint: "Welcome, rules and questions for newcomers" },
+        { key: "onboarding", label: "Onboarding", icon: DoorOpen, hint: "Welcome, rules and questions" },
         { key: "emoji", label: "Expressions", icon: Smile, hint: "Emoji, stickers and soundboard" },
         { key: "roles", label: "Roles", icon: Tags, hint: "Permissions, colors and order" },
       ],

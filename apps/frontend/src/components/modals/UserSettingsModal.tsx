@@ -17,6 +17,7 @@ import {
 } from "../../lib/biometricLock";
 import { useUIStore, ACCENT_THEMES, THEMES, LIGHT_THEMES, THEME_META, type AccentTheme } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
+import { SettingsShell, type SettingsGroup } from "./SettingsShell";
 import { useVoiceStore, vadThresholdFor, type MicMode } from "../../store/voiceStore";
 import {
   useUpdateProfile,
@@ -86,6 +87,45 @@ const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "developer", label: "Developer Portal", icon: Code2 },
   { key: "voice", label: "Voice & Video", icon: Mic },
   { key: "about", label: "About", icon: Info },
+];
+
+// The same sections, grouped and with a one-line hint each — on a phone this list IS the
+// navigation (see SettingsShell), and fourteen bare icons named nothing.
+const GROUPS: SettingsGroup<Section>[] = [
+  {
+    title: "Account",
+    items: [
+      { key: "account", label: "My Account", icon: User, hint: "Profile, sign-in and security" },
+      { key: "sessions", label: "Devices & Sessions", icon: Monitor, hint: "Where you're signed in" },
+      { key: "privacy", label: "Privacy & Safety", icon: ShieldCheck, hint: "Who can reach you" },
+      { key: "family", label: "Family", icon: Users },
+      { key: "connections", label: "Connections", icon: Gamepad2, hint: "Linked accounts" },
+    ],
+  },
+  {
+    title: "Preferences",
+    items: [
+      { key: "appearance", label: "Appearance", icon: Palette, hint: "Theme and layout" },
+      { key: "notifications", label: "Notifications", icon: Bell, hint: "What rings, and when" },
+      { key: "voice", label: "Voice & Video", icon: Mic, hint: "Mic, camera and speakers" },
+    ],
+  },
+  {
+    title: "Money",
+    items: [
+      { key: "billing", label: "Billing", icon: CreditCard, hint: "Plans and payments" },
+      { key: "advertising", label: "Advertising", icon: Megaphone },
+    ],
+  },
+  {
+    title: "More",
+    items: [
+      { key: "reports", label: "My Reports", icon: Flag, hint: "Reports you've made" },
+      { key: "support", label: "Support", icon: LifeBuoy, hint: "Get help" },
+      { key: "developer", label: "Developer Portal", icon: Code2, hint: "Your apps and bots" },
+      { key: "about", label: "About", icon: Info },
+    ],
+  },
 ];
 
 function UsernameEditor() {
@@ -1903,6 +1943,10 @@ export function UserSettingsModal() {
   const visibleSections = SECTIONS.filter(
     (s) => !(isMinor && (s.key === "billing" || s.key === "advertising" || s.key === "developer")),
   );
+  const visibleGroups = GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => visibleSections.some((v) => v.key === i.key)) })).filter(
+    (g) => g.items.length > 0,
+  );
+  const me = useAuthStore((u) => u.user);
   // A minor who was already sitting on a now-hidden tab must not be left staring at it.
   useEffect(() => {
     if (!visibleSections.some((s) => s.key === section)) setSection("account");
@@ -1910,68 +1954,29 @@ export function UserSettingsModal() {
   }, [isMinor, section]);
 
   return (
-    <Dialog.Root open={open} onOpenChange={(o) => !o && closeModal()}>
-      <Dialog.Portal>
-        {/* z-[55]/z-[60] not z-40/z-50: the app's mobile bottom nav is fixed z-50, so a z-50 content
-            TIED it and the nav painted over the settings panel (and the z-40 overlay sat below it).
-            The modal must clear all app chrome (sidebars z-40, bottom nav z-50) while staying below
-            toasts (z-70) and the top-level gates. */}
-        <Dialog.Overlay className="fixed inset-0 z-[55] bg-base-900 data-[state=open]:animate-in data-[state=open]:fade-in" />
-        {/* The overlay (above) paints the full edge-to-edge background under the system bars; the
-            CONTENT is inset by the device safe areas so nothing sits under the status bar or the
-            navigation/gesture bar. The app is viewport-fit=cover, so a full-screen surface that
-            skips this collides with the system bars — the bottom used to be hidden by the
-            safe-area-aware MobileBottomNav until this modal was raised above it. Mirrors OwnerApp. */}
-        <Dialog.Content
-          className="fixed inset-0 z-[60] flex focus:outline-none"
-          style={{
-            // max(env, native var): iOS/web use env(); Android (where the status-bar env() inset is
-            // unreliable under forced edge-to-edge) uses --android-safe-* injected natively by
-            // MainActivity, so the content never sits under the status/navigation bars.
-            paddingTop: "var(--safe-top)",
-            paddingBottom: "var(--safe-bottom)",
-            paddingLeft: "max(env(safe-area-inset-left), var(--android-safe-left, 0px))",
-            paddingRight: "max(env(safe-area-inset-right), var(--android-safe-right, 0px))",
-          }}
+    <SettingsShell<Section>
+      open={open}
+      onOpenChange={(o) => !o && closeModal()}
+      title="Account settings"
+      identity={{
+        name: me?.displayName || me?.username || "You",
+        caption: "Account settings",
+        imageUrl: me?.avatarUrl ? resolveAssetUrl(me.avatarUrl) : null,
+      }}
+      groups={visibleGroups}
+      active={section}
+      onSelect={setSection}
+      contentClassName="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-10"
+      footer={
+        <button
+          onClick={() => logout.mutate()}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-dnd hover:bg-base-700"
         >
-          <Dialog.Title className="sr-only">User Settings</Dialog.Title>
-          <div className="flex w-60 shrink-0 flex-col gap-0.5 border-r border-base-900/60 bg-base-800 p-3 max-md:w-16">
-            {visibleSections.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setSection(s.key)}
-                title={s.label}
-                className={cn(
-                  "flex items-center gap-2.5 rounded px-3 py-2 text-left text-sm font-medium max-md:justify-center",
-                  section === s.key ? "bg-base-600 text-signal" : "text-signal-dim hover:bg-base-700 hover:text-signal",
-                )}
-              >
-                <s.icon size={17} className="shrink-0" />
-                <span className="max-md:hidden">{s.label}</span>
-              </button>
-            ))}
-            <div className="mt-auto border-t border-base-900/60 pt-3">
-              <button
-                onClick={() => logout.mutate()}
-                title="Log Out"
-                className="flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-sm font-medium text-dnd hover:bg-base-700 max-md:justify-center"
-              >
-                <LogOut size={17} className="shrink-0" />
-                <span className="max-md:hidden">Log Out</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-2xl px-8 py-10">
-              <div className="mb-6 flex items-center justify-between">
-                <h1 className="text-xl font-bold text-signal">{SECTIONS.find((s) => s.key === section)?.label}</h1>
-                <Dialog.Close asChild>
-                  <button className="text-signal-dim hover:text-signal">
-                    <X size={22} />
-                  </button>
-                </Dialog.Close>
-              </div>
+          <LogOut size={18} className="shrink-0" />
+          Log out
+        </button>
+      }
+    >
 
               {section === "account" && <AccountSection />}
               {section === "sessions" && <SessionsSection />}
@@ -1987,11 +1992,7 @@ export function UserSettingsModal() {
               {section === "connections" && <ConnectionsSection />}
               {section === "voice" && <VoiceSection />}
               {section === "about" && <AboutSection />}
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </SettingsShell>
   );
 }
 
