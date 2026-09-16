@@ -16,7 +16,7 @@ export function useRoles(serverId: string | undefined) {
 export function useCreateRole(serverId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; color?: number | null; permissions?: string; position?: number; mentionable?: boolean }) =>
+    mutationFn: (body: { name: string; color?: number | null; permissions?: string; position?: number; mentionable?: boolean; hoist?: boolean }) =>
       api.post<RoleDTO>(`/servers/${serverId}/roles`, body),
     onSuccess: (role) => {
       // upsertRole (not a raw append) — same reasoning as useCreateChannel in queries/channels.ts:
@@ -32,7 +32,7 @@ export function useCreateRole(serverId: string) {
 export function useUpdateRole(serverId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ roleId, ...body }: { roleId: string; name?: string; color?: number | null; permissions?: string; position?: number; mentionable?: boolean }) =>
+    mutationFn: ({ roleId, ...body }: { roleId: string; name?: string; color?: number | null; permissions?: string; position?: number; mentionable?: boolean; hoist?: boolean }) =>
       api.patch<RoleDTO>(`/roles/${roleId}`, body),
     onSuccess: (role) => {
       queryClient.setQueryData<RoleDTO[]>(queryKeys.roles(serverId), (old) =>

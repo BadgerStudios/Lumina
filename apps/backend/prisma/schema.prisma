@@ -632,6 +632,8 @@ model Role {
   position     Int
   isDefault    Boolean          @default(false)
   mentionable  Boolean          @default(true)
+  /// Shown as its own group in the member list (Discord's "display separately").
+  hoist        Boolean          @default(false)
   createdAt    DateTime         @default(now())
   server       Server           @relation(fields: [serverId], references: [id], onDelete: Cascade)
   assignments  RoleAssignment[]
@@ -2340,6 +2342,11 @@ model SlashCommand {
   /// subcommands contain options), and modelling a tree relationally buys nothing here because
   /// nothing ever queries *into* it — it is read whole, by one client, to draw a form.
   optionsJson   Json        @default("[]")
+  /// The command exactly as the bot registered it (Discord's shape), so a better mapping later can
+  /// re-derive optionsJson without waiting for the bot to restart and register again.
+  discordJson   Json?
+  /// Which version of the Discord→Lumina mapping produced optionsJson (see COMMAND_MAPPER_VERSION).
+  mapperVersion Int         @default(0)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)

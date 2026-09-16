@@ -18,6 +18,7 @@ const updateRoleSchema = z.object({
     .optional(),
   position: z.number().int().positive().optional(),
   mentionable: z.boolean().optional(),
+  hoist: z.boolean().optional(),
 });
 
 /** Mounted under /api/roles */
@@ -61,6 +62,7 @@ export default async function roleRoutes(fastify: FastifyInstance) {
           ...(body.permissions !== undefined ? { permissions: BigInt(body.permissions) } : {}),
           ...(body.position !== undefined ? { position: body.position } : {}),
           ...(body.mentionable !== undefined ? { mentionable: body.mentionable } : {}),
+          ...(body.hoist !== undefined ? { hoist: body.hoist } : {}),
         },
       });
 

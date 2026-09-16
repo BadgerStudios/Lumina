@@ -38,9 +38,10 @@ function colorToCss(color: number | null): string | undefined {
   return `#${color.toString(16).padStart(6, "0")}`;
 }
 
-function highestColoredRole(member: MemberDTO, roles: RoleDTO[]): RoleDTO | undefined {
+/** The role that decides which group a member sits under: the highest of their hoisted ones. */
+function highestHoistedRole(member: MemberDTO, roles: RoleDTO[]): RoleDTO | undefined {
   const roleById = new Map(roles.map((r) => [r.id, r]));
-  const owned = member.roleIds.map((id) => roleById.get(id)).filter((r): r is RoleDTO => !!r && r.color !== null);
+  const owned = member.roleIds.map((id) => roleById.get(id)).filter((r): r is RoleDTO => !!r && r.hoist && !r.isDefault);
   if (owned.length === 0) return undefined;
   return owned.sort((a, b) => b.position - a.position)[0];
 }
@@ -438,7 +439,7 @@ export function MemberRoster({ serverId }: { serverId: string }) {
     const byRole = new Map<string, MemberDTO[]>();
     const noRole: MemberDTO[] = [];
     for (const m of online) {
-      const role = highestColoredRole(m, roles ?? []);
+      const role = highestHoistedRole(m, roles ?? []);
       if (!role) {
         noRole.push(m);
         continue;

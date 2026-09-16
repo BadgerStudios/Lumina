@@ -103,12 +103,12 @@ export function luminaPermsToDiscord(raw: bigint | string): string {
   return out.toString();
 }
 
-export async function mapRole(r: { id: string; name: string; color: number | null; position: number; permissions: bigint | string; serverId: string; isDefault?: boolean }, guildSnow: string) {
+export async function mapRole(r: { id: string; name: string; color: number | null; position: number; permissions: bigint | string; serverId: string; isDefault?: boolean; hoist?: boolean }, guildSnow: string) {
   return {
     id: r.isDefault ? guildSnow : await toSnowflake("role", r.id), // @everyone's id IS the guild id in Discord's model
     name: r.isDefault ? "@everyone" : r.name,
     color: r.color ?? 0,
-    hoist: false,
+    hoist: !!r.hoist,
     position: r.position,
     permissions: luminaPermsToDiscord(r.permissions),
     managed: false,
@@ -476,6 +476,13 @@ export function discordOptionsToLumina(options: DiscordCommandOption[] | undefin
         },
   );
 }
+/**
+ * Bumped whenever discordOptionsToLumina/discordCommandToLumina change what they produce. Stored
+ * commands keep the bot's original Discord payload, and at boot every row mapped by an older
+ * version is re-derived — so a compat improvement reaches the palette without the bot restarting.
+ */
+export const COMMAND_MAPPER_VERSION = 2;
+
 export function discordCommandToLumina(c: { name: string; description?: string; options?: DiscordCommandOption[] }) {
   return { name: c.name, description: c.description ?? "", options: discordOptionsToLumina(c.options) };
 }

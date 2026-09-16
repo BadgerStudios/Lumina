@@ -123,6 +123,7 @@ type RoleLike = {
   position: number;
   isDefault: boolean;
   mentionable: boolean;
+  hoist?: boolean;
 };
 
 export function serializeRole(role: RoleLike): RoleDTO {
@@ -135,6 +136,7 @@ export function serializeRole(role: RoleLike): RoleDTO {
     position: role.position,
     isDefault: role.isDefault,
     mentionable: role.mentionable,
+    hoist: role.hoist ?? false,
   };
 }
 

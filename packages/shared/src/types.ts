@@ -154,6 +154,8 @@ export interface RoleDTO {
   position: number;
   isDefault: boolean;
   mentionable: boolean;
+  /** Shown as its own group in the member list. */
+  hoist: boolean;
 }
 
 export interface MemberDTO {

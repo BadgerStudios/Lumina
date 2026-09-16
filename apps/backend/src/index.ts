@@ -1,3 +1,4 @@
+import { remapStaleCommands } from "./modules/interactions/service.js";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifySwagger from "@fastify/swagger";
@@ -460,6 +461,13 @@ async function main() {
 
   await fastify.ready();
 
+  // Bots register commands only at boot; a compat mapping improvement must not wait for that.
+  try {
+    const remapped = await remapStaleCommands();
+    if (remapped) console.log(`[interactions] re-derived ${remapped} bot command(s) with the current mapping`);
+  } catch (err) {
+    console.error("[interactions] command remap failed:", (err as Error)?.message ?? err);
+  }
   await initIO(fastify.server);
   // After initIO so socket.io's own upgrade listener is already in place — ours only claims
   // /discord/gateway and leaves every other upgrade untouched.

@@ -15,6 +15,7 @@ const createRoleSchema = z.object({
   permissions: z.string().regex(/^\d+$/).default("0"),
   position: z.number().int().positive().optional(),
   mentionable: z.boolean().optional(),
+  hoist: z.boolean().optional(),
 });
 
 const reorderSchema = z.object({
@@ -76,6 +77,7 @@ export default async function serverRolesRoutes(fastify: FastifyInstance) {
           permissions: BigInt(body.permissions),
           position,
           mentionable: body.mentionable ?? true,
+          hoist: body.hoist ?? false,
         },
       });
 

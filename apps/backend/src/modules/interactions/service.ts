@@ -1,3 +1,4 @@
+import { COMMAND_MAPPER_VERSION, discordCommandToLumina } from "../discordcompat/shapes.js";
 import { MAX_COMMANDS_PER_APPLICATION, resolveLeafOptions, validateCommand } from "./commandSchema.js";
 export { MAX_COMMANDS_PER_APPLICATION };
 import { randomBytes } from "node:crypto";
@@ -56,7 +57,17 @@ function serializeCommand(row: {
  * that renames a command leaves the old one registered forever, and there is no way for the bot
  * author to notice. "Here is my complete list" cannot drift.
  */
-export async function overwriteCommands(applicationId: string, raw: unknown): Promise<SlashCommandDTO[]> {
+export async function overwriteCommands(applicationId: string, body: unknown): Promise<SlashCommandDTO[]> {
+  // Two shapes: a bare array (Lumina-native bots), or { commands, discord } from the compat layer,
+  // which also hands over the original Discord payload to keep beside each row.
+  const envelope = body && typeof body === "object" && !Array.isArray(body) ? (body as { commands?: unknown; discord?: unknown }) : null;
+  const raw = envelope ? envelope.commands : body;
+  const discordByName = new Map<string, unknown>();
+  if (envelope && Array.isArray(envelope.discord)) {
+    for (const d of envelope.discord as Array<{ name?: unknown }>) {
+      if (d && typeof d.name === "string") discordByName.set(d.name.trim().toLowerCase(), d);
+    }
+  }
   if (!Array.isArray(raw)) throw new BadRequestError("Body must be an array of commands");
   if (raw.length > MAX_COMMANDS_PER_APPLICATION) {
     throw new BadRequestError(`At most ${MAX_COMMANDS_PER_APPLICATION} commands per application`);
@@ -83,8 +94,15 @@ export async function overwriteCommands(applicationId: string, raw: unknown): Pr
           name: cmd.name,
           description: cmd.description,
           optionsJson: cmd.options as never,
+          discordJson: (discordByName.get(cmd.name) ?? null) as never,
+          mapperVersion: discordByName.has(cmd.name) ? COMMAND_MAPPER_VERSION : 0,
         },
-        update: { description: cmd.description, optionsJson: cmd.options as never },
+        update: {
+          description: cmd.description,
+          optionsJson: cmd.options as never,
+          discordJson: (discordByName.get(cmd.name) ?? null) as never,
+          mapperVersion: discordByName.has(cmd.name) ? COMMAND_MAPPER_VERSION : 0,
+        },
       });
     }
   });
@@ -498,4 +516,31 @@ export async function listPendingInteractions(applicationId: string): Promise<In
     take: 50,
   });
   return rows.map(serializeInteraction);
+}
+
+/**
+ * Re-derives every stored command whose Lumina shape came from an older Discord→Lumina mapping,
+ * from the Discord payload kept beside it. Runs at boot (index.ts): bots register their commands
+ * only when they start, so without this a compat improvement would sit invisible until every bot
+ * happened to restart. Rows without a kept payload (registered before it was kept) are left alone.
+ */
+export async function remapStaleCommands(): Promise<number> {
+  const stale = await prisma.slashCommand.findMany({
+    where: { discordJson: { not: null as never }, mapperVersion: { lt: COMMAND_MAPPER_VERSION } },
+    select: { id: true, name: true, discordJson: true },
+  });
+  let updated = 0;
+  for (const row of stale) {
+    try {
+      const mapped = validateCommand(discordCommandToLumina(row.discordJson as never), 0);
+      await prisma.slashCommand.update({
+        where: { id: row.id },
+        data: { description: mapped.description, optionsJson: mapped.options as never, mapperVersion: COMMAND_MAPPER_VERSION },
+      });
+      updated += 1;
+    } catch (err) {
+      console.error(`[interactions] could not remap command ${row.name}:`, (err as Error)?.message ?? err);
+    }
+  }
+  return updated;
 }

@@ -337,7 +337,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   fastify.put("/applications/:id/commands", async (request, reply) => {
     const commands = Array.isArray(request.body) ? (request.body as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[]) : [];
     const mapped = chatInputOnly(commands).map(discordCommandToLumina);
-    const res = await internal(request, "PUT", "/interactions/commands", mapped);
+    const res = await internal(request, "PUT", "/interactions/commands", { commands: mapped, discord: chatInputOnly(commands) });
     reply.code(res.status >= 400 ? res.status : 200);
     if (res.status >= 400) return res.json;
     const appId = (request.params as { id: string }).id;
@@ -595,7 +595,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   /** Roles. */
   fastify.post("/guilds/:id/roles", { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { name?: string; color?: number; permissions?: string; mentionable?: boolean };
+    const body = (request.body ?? {}) as { name?: string; color?: number; permissions?: string; mentionable?: boolean; hoist?: boolean };
     const guild = await fromSnowflake("guild", id);
     if (!guild) throw new NotFoundError("Unknown guild");
     const res = await internal(request, "POST", `/servers/${guild}/roles`, {
@@ -603,6 +603,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       ...(body.color !== undefined ? { color: body.color } : {}),
       ...(body.permissions !== undefined ? { permissions: String(body.permissions) } : {}),
       ...(body.mentionable !== undefined ? { mentionable: body.mentionable } : {}),
+      ...(body.hoist !== undefined ? { hoist: body.hoist } : {}),
     });
     if (res.status >= 400) return reply.code(res.status).send(res.json);
     return mapRole(res.json as Parameters<typeof mapRole>[0], id);
@@ -610,7 +611,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
 
   fastify.patch("/guilds/:id/roles/:roleId", { preHandler: [requireAuth] }, async (request, reply) => {
     const { id, roleId } = request.params as { id: string; roleId: string };
-    const body = (request.body ?? {}) as { name?: string; color?: number; permissions?: string; mentionable?: boolean };
+    const body = (request.body ?? {}) as { name?: string; color?: number; permissions?: string; mentionable?: boolean; hoist?: boolean };
     const role = await fromSnowflake("role", roleId);
     if (!role) throw new NotFoundError("Unknown role");
     const res = await internal(request, "PATCH", `/roles/${role}`, {
@@ -618,6 +619,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       ...(body.color !== undefined ? { color: body.color } : {}),
       ...(body.permissions !== undefined ? { permissions: String(body.permissions) } : {}),
       ...(body.mentionable !== undefined ? { mentionable: body.mentionable } : {}),
+      ...(body.hoist !== undefined ? { hoist: body.hoist } : {}),
     });
     if (res.status >= 400) return reply.code(res.status).send(res.json);
     return mapRole(res.json as Parameters<typeof mapRole>[0], id);
@@ -718,7 +720,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       const raw = Array.isArray(request.body) ? request.body : [request.body];
       const commands = raw.filter(Boolean) as { name: string; description?: string; options?: { name: string; description?: string; type?: number; required?: boolean }[] }[];
       const mapped = chatInputOnly(commands).map(discordCommandToLumina);
-      const res = await internal(request, "PUT", "/interactions/commands", mapped);
+      const res = await internal(request, "PUT", "/interactions/commands", { commands: mapped, discord: chatInputOnly(commands) });
       if (res.status >= 400) return reply.code(res.status).send(res.json);
       const appId = (request.params as { id: string }).id;
       return commands.map((c, i) => ({ id: String(i + 1), application_id: appId, version: "1", type: 1, ...c }));

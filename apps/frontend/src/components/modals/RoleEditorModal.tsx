@@ -50,6 +50,7 @@ export function RoleEditorModal() {
   const [name, setName] = useState("New Role");
   const [color, setColor] = useState("#99aab5");
   const [mentionable, setMentionable] = useState(true);
+  const [hoist, setHoist] = useState(false);
   const [bits, setBits] = useState<bigint>(0n);
 
   useEffect(() => {
@@ -57,6 +58,7 @@ export function RoleEditorModal() {
       setName(editingRole.name);
       setColor(colorToHex(editingRole.color));
       setMentionable(editingRole.mentionable);
+      setHoist(editingRole.hoist);
       setBits(BigInt(editingRole.permissions));
     } else {
       setName("New Role");
@@ -73,7 +75,7 @@ export function RoleEditorModal() {
 
   async function handleSave() {
     if (!name.trim()) return;
-    const body = { name: name.trim(), color: hexToColor(color), permissions: bits.toString(), mentionable };
+    const body = { name: name.trim(), color: hexToColor(color), permissions: bits.toString(), mentionable, hoist };
     if (editingRole) {
       await updateRole.mutateAsync({ roleId: editingRole.id, ...body });
     } else {
@@ -115,6 +117,11 @@ export function RoleEditorModal() {
         <label className="flex items-center gap-2 text-sm text-signal-dim">
           <input type="checkbox" checked={mentionable} onChange={(e) => setMentionable(e.target.checked)} />
           Anyone can @mention this role
+        </label>
+
+        <label className="flex items-center gap-2 text-sm text-signal-dim">
+          <input type="checkbox" checked={hoist} onChange={(e) => setHoist(e.target.checked)} />
+          Show members with this role as their own group in the member list
         </label>
 
         <div>
