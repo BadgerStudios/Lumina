@@ -4,7 +4,7 @@ import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { prisma } from "../../db/prisma.js";
 import { hashRefreshToken } from "../../lib/jwt.js";
 import { env } from "../../config/env.js";
-import { toSnowflake } from "./ids.js";
+import { toSnowflake, timeSnowflake } from "./ids.js";
 import { mapUser, mapGuild, mapMessage, luminaPermsToDiscord, MEMBER_DEFAULTS, gatewayUrlFor } from "./shapes.js";
 import { computeEffectiveChannelPermissions } from "../../permissions/permissionService.js";
 import { serializeMessage } from "../../lib/serialize.js";
@@ -228,7 +228,7 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
           session,
           0,
           {
-            id: i.id.match(/^\d+$/) ? i.id : await toSnowflake("role", `interaction:${i.id}`),
+            id: timeSnowflake(), // creation time is read off this id (see ids.ts); the token, not the id, routes the reply
             token: i.token,
             version: 1,
             type: isCommand ? 2 : 3,

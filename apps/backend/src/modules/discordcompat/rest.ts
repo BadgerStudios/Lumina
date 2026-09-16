@@ -305,7 +305,15 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   fastify.delete("/channels/:id/messages/:messageId", { preHandler: [requireAuth] }, async (request, reply) => {
     const { messageId } = request.params as { messageId: string };
     const res = await internal(request, "DELETE", `/messages/${messageId}`);
-    reply.code(res.status >= 400 ? res.status : 204).send();
+    return reply.code(res.status >= 400 ? res.status : 204).send();
+  });
+
+  fastify.delete("/channels/:id/messages/:messageId/reactions/:emoji/@me", { preHandler: [requireAuth] }, async (request, reply) => {
+    const { messageId, emoji } = request.params as { messageId: string; emoji: string };
+    const res = await internal(request, "DELETE", `/messages/${messageId}/reactions`, {
+      emoji: decodeURIComponent(emoji).split(":")[0],
+    });
+    return reply.code(res.status >= 400 ? res.status : 204).send();
   });
 
   fastify.put("/channels/:id/messages/:messageId/reactions/:emoji/@me", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -313,7 +321,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     const res = await internal(request, "POST", `/messages/${messageId}/reactions`, {
       emoji: decodeURIComponent(emoji).split(":")[0],
     });
-    reply.code(res.status >= 400 ? res.status : 204).send();
+    return reply.code(res.status >= 400 ? res.status : 204).send();
   });
 
   // ---- slash commands: discord.js registers via Routes.applicationCommands(clientId), i.e.
@@ -418,8 +426,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
     // marks the interaction answered. Discord answers 204; so do we.
     if (body.type === 6) {
       await prisma.interaction.updateMany({ where: { token, status: "PENDING" }, data: { status: "RESPONDED" } });
-      reply.code(204).send();
-      return;
+      return reply.code(204).send();
     }
 
     // Type 7 (UPDATE_MESSAGE): interaction.update() — edit the message the component sits on
@@ -439,8 +446,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
         await attachComponents(interaction.messageId.toString(), luminaComponents, interaction.channelId, interaction.dmConversationId);
       }
       await prisma.interaction.updateMany({ where: { token, status: "PENDING" }, data: { status: "RESPONDED" } });
-      reply.code(204).send();
-      return;
+      return reply.code(204).send();
     }
 
     // Type 4 (respond with message) and 5 (deferred response placeholder).
@@ -451,7 +457,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
       content,
       ...(body.data?.components ? { components: componentsToLumina(body.data.components) } : {}),
     });
-    reply.code(res.status >= 400 ? res.status : 204).send();
+    return reply.code(res.status >= 400 ? res.status : 204).send();
   });
 
   // ==========================================================================================
@@ -665,7 +671,7 @@ export default async function discordCompatRest(fastify: FastifyInstance) {
   /** Typing indicator. Cosmetic, but discord.js calls it in ordinary flows and a 404 here surfaces
    * as an unhandled rejection in bots that do not guard it. */
   fastify.post("/channels/:id/typing", { preHandler: [requireAuth] }, async (_request, reply) => {
-    reply.code(204).send();
+    return reply.code(204).send();
   });
 
   /** Remove every reaction from a message — purge and poll-reset commands use it. */

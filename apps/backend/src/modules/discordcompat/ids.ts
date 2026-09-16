@@ -48,3 +48,20 @@ export async function fromSnowflake(kind: CompatKind, snowflake: string): Promis
   cache.set(`${kind}:${row.luminaId}`, snowflake);
   return row.luminaId;
 }
+
+/**
+ * A Discord-style snowflake for entities that live only for the length of an exchange
+ * (interactions). Libraries derive creation time from the id — JDA refuses to edit or follow up
+ * an interaction whose id is older than fifteen minutes, and CompatId row numbers decode to
+ * January 2015, so Ree6's deferred /ping could acknowledge but never post its answer. Layout is
+ * Discord's: 42 bits of milliseconds since 2015-01-01, 10 zero bits, 12-bit sequence.
+ */
+const DISCORD_EPOCH_MS = 1420070400000n;
+let snowflakeSeq = 0;
+export function timeSnowflake(nowMs: number = Date.now()): string {
+  snowflakeSeq = (snowflakeSeq + 1) & 0xfff;
+  return (((BigInt(nowMs) - DISCORD_EPOCH_MS) << 22n) | BigInt(snowflakeSeq)).toString();
+}
+export function snowflakeTimeMs(id: string): number {
+  return Number((BigInt(id) >> 22n) + DISCORD_EPOCH_MS);
+}
