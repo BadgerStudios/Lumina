@@ -394,3 +394,24 @@ export function chatInputOnly<T extends object>(commands: T[]): T[] {
     return type === undefined || type === 1;
   });
 }
+
+/**
+ * Everything the compat onSend hook does to a reply, as a pure function: a bare JSON content-type
+ * (compatContentType) and Discord-shaped error bodies (toDiscordError). The content-type is only
+ * returned when there is one to set — replies without a body (204 from a DELETE or a reaction PUT)
+ * have no content-type, and setting the header to undefined made Node reject the write, which
+ * surfaced as a 500 "Reply was already sent" on every no-content compat route.
+ */
+export function compatReplyShape(statusCode: number, contentType: unknown, payload: unknown): { contentType?: string; payload: unknown } {
+  const out: { contentType?: string; payload: unknown } = { payload };
+  const bare = compatContentType(contentType);
+  if (typeof bare === "string" && bare !== contentType) out.contentType = bare;
+  if (statusCode >= 400 && typeof payload === "string" && payload.startsWith("{")) {
+    try {
+      out.payload = JSON.stringify(toDiscordError(statusCode, JSON.parse(payload)));
+    } catch {
+      /* not JSON after all — pass through */
+    }
+  }
+  return out;
+}

@@ -237,6 +237,10 @@ async function handleIdentify(session: GatewaySession, d: { token?: string; inte
             ...(i.serverId
               ? {
                   guild_id: await toSnowflake("guild", i.serverId),
+                  // JDA 6 resolves the guild from THIS partial object (InteractionImpl:
+                  // data.optObject("guild")), never from guild_id; without it every guild
+                  // interaction read as a DM and Ree6 threw "unexpected channel type TEXT".
+                  guild: { id: await toSnowflake("guild", i.serverId), locale: "en-US", features: [] },
                   member: { user: mappedUser, roles: [], joined_at: new Date(0).toISOString(), ...MEMBER_DEFAULTS, permissions: luminaPermsToDiscord(invokerEff) },
                 }
               : { user: mappedUser }),
