@@ -68,6 +68,8 @@ export interface VoiceSession {
   packetsIn: number;
   packetsOut: number;
   resumeTimer: NodeJS.Timeout | null;
+  /** v8 frame sequence: libraries ack it (seq_ack) and discord.js ignores a 0, so it starts at 1. */
+  seq: number;
   /** Dispatches a gateway event to the bot's main gateway session. */
   dispatch: (t: string, d: unknown) => void;
   onEnded: () => void;
@@ -180,7 +182,6 @@ export class DiscordVoiceServer {
         internal: params.internal,
         iceServers: turnIceServers(params.botUserId),
         additionalHostAddresses: [env.DISCORD_VOICE_PUBLIC_IP!],
-        icePortRange: [env.DISCORD_VOICE_ICE_PORT_MIN, env.DISCORD_VOICE_ICE_PORT_MAX],
         onIncomingAudio: (socketId, userId, rtp) => this.forwardToBot(session, socketId, userId, rtp),
         onParticipant: (userId, present) => void this.announceParticipant(session, userId, present),
         log: (line) => this.log(`bridge ${params.botUserId}: ${line}`),
@@ -190,6 +191,7 @@ export class DiscordVoiceServer {
       packetsIn: 0,
       packetsOut: 0,
       resumeTimer: null,
+      seq: 0,
       dispatch: params.dispatch,
       onEnded: () => undefined,
     };
@@ -266,7 +268,9 @@ export class DiscordVoiceServer {
   // ---------------------------------------------------------------- voice websocket
 
   private sendJson(session: VoiceSession, op: number, d: unknown): void {
-    if (session.ws?.readyState === WebSocket.OPEN) session.ws.send(JSON.stringify({ op, d }));
+    if (session.ws?.readyState !== WebSocket.OPEN) return;
+    session.seq += 1;
+    session.ws.send(JSON.stringify({ op, d, seq: session.seq }));
   }
 
   private onSocket(ws: WebSocket): void {
@@ -317,7 +321,7 @@ export class DiscordVoiceServer {
             session.resumeTimer = null;
           }
           session.ws = ws;
-          this.sendJson(session, 9, {});
+          this.sendJson(session, 9, null); // discord.py indexes msg['d']: present, null
           break;
         }
         case 1: {
@@ -338,9 +342,14 @@ export class DiscordVoiceServer {
           this.log(`session for ${session.botUserId}: ${session.mode}, remote ${data.address}:${data.port}`);
           break;
         }
-        case 3: // HEARTBEAT — echo whatever shape the client used (a nonce in v4, {t, seq_ack} in v8)
-          ws.send(JSON.stringify({ op: 6, d: packet.d ?? null }));
+        case 3: {
+          // HEARTBEAT: v8 sends {t, seq_ack} and wants {t} back (JDA parses d.t); older clients send a
+          // bare nonce and want it echoed.
+          const beat = packet.d;
+          const ack = beat && typeof beat === "object" ? { t: (beat as { t?: number }).t ?? Date.now() } : (beat ?? null);
+          ws.send(JSON.stringify({ op: 6, d: ack }));
           break;
+        }
         case 5: // SPEAKING — the bot's own SSRC is already known; nothing to route
           break;
         default:
@@ -405,7 +414,7 @@ export class DiscordVoiceServer {
     }
     leg.lastPacketAt = Date.now();
     leg.sequence = (leg.sequence + 1) & 0xffff;
-    const header = rtpHeader(leg.sequence, rtp.header.timestamp, leg.ssrc, rtp.header.marker);
+    const header = rtpHeader(leg.sequence, rtp.header.timestamp, leg.ssrc, false);
     session.nonceCounter = (session.nonceCounter + 1) >>> 0;
     const packet = encryptRtp(session.mode, session.secretKey, header, rtp.payload, session.nonceCounter);
     this.udp.send(packet, session.remote.port, session.remote.address);
