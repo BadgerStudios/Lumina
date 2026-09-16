@@ -30,7 +30,8 @@ const RESPONSE_WINDOW_MS = 3_000;
 // Discord's own global-command ceiling. Real bots sit well above 50: Ree6 registers ~90.
 export const MAX_COMMANDS_PER_APPLICATION = 100;
 
-const NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+// Discord's rule (lowercase letters, digits, _ and -; a digit may lead: /8ball is a classic).
+const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 function serializeCommand(row: {
   id: string;
@@ -65,7 +66,7 @@ function validateCommand(raw: unknown, index: number): { name: string; descripti
     // Quote what was sent: a bot author reading "Command 62" in a log has to count; "Command 62
     // (\"Report Message\")" tells them which one.
     const shown = JSON.stringify(String(cmd.name ?? "")).slice(0, 40);
-    throw new BadRequestError(`Command ${index} (${shown}): name must be 1-32 lowercase characters (a-z, 0-9, _, -) starting with a letter`);
+    throw new BadRequestError(`Command ${index} (${shown}): name must be 1-32 lowercase characters (a-z, 0-9, _, -) starting with a letter or digit`);
   }
   const description = typeof cmd.description === "string" ? cmd.description.trim() : "";
   if (!description || description.length > 200) {
