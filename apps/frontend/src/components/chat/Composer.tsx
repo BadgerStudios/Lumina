@@ -7,6 +7,8 @@ import type { MemberDTO } from "@lumina/shared";
 import { getSocket } from "../../socket/socketClient";
 import { StickerGrid } from "./StickerPicker";
 import { EmojiPicker } from "./EmojiPicker";
+import { GifPicker } from "./GifPicker";
+import { useGifConfig } from "../../queries/gifs";
 import { MentionPalette, findMentionQuery } from "./MentionPalette";
 import { useMembers } from "../../queries/members";
 import { ICON } from "../common/Icon";
@@ -156,6 +158,7 @@ export function Composer({
   const [buildingPoll, setBuildingPoll] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { data: gifConfig } = useGifConfig();
   const [commandIndex, setCommandIndex] = useState(0);
   const [caret, setCaret] = useState(0);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -405,6 +408,18 @@ export function Composer({
     }
   }
 
+  async function sendGif(slug: string, query: string) {
+    if (!onSendRich) return;
+    setError(null);
+    try {
+      // Sent at once, like a sticker: the GIF is the message.
+      await onSendRich({ content: "", replyToId: replyTo?.id ?? null, gif: { slug, query: query || undefined } });
+      onCancelReply?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't send that GIF");
+    }
+  }
+
   async function sendSticker(stickerId: string) {
     if (!onSendRich) return;
     setError(null);
@@ -636,6 +651,8 @@ export function Composer({
             poll, a spoiler, a voice message — is behind the overflow, because seven controls
             around a one-line text field is a lot of surface for a box you are meant to type in. */}
         <EmojiPicker serverId={serverId} onPick={insertAtCaret} />
+        {/* Only where a rich send exists (a GIF is an attachment) and once the server has a KLIPY key. */}
+        {onSendRich && gifConfig?.enabled ? <GifPicker onPick={(gif, query) => void sendGif(gif.slug, query)} /> : null}
         <ComposerOverflow
           serverId={serverId}
           rich={Boolean(onSendRich)}

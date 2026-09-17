@@ -87,6 +87,7 @@ import postRoutes from "./modules/posts/routes.js";
 import banRoutes from "./modules/bans/routes.js";
 import billingRoutes from "./modules/billing/routes.js";
 import emojiRoutes from "./modules/emoji/routes.js";
+import gifRoutes from "./modules/gifs/routes.js";
 import storeRoutes from "./modules/store/routes.js";
 import downloadRoutes from "./modules/metrics/downloadRoutes.js";
 import masterRoutes from "./modules/master/routes.js";
@@ -447,6 +448,7 @@ async function main() {
   await fastify.register(billingRoutes, { prefix: "/api/billing" });
   await fastify.register(storeRoutes, { prefix: "/api/store" });
   await fastify.register(emojiRoutes, { prefix: "/api/servers" });
+  await fastify.register(gifRoutes, { prefix: "/api/gifs" });
   await fastify.register(downloadRoutes, { prefix: "/api/download" });
   await fastify.register(masterRoutes, { prefix: "/api/master" });
   await fastify.register(lookupRoutes, { prefix: "/api/lookup" });

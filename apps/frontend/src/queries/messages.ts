@@ -148,6 +148,8 @@ export interface RichSendPayload {
   replyToId?: string | null;
   stickerId?: string | null;
   poll?: { question: string; options: string[]; allowMultiple?: boolean; durationHours?: number | null } | null;
+  /** A GIF picked in the composer; the server stores it as an attachment (modules/gifs). */
+  gif?: { slug: string; query?: string } | null;
 }
 
 function richForm(payload: RichSendPayload): FormData {
@@ -157,6 +159,10 @@ function richForm(payload: RichSendPayload): FormData {
   if (payload.stickerId) form.set("stickerId", payload.stickerId);
   // JSON in a multipart field: a form field is a string, and the poll definition is a tree.
   if (payload.poll) form.set("poll", JSON.stringify(payload.poll));
+  if (payload.gif) {
+    form.set("gifSlug", payload.gif.slug);
+    if (payload.gif.query) form.set("gifQuery", payload.gif.query);
+  }
   return form;
 }
 

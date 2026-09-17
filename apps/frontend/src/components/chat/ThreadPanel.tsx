@@ -7,6 +7,7 @@ import {
   useMessages,
   useSendChannelMessage,
   useSendChannelMessageWithAttachments,
+  useSendChannelMessageRich,
   useEditMessage,
   useDeleteMessage,
   useAddReaction,
@@ -44,6 +45,7 @@ export function ThreadPanel({
   const messagesQuery = useMessages(threadId);
   const sendMessage = useSendChannelMessage(threadId);
   const sendWithAttachments = useSendChannelMessageWithAttachments(threadId);
+  const sendRich = useSendChannelMessageRich(threadId);
   const editMessage = useEditMessage();
   const deleteMessage = useDeleteMessage({ channelId: threadId });
   const addReaction = useAddReaction();
@@ -124,6 +126,10 @@ export function ThreadPanel({
           }}
           onSendWithAttachments={async (content, files, replyToId) => {
             await sendWithAttachments.mutateAsync({ content, files, replyToId });
+            setReplyTo(null);
+          }}
+          onSendRich={async (payload) => {
+            await sendRich.mutateAsync(payload);
             setReplyTo(null);
           }}
         />

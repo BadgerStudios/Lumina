@@ -6,6 +6,7 @@ import { parseMessageMultipart } from "./multipart.js";
 import { uploadLimitsFor } from "../billing/premium.js";
 import { createPoll } from "../polls/service.js";
 import { prisma } from "../../db/prisma.js";
+import { gifAttachment, recordGifShare, discardGifAttachment } from "../gifs/routes.js";
 
 const listQuerySchema = z.object({
   before: z.string().optional(),
@@ -31,7 +32,7 @@ export default async function dmMessagesRoutes(fastify: FastifyInstance) {
     { config: { rateLimit: { max: 30, timeWindow: "10 seconds" } }, preHandler: [requireAuth] },
     async (request, reply) => {
     const { conversationId } = request.params as { conversationId: string };
-    const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(
+    const { content, replyToId, attachments, stickerId, poll, gifSlug, gifQuery } = await parseMessageMultipart(
         request,
         // The sender's own ceiling: Premium buys a bigger one, and the plugin-level limit is
         // set to the premium value precisely so this check is the one that decides.
@@ -43,15 +44,24 @@ export default async function dmMessagesRoutes(fastify: FastifyInstance) {
     // Same ordering as the channel route, for the same reason: a rejected poll fails the send
     // rather than leaving a message with no poll next to a poll with no message.
     const pollId = poll ? await createPoll(poll) : null;
-    const dto = await createDMMessage({
-      userId: request.userId!,
-      conversationId,
-      content,
-      replyToId,
-      attachments,
-      stickerId,
-      pollId,
-    });
+    // A GIF from the picker becomes an ordinary stored attachment (modules/gifs).
+    const gif = gifSlug ? await gifAttachment(gifSlug, request.userId!) : null;
+    let dto;
+    try {
+      dto = await createDMMessage({
+        userId: request.userId!,
+        conversationId,
+        content,
+        replyToId,
+        attachments: gif ? [...attachments, gif] : attachments,
+        stickerId,
+        pollId,
+      });
+    } catch (error) {
+      if (gif) await discardGifAttachment(gif);
+      throw error;
+    }
+    if (gif && gifSlug) recordGifShare(gifSlug, request.userId!, gifQuery);
     reply.code(201);
     return dto;
   });

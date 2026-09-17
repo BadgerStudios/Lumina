@@ -6,6 +6,7 @@ import { parseMessageMultipart } from "./multipart.js";
 import { uploadLimitsFor } from "../billing/premium.js";
 import { createPoll } from "../polls/service.js";
 import { prisma } from "../../db/prisma.js";
+import { gifAttachment, recordGifShare, discardGifAttachment } from "../gifs/routes.js";
 
 const listQuerySchema = z.object({
   before: z.string().optional(),
@@ -62,7 +63,7 @@ export default async function channelMessagesRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const { content, replyToId, attachments, stickerId, poll } = await parseMessageMultipart(
+      const { content, replyToId, attachments, stickerId, poll, gifSlug, gifQuery } = await parseMessageMultipart(
         request,
         // The sender's own ceiling: Premium buys a bigger one, and the plugin-level limit is
         // set to the premium value precisely so this check is the one that decides.
@@ -79,15 +80,24 @@ export default async function channelMessagesRoutes(fastify: FastifyInstance) {
       // and invisible rather than the message being visible and pollless.
       const pollId = poll ? await createPoll(poll) : null;
 
-      const dto = await createChannelMessage({
-        userId: request.userId!,
-        channelId: id,
-        content,
-        replyToId,
-        attachments,
-        stickerId,
-        pollId,
-      });
+      // A GIF from the picker becomes an ordinary stored attachment, so it passes every check below.
+      const gif = gifSlug ? await gifAttachment(gifSlug, request.userId!) : null;
+      let dto;
+      try {
+        dto = await createChannelMessage({
+          userId: request.userId!,
+          channelId: id,
+          content,
+          replyToId,
+          attachments: gif ? [...attachments, gif] : attachments,
+          stickerId,
+          pollId,
+        });
+      } catch (error) {
+        if (gif) await discardGifAttachment(gif);
+        throw error;
+      }
+      if (gif && gifSlug) recordGifShare(gifSlug, request.userId!, gifQuery);
 
       reply.code(201);
       return dto;

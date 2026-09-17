@@ -24,6 +24,10 @@ export interface ParsedMessageBody {
    * request that creates its message, because an orphan poll with no message is unreachable.
    */
   poll: { question: string; options: string[]; allowMultiple?: boolean; durationHours?: number | null } | null;
+  /** A KLIPY GIF picked in the composer, stored as an attachment by the send route (modules/gifs). */
+  gifSlug: string | null;
+  /** The search that found it, for KLIPY's share trigger. */
+  gifQuery: string | null;
 }
 
 export async function parseMessageMultipart(
@@ -39,6 +43,8 @@ export async function parseMessageMultipart(
   let replyToId: string | null = null;
   let stickerId: string | null = null;
   let poll: ParsedMessageBody["poll"] = null;
+  let gifSlug: string | null = null;
+  let gifQuery: string | null = null;
   const attachments: CreateMessageAttachmentInput[] = [];
 
   if (request.isMultipart()) {
@@ -89,6 +95,10 @@ export async function parseMessageMultipart(
         replyToId = String(part.value ?? "") || null;
       } else if (part.fieldname === "stickerId") {
         stickerId = String(part.value ?? "") || null;
+      } else if (part.fieldname === "gifSlug") {
+        gifSlug = String(part.value ?? "").slice(0, 120) || null;
+      } else if (part.fieldname === "gifQuery") {
+        gifQuery = String(part.value ?? "").slice(0, 80) || null;
       } else if (part.fieldname === "poll") {
         // A multipart field is a string, so the poll definition rides as JSON. Malformed JSON is
         // treated as "no poll" rather than throwing: the alternative is a 500 on a field the
@@ -102,13 +112,15 @@ export async function parseMessageMultipart(
     }
   } else {
     const body = request.body as
-      | { content?: string; replyToId?: string | null; stickerId?: string | null; poll?: ParsedMessageBody["poll"] }
+      | { content?: string; replyToId?: string | null; stickerId?: string | null; poll?: ParsedMessageBody["poll"]; gifSlug?: string | null; gifQuery?: string | null }
       | undefined;
     content = body?.content ?? "";
     replyToId = body?.replyToId ?? null;
     stickerId = body?.stickerId ?? null;
     poll = body?.poll ?? null;
+    gifSlug = typeof body?.gifSlug === "string" ? body.gifSlug.slice(0, 120) || null : null;
+    gifQuery = typeof body?.gifQuery === "string" ? body.gifQuery.slice(0, 80) || null : null;
   }
 
-  return { content, replyToId, attachments, stickerId, poll };
+  return { content, replyToId, attachments, stickerId, poll, gifSlug, gifQuery };
 }

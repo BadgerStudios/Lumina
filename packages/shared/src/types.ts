@@ -764,3 +764,20 @@ export interface UserProfileExtrasDTO {
   mutualServers: Array<{ id: string; name: string; iconUrl: string | null }>;
   mutualFriends: UserDTO[];
 }
+
+/** One GIF in the composer's picker (KLIPY). `previewUrl` is a same-origin proxy path, never KLIPY's own URL. */
+export interface GifItemDTO {
+  slug: string;
+  title: string;
+  width: number;
+  height: number;
+  previewUrl: string;
+  /** A tiny inline JPEG data URI to show while the preview loads, when KLIPY supplies one. */
+  blurPreview: string | null;
+}
+
+export interface GifPageDTO {
+  items: GifItemDTO[];
+  hasNext: boolean;
+  page: number;
+}

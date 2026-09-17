@@ -106,6 +106,10 @@ const envSchema = z.object({
   // env vars, no code change. PERSONA_WEBHOOK_SECRET, like the Stripe one, is mandatory-in-practice
   // once the API key is set: without it inbound webhooks cannot be signature-verified and are refused.
   PERSONA_API_KEY: z.string().optional(),
+  // ---- GIF picker (KLIPY, modules/gifs) ----
+  // Without it the composer shows no GIF button and /api/gifs answers "not set up". A free key comes
+  // from KLIPY's partner panel; testing keys allow 100 requests an hour until production is granted.
+  KLIPY_API_KEY: z.string().optional(),
   PERSONA_WEBHOOK_SECRET: z.string().optional(),
   PERSONA_TEMPLATE_ID: z.string().optional(),
   PERSONA_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),

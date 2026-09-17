@@ -119,6 +119,8 @@ services:
       # That is why PERSONA_* has never been live either despite being set in .env for weeks.
       DIDIT_ENABLED: ${DIDIT_ENABLED:-}
       DIDIT_API_KEY: ${DIDIT_API_KEY:-}
+      # GIF picker (modules/gifs). Empty = no GIF button in the composer.
+      KLIPY_API_KEY: ${KLIPY_API_KEY:-}
       DIDIT_WORKFLOW_ID: ${DIDIT_WORKFLOW_ID:-}
       # The age-estimation workflow: a selfie the provider estimates an age from, with no
       # identity document involved. Separate from the one above because they answer different
