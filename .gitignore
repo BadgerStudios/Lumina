@@ -76,3 +76,8 @@ game-agent-plugin/dependency-reduced-pom.xml
 
 # Local migration scratch data — not source.
 migdata/
+
+# ---- Firebase client config ---------------------------------------------------------------
+# Carries the Firebase API key. The build reads it from disk (apps/*/android/app/google-services.json);
+# it is kept out of git so the public repository never carries it.
+google-services.json
