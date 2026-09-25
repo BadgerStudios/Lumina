@@ -9,6 +9,10 @@ import { UserAvatar } from "../components/common/UserAvatar";
 import { SpaceAvatar } from "../components/layout/NavDeck";
 import { usePresenceStore } from "../store/presenceStore";
 
+// Checked once: a phone does not grow a keyboard mid-session, and a tablet with one reports a fine pointer.
+const HAS_KEYBOARD = typeof window !== "undefined" && window.matchMedia?.("(pointer: fine)").matches;
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
 /**
  * Home.
  *
@@ -66,9 +70,12 @@ export function HomeRoute() {
         <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-signal">
           {name ? `Welcome back, ${name}.` : "Welcome back."}
         </h1>
-        <p className="mt-1 text-sm text-signal-dim">
-          Press <kbd className="rounded border border-hairline px-1 font-mono text-[10px]">⌘K</kbd> to jump anywhere.
-        </p>
+        {/* A keyboard shortcut is no use on a touch screen, and ⌘ only exists on a Mac. */}
+        {HAS_KEYBOARD && (
+          <p className="mt-1 text-sm text-signal-dim">
+            Press <kbd className="rounded border border-hairline px-1 font-mono text-[10px]">{IS_MAC ? "⌘K" : "Ctrl K"}</kbd> to jump anywhere.
+          </p>
+        )}
 
         {/* Shortcuts */}
         <div className="mt-7 grid gap-2 sm:grid-cols-2">

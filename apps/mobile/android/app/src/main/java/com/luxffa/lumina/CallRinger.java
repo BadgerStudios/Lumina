@@ -71,10 +71,18 @@ final class CallRinger {
         nm.createNotificationChannel(ch);
     }
 
-    /** Open the conversation through the app's own App Link. */
-    private static PendingIntent openConversation(Context ctx, String conversationId, int requestCode) {
-        Intent open = new Intent(Intent.ACTION_VIEW, Uri.parse(APP_HOST + "/dm/" + Uri.encode(conversationId)));
-        open.setPackage(ctx.getPackageName());
+    /**
+     * Open the conversation in Lumina, and with {@code answer} join the call too.
+     *
+     * Addressed to MainActivity by class, not through the App Link: the link filter in the manifest
+     * only claims the emailed paths (/invite, /reset-password, /verify-email), so an https /dm/ link
+     * resolved to nothing and Answer, and a tap on the ringing call, did nothing at all. The URL still
+     * rides along as the intent's data, which is where the app reads it (DeepLinkHandler).
+     */
+    private static PendingIntent openConversation(Context ctx, String conversationId, int requestCode, boolean answer) {
+        Intent open = new Intent(ctx, MainActivity.class)
+            .setAction(Intent.ACTION_VIEW)
+            .setData(Uri.parse(APP_HOST + "/dm/" + Uri.encode(conversationId) + (answer ? "?call=answer" : "")));
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         return PendingIntent.getActivity(ctx, requestCode, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -86,7 +94,8 @@ final class CallRinger {
         int id = notificationId(conversationId);
         String who = (callerName == null || callerName.isEmpty()) ? "Someone" : callerName;
 
-        PendingIntent answer = openConversation(ctx, conversationId, id);
+        PendingIntent answer = openConversation(ctx, conversationId, id, true);
+        PendingIntent show = openConversation(ctx, conversationId, id + 2, false);
         Intent declineIntent = new Intent(ctx, CallDeclineReceiver.class)
             .putExtra(EXTRA_CONVERSATION, conversationId)
             .putExtra(CallDeclineReceiver.EXTRA_DECLINE_TOKEN, declineToken);
@@ -105,8 +114,8 @@ final class CallRinger {
             .setOngoing(true)
             .setAutoCancel(true)
             .setTimeoutAfter(RING_TIMEOUT_MS)
-            .setContentIntent(answer)
-            .setFullScreenIntent(answer, true)
+            .setContentIntent(show)
+            .setFullScreenIntent(show, true)
             .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer));
 
         android.app.Notification n = b.build();

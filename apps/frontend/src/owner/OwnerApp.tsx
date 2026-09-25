@@ -30,8 +30,7 @@ import {
   usePlatformStats,
   useAttentionItems,
   usePlatformHealth,
-  useBusinessMetrics,
-} from "../queries/owner";
+  useBusinessMetrics, useGrowth, useEngagement } from "../queries/owner";
 import {
   RevenuePanel,
   DownloadsPanel,
@@ -79,6 +78,7 @@ import { useAuthStore } from "../store/authStore";
 import { useLogout } from "../queries/auth";
 import { cn } from "../lib/cn";
 import type { PlatformRole } from "@lumina/shared";
+import type { GrowthFunnel } from "../queries/owner";
 import { isMaster as checkMaster, hasRole } from "../lib/platformRole";
 import { ROLE_META } from "./roleMeta";
 import "./ownerTheme.css";
@@ -492,6 +492,77 @@ export function OwnerApp() {
   );
 }
 
+const FUNNEL_STEPS: { key: keyof GrowthFunnel; label: string }[] = [
+  { key: "signedUp", label: "Signed up" },
+  { key: "confirmedEmail", label: "Confirmed their email" },
+  { key: "inAServer", label: "Are in a server" },
+  { key: "sentAMessage", label: "Sent a message" },
+  { key: "cameBack", label: "Came back after day one" },
+];
+
+/**
+ * Growth: who is active, who can be reached when they are not looking, and where new accounts
+ * fall away (GET /owner/growth + /owner/engagement). "Can be notified" going red is how a lost
+ * phone registration shows up here, instead of as nobody getting notifications for a week.
+ */
+function GrowthGroup() {
+  const { data } = useGrowth();
+  const { data: engagement } = useEngagement();
+  if (!data) return null;
+  const today = engagement?.daily[engagement.daily.length - 1]?.users ?? 0;
+  const week = engagement?.weekly[engagement.weekly.length - 1]?.users ?? 0;
+  const { reach, pushes7d, funnel } = data;
+  const reachShare = reach.humans > 0 ? reach.reachable / reach.humans : 0;
+  const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "—");
+
+  return (
+    <Group label="Growth">
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <Metric label="Active today" value={today} sub="messaged or opened the app" />
+        <Metric label="Active this week" value={week} sub={`of ${reach.humans} people`} />
+        <Metric
+          label="Can be notified"
+          value={reach.reachable}
+          sub={`${reach.phones} phone, ${reach.browsers} browser`}
+          state={reachShare >= 0.5 ? "good" : reachShare >= 0.2 ? "warn" : "bad"}
+        />
+        <Metric
+          label="Pushes, 7 days"
+          value={pushes7d.delivered}
+          sub={`${pushes7d.nowhere} had nowhere to go${pushes7d.failed ? `, ${pushes7d.failed} failed` : ""}`}
+          state={pushes7d.nowhere + pushes7d.failed > pushes7d.delivered ? "bad" : pushes7d.nowhere + pushes7d.failed > 0 ? "warn" : "good"}
+        />
+      </div>
+      <div className="mt-2.5 overflow-x-auto rounded-xl border border-hairline bg-base-800 p-4">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="text-xs text-signal-faint">
+              <th className="pb-2 pr-3 font-medium">New accounts</th>
+              <th className="pb-2 pr-3 text-right font-medium">Last 30 days</th>
+              <th className="pb-2 text-right font-medium">All time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FUNNEL_STEPS.map((step) => (
+              <tr key={step.key} className="border-t border-hairline">
+                <td className="py-1.5 pr-3 text-signal">{step.label}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums text-signal-dim">
+                  {funnel.last30Days[step.key]}
+                  {step.key !== "signedUp" && <span className="ml-1.5 text-signal-faint">{pct(funnel.last30Days[step.key], funnel.last30Days.signedUp)}</span>}
+                </td>
+                <td className="py-1.5 text-right tabular-nums text-signal-dim">
+                  {funnel.allTime[step.key]}
+                  {step.key !== "signedUp" && <span className="ml-1.5 text-signal-faint">{pct(funnel.allTime[step.key], funnel.allTime.signedUp)}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Group>
+  );
+}
+
 function OverviewSection({
   onNavigate,
   onReview,
@@ -599,6 +670,8 @@ function OverviewSection({
           />
         </div>
       </Group>
+
+      <GrowthGroup />
 
       <Group label="Business">
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">

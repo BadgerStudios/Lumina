@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { CLIENT_TYPE } from "../../lib/platform";
+import { useVoiceStore } from "../../store/voiceStore";
 
 /**
  * Turns an Android App Link into in-app navigation.
@@ -38,8 +39,26 @@ const CapacitorApp = registerPlugin<AppPlugin>("App");
 
 const ALLOWED_HOSTS = new Set(["lumina.badgerstudios.net", "lumina.luxffa.com"]);
 
-/** Keep in sync with the intent-filter paths in apps/mobile AndroidManifest.xml. */
-const ALLOWED_PATHS = [/^\/reset-password$/, /^\/verify-email$/, /^\/invite\/[^/]+$/];
+/**
+ * The emailed paths match the intent-filter in apps/mobile AndroidManifest.xml. /dm/<id> is not in
+ * that filter: it only arrives from the app's own ringing-call notification, addressed to
+ * MainActivity directly (android CallRinger), with ?call=answer when Answer was tapped.
+ */
+const ALLOWED_PATHS = [/^\/reset-password$/, /^\/verify-email$/, /^\/invite\/[^/]+$/, /^\/dm\/[A-Za-z0-9_-]+$/];
+
+/** Go to a deep-linked path. Answer on a ringing call also joins it, which is what answering means. */
+function openPath(navigate: (to: string, opts?: { replace?: boolean }) => void, path: string, replace: boolean): void {
+  const url = new URL(path, "https://app.invalid");
+  const dm = /^\/dm\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (dm && url.searchParams.get("call") === "answer") {
+    navigate(url.pathname, { replace });
+    const voice = useVoiceStore.getState();
+    voice.setIncomingCall(null);
+    void voice.joinDM(dm[1]);
+    return;
+  }
+  navigate(path, { replace });
+}
 
 function toInternalPath(raw: string): string | null {
   let url: URL;
@@ -69,7 +88,7 @@ export function DeepLinkHandler() {
       try {
         handle = await CapacitorApp.addListener("appUrlOpen", ({ url }) => {
           const path = toInternalPath(url);
-          if (path) navigate(path);
+          if (path) openPath(navigate, path, false);
         });
       } catch {
         /* plugin not in this APK — an old binary running a new bundle; deep links just stay off */
@@ -81,7 +100,7 @@ export function DeepLinkHandler() {
         const launch = await CapacitorApp.getLaunchUrl();
         if (!cancelled && launch?.url) {
           const path = toInternalPath(launch.url);
-          if (path) navigate(path, { replace: true });
+          if (path) openPath(navigate, path, true);
         }
       } catch {
         /* same as above */

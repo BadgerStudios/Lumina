@@ -1,3 +1,4 @@
+import { pushStatsKey } from "../../lib/push.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import os from "node:os";
@@ -223,6 +224,68 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         size: Number(c.size),
         weeks: [Number(c.w1), Number(c.w2), Number(c.w3), Number(c.w4)],
       })),
+    };
+  });
+
+  /**
+   * Where new people fall away, and whether Lumina can reach anyone when they are not looking.
+   *
+   * The funnel follows each human account through the steps that make a chat app worth coming
+   * back to: confirmed the email, is in at least one server, has written something, came back
+   * after the first day ("came back" = a message or a session refresh a day or more after signing
+   * up). Counted for accounts from the last 30 days and for all time.
+   *
+   * Reach is how many people have somewhere a notification can land: the phone app registered
+   * (DeviceToken, app "chat") or a browser subscribed (PushSubscription). pushes are the daily
+   * outcome counters lib/push.ts keeps: delivered, failed (every target refused), nowhere (no
+   * registration at all), skipped (the person was active on a desktop).
+   */
+  fastify.get("/growth", { preHandler: [requireAuth, requireExecutive] }, async () => {
+    const funnelSince = async (since: Date) => {
+      const [row] = await prisma.$queryRaw<
+        { signed_up: bigint; confirmed: bigint; in_server: bigint; messaged: bigint; came_back: bigint }[]
+      >`
+        SELECT count(*) AS signed_up,
+          count(*) FILTER (WHERE u."emailVerifiedAt" IS NOT NULL) AS confirmed,
+          count(*) FILTER (WHERE EXISTS (SELECT 1 FROM "Membership" m WHERE m."userId" = u.id)) AS in_server,
+          count(*) FILTER (WHERE EXISTS (SELECT 1 FROM "Message" m WHERE m."authorId" = u.id)) AS messaged,
+          count(*) FILTER (WHERE
+            EXISTS (SELECT 1 FROM "Message" m WHERE m."authorId" = u.id AND m."createdAt" > u."createdAt" + interval '1 day')
+            OR EXISTS (SELECT 1 FROM "RefreshToken" r WHERE r."userId" = u.id AND r."createdAt" > u."createdAt" + interval '1 day')
+          ) AS came_back
+        FROM "User" u
+        WHERE u."isBot" = false AND u."createdAt" >= ${since}`;
+      return {
+        signedUp: Number(row?.signed_up ?? 0),
+        confirmedEmail: Number(row?.confirmed ?? 0),
+        inAServer: Number(row?.in_server ?? 0),
+        sentAMessage: Number(row?.messaged ?? 0),
+        cameBack: Number(row?.came_back ?? 0),
+      };
+    };
+
+    const [last30, allTime, humans, phoneRows, browserRows] = await Promise.all([
+      funnelSince(new Date(Date.now() - 30 * 86400000)),
+      funnelSince(new Date(0)),
+      prisma.user.count({ where: { isBot: false } }),
+      prisma.deviceToken.findMany({ where: { app: "chat" }, select: { userId: true }, distinct: ["userId"] }),
+      prisma.pushSubscription.findMany({ select: { userId: true }, distinct: ["userId"] }),
+    ]);
+    const phones = new Set(phoneRows.map((r) => r.userId));
+    const browsers = new Set(browserRows.map((r) => r.userId));
+    const reachable = new Set([...phones, ...browsers]);
+
+    const days = Array.from({ length: 7 }, (_, i) => new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
+    const perDay = await Promise.all(days.map((d) => redis.hgetall(pushStatsKey(d)).catch(() => ({}) as Record<string, string>)));
+    const pushes = { delivered: 0, failed: 0, nowhere: 0, skipped: 0 };
+    for (const h of perDay) {
+      for (const k of Object.keys(pushes) as (keyof typeof pushes)[]) pushes[k] += Number(h[k] ?? 0);
+    }
+
+    return {
+      funnel: { last30Days: last30, allTime },
+      reach: { humans, reachable: reachable.size, phones: phones.size, browsers: browsers.size },
+      pushes7d: pushes,
     };
   });
 

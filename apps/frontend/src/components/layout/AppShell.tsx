@@ -8,6 +8,7 @@ import { VoiceVideoGrid } from "./VoiceVideoGrid";
 import { VoiceDock } from "./VoiceDock";
 import { IncomingCallBanner } from "./IncomingCallBanner";
 import { NotificationPrompt } from "../common/NotificationPrompt";
+import { CallScreenPrompt } from "../common/CallScreenPrompt";
 import { ensureWebPushSubscription } from "../../lib/webPush";
 import { ScreenSourcePicker } from "../voice/ScreenSourcePicker";
 import { CommandPalette } from "./CommandPalette";
@@ -224,6 +225,8 @@ export function AppShell() {
       <IOSInstallHint />
       {/* Browser tabs only: the one place browser notifications get offered (see the component). */}
       <NotificationPrompt />
+      {/* Phone app on Android 14+: let calls take over a locked screen (see the component). */}
+      <CallScreenPrompt />
       {/* Only renders when the SERVER says onboarding is due for this member — see
           queries/onboarding.ts. Placed in the shell rather than on the invite flow so it also
           catches members who joined before the server switched onboarding on. */}

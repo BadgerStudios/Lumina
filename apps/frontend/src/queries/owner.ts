@@ -76,6 +76,28 @@ export function useEngagement() {
   });
 }
 
+export interface GrowthFunnel {
+  signedUp: number;
+  confirmedEmail: number;
+  inAServer: number;
+  sentAMessage: number;
+  cameBack: number;
+}
+
+export interface GrowthDTO {
+  funnel: { last30Days: GrowthFunnel; allTime: GrowthFunnel };
+  reach: { humans: number; reachable: number; phones: number; browsers: number };
+  pushes7d: { delivered: number; failed: number; nowhere: number; skipped: number };
+}
+
+export function useGrowth() {
+  return useQuery({
+    queryKey: ["owner", "growth"],
+    queryFn: () => api.get<GrowthDTO>("/owner/growth"),
+    refetchInterval: 300_000,
+  });
+}
+
 export function usePlatformStats() {
   return useQuery({
     queryKey: ["owner", "stats"],

@@ -53,6 +53,7 @@ import {
   listPasskeys,
 } from "./passkeys.js";
 import type { AgeBracket } from "@prisma/client";
+import { joinWelcomeServer } from "../onboarding/welcome.js";
 
 // Registration logs the user in immediately and sends a confirmation email in the background.
 // Verification currently gates NOTHING — see modules/auth/emailVerification.ts for why: every
@@ -306,6 +307,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
           // A signal failure must never fail a signup — the self-declared age already stands.
         }
       }
+
+      // Start the new account in the official welcome server rather than in no server at all
+      // (see onboarding/welcome.ts). After the age signal above, so its checks see the final state.
+      // Fire-and-forget: joining is a courtesy and must never slow or fail the signup.
+      void joinWelcomeServer(user.id).catch((err) => console.error("[welcome] join failed for", user.id, err));
 
       // Has this device signed in as somebody else before? RefreshToken is where a device
       // fingerprint gets recorded against an account, so it is the only table that can answer it.

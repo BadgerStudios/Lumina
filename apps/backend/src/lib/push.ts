@@ -1,6 +1,7 @@
 import { resolvePreferences } from "../modules/users/preferences.js";
 import webpush from "web-push";
 import { prisma } from "../db/prisma.js";
+import { redis } from "../db/redis.js";
 import { env } from "../config/env.js";
 import { isFcmConfigured, sendFcmToToken } from "./fcm.js";
 import { ServerEvents, tonesFrom, type PushKind } from "@lumina/shared";
@@ -13,6 +14,21 @@ if (enabled) {
 
 /** The first Android build whose app rings for calls itself (LuminaMessagingService + CallRinger). */
 export const CALL_RINGER_BUILD = 120;
+
+/** How each push ended, counted per UTC day for the owner console (GET /owner/growth). */
+export type PushOutcome = "delivered" | "failed" | "nowhere" | "skipped";
+export const pushStatsKey = (day: string) => `push:stats:${day}`;
+
+function countPushOutcome(outcome: PushOutcome): void {
+  const key = pushStatsKey(new Date().toISOString().slice(0, 10));
+  // Best-effort: a counter must never be the reason a push fails.
+  void redis
+    .multi()
+    .hincrby(key, outcome, 1)
+    .expire(key, 40 * 86400)
+    .exec()
+    .catch(() => undefined);
+}
 
 export interface PushPayload {
   title: string;
@@ -58,6 +74,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     if (await userIsActive(userId)) {
       // eslint-disable-next-line no-console
       console.log(`[push] ${kind} -> ${userId}: skipped, active on a desktop`);
+      countPushOutcome("skipped");
       return;
     }
   }
@@ -81,6 +98,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
   // The case with no targets matters most: it is what a lost registration looks like from here,
   // and it used to print nothing — a week of DMs to a phone with no chat registration left no
   // trace at all.
+  countPushOutcome(web.total + native.total === 0 ? "nowhere" : web.sent + native.sent > 0 ? "delivered" : "failed");
   if (web.total + native.total === 0) {
     // eslint-disable-next-line no-console
     console.log(`[push] ${kind} -> ${userId}: nowhere to send (no registered device or browser)${payload.tag ? ` (${payload.tag})` : ""}`);
