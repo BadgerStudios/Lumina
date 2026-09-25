@@ -22,6 +22,7 @@ import { AgeGateModal } from "../AgeGateModal";
 import { IdentityVerificationGate } from "../IdentityVerificationGate";
 import { useSocketEvents } from "../../socket/useSocketEvents";
 import { attachNativePushHandlers, ensureNativePushRegistration } from "../../lib/nativePush";
+import { attachDesktopNotifications } from "../../lib/desktopNotify";
 import { useRoleSync } from "../../hooks/useRoleSync";
 import { useUIStore } from "../../store/uiStore";
 import { useVoiceStore } from "../../store/voiceStore";
@@ -89,6 +90,9 @@ export function AppShell() {
   // a tap on one carries a deep link that nothing was reading. Both are this one listener pair.
   const navigatePush = useNavigate();
   useEffect(() => attachNativePushHandlers((url) => navigatePush(url)), [navigatePush]);
+  // The desktop app's equivalent: an OS notification for anything the server would push to a phone,
+  // while the window is not in front (see lib/desktopNotify.ts).
+  useEffect(() => attachDesktopNotifications((url) => navigatePush(url)), [navigatePush]);
   const mobileDrawer = useUIStore((s) => s.mobileDrawer);
 
   // Keybinds (UserSettingsModal.tsx's Voice & Video section) — a top-level listener rather than

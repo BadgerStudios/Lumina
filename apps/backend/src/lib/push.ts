@@ -3,7 +3,7 @@ import webpush from "web-push";
 import { prisma } from "../db/prisma.js";
 import { env } from "../config/env.js";
 import { isFcmConfigured, sendFcmToToken } from "./fcm.js";
-import { tonesFrom, type PushKind } from "@lumina/shared";
+import { ServerEvents, tonesFrom, type PushKind } from "@lumina/shared";
 
 const enabled = !!env.VAPID_PUBLIC_KEY && !!env.VAPID_PRIVATE_KEY;
 
@@ -60,6 +60,18 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       console.log(`[push] ${kind} -> ${userId}: skipped, active on a desktop`);
       return;
     }
+  }
+  // The desktop app cannot receive web push (Electron has no push service), so while it is open but
+  // not in front this is how it hears about the same things a phone does: every rule above has
+  // already decided this is due. Calls are left out: the desktop has its own ringing banner.
+  if (!payload.call) {
+    const { getIO } = await import("../realtime/io.js");
+    getIO().to(`user:${userId}`).emit(ServerEvents.NOTIFY, {
+      title: payload.title,
+      body: payload.body,
+      url: payload.url,
+      ...(payload.tag ? { tag: payload.tag } : {}),
+    });
   }
   // Both transports, independently. A phone usually holds an FCM token AND a web-push
   // subscription; the native one is what can play the app's own sound, and web push is what still

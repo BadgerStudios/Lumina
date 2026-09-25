@@ -122,6 +122,10 @@ export const ServerEvents = {
   // ({ conversationId }).
   CALL_INCOMING: "call:incoming",
   CALL_ENDED: "call:ended",
+  // To a person's own sockets, whenever the server pushes to their phones: { title, body, url, tag }.
+  // The desktop app shows it as an OS notification while its window is not in front, since
+  // Electron cannot receive web push (frontend lib/desktopNotify.ts). Phones and browsers ignore it.
+  NOTIFY: "notify",
   // Broadcast to EVERY connected socket the moment a deploy finishes publishing.
   //
   // Each client already knows how to check whether it is out of date — the Android app compares
