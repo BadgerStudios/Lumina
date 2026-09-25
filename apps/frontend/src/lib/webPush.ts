@@ -1,4 +1,26 @@
 import { api } from "./apiClient";
+import { CLIENT_TYPE } from "./platform";
+
+// Set when someone turns browser notifications off in Settings, so the repair below never
+// quietly turns them back on.
+const OPT_OUT_KEY = "lumina.push.webOptOut";
+
+function setOptOut(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(OPT_OUT_KEY, "1");
+    else localStorage.removeItem(OPT_OUT_KEY);
+  } catch {
+    /* storage unavailable: nothing to remember with */
+  }
+}
+
+function optedOut(): boolean {
+  try {
+    return localStorage.getItem(OPT_OUT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 // Service worker + Push API aren't available in every environment this app runs in, so
 // feature-detect rather than assuming: calling these on an unsupported client is then a silent
@@ -53,6 +75,30 @@ export async function subscribeToPush(): Promise<void> {
   });
   const json = subscription.toJSON();
   await api.post("/push/subscribe", { endpoint: json.endpoint, keys: json.keys });
+  setOptOut(false);
+}
+
+/**
+ * Keep this browser reachable, on every app start. The server forgets a subscription the push
+ * service reports gone, and a browser can drop its own; either way notifications stopped with
+ * nothing on screen to say so. With permission already granted this re-sends the subscription
+ * (the server upserts it) or makes a new one, which needs no dialog. Browser tabs only, never
+ * after someone switched notifications off in Settings, and it never throws.
+ */
+export async function ensureWebPushSubscription(): Promise<void> {
+  try {
+    if (CLIENT_TYPE || !isWebPushSupported() || Notification.permission !== "granted" || optedOut()) return;
+    const reg = await getRegistration();
+    const existing = await reg?.pushManager.getSubscription();
+    if (existing) {
+      const json = existing.toJSON();
+      await api.post("/push/subscribe", { endpoint: json.endpoint, keys: json.keys });
+      return;
+    }
+    await subscribeToPush();
+  } catch {
+    // Offline, or the push service refused: the next start tries again.
+  }
 }
 
 export async function unsubscribeFromPush(): Promise<void> {
@@ -68,4 +114,5 @@ export async function unsubscribeFromPush(): Promise<void> {
   // leaves the local subscription intact, so the user's next attempt can actually succeed.
   await api.post("/push/unsubscribe", { endpoint });
   await subscription.unsubscribe();
+  setOptOut(true);
 }

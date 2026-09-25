@@ -36,7 +36,7 @@ export interface PushPayload {
   audience?: "chat" | "staff" | "all";
   /** An incoming call. "ring" rings the phone like a call; "cancel" takes that ring back when the
    * caller hangs up or the call is answered or declined elsewhere. A cancel shows nothing. */
-  call?: { phase: "ring" | "cancel"; conversationId: string; callerName: string };
+  call?: { phase: "ring" | "cancel"; conversationId: string; callerName: string; declineToken?: string };
 }
 
 /**

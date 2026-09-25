@@ -155,7 +155,7 @@ export interface FcmMessage {
   /** Store-and-forward lifetime; see PushPayload.ttlSeconds. */
   ttlSeconds?: number;
   /** A call to ring or take back; see PushPayload.call. */
-  call?: { phase: "ring" | "cancel"; conversationId: string; callerName: string };
+  call?: { phase: "ring" | "cancel"; conversationId: string; callerName: string; declineToken?: string };
 }
 
 
@@ -191,6 +191,8 @@ export async function sendFcmToToken(
           type: message.call.phase === "ring" ? "call" : "call-cancel",
           conversationId: message.call.conversationId,
           callerName: message.call.callerName,
+          // Lets the notification's Decline button end the call for everyone (lib/callToken.ts).
+          ...(message.call.declineToken ? { declineToken: message.call.declineToken } : {}),
           url: message.url,
         },
         // One collapse key for ring and cancel: a phone that was off receives only the latest, so

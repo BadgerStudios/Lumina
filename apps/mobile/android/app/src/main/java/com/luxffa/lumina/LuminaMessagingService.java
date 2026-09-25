@@ -29,7 +29,8 @@ public class LuminaMessagingService extends MessagingService {
             // the socket); a system ringer on top would ring twice. Data messages reach this method
             // whether or not the app is in front, so it has to ask.
             if (!appInForeground()) {
-                CallRinger.ring(this, data.get(CallRinger.EXTRA_CONVERSATION), data.get("callerName"));
+                CallRinger.ring(this, data.get(CallRinger.EXTRA_CONVERSATION), data.get("callerName"),
+                    data.get(CallDeclineReceiver.EXTRA_DECLINE_TOKEN));
             }
             return;
         }

@@ -305,7 +305,8 @@ export async function mapMessage(m: {
     reactions: await Promise.all((m.reactions ?? []).map(async (r) => ({ emoji: await reactionEmojiToDiscord(r.emoji, guildLuminaId), count: r.count, me: false }))),
     pinned: m.pinned,
     // 7 = GUILD_MEMBER_JOIN: libraries render it as a system line and skip command parsing.
-    type: m.type === "MEMBER_JOIN" ? 7 : m.replyToId ? 19 : 0,
+    // 3 = CALL, the same for a missed or declined DM call.
+    type: m.type === "MEMBER_JOIN" ? 7 : m.type === "CALL" ? 3 : m.replyToId ? 19 : 0,
     ...(m.replyToId ? { message_reference: { message_id: m.replyToId, channel_id: m.channelId ? await toSnowflake("channel", m.channelId) : "0" } } : {}),
   };
 }

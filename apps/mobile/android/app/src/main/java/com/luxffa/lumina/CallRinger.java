@@ -36,8 +36,8 @@ import androidx.core.app.Person;
  *   (Android 14 lets a person switch it off per app), the notification still shows and rings.
  * - Answer and the tap open the conversation through the same App Link a shared link would use,
  *   so DeepLinkHandler routes it and nothing native has to know the app's routes.
- * - Decline only silences this phone. The caller is told when they give up or when the call is
- *   declined from inside the app; a declined ring here times out on their side after a minute.
+ * - Decline silences this phone and posts the ring's decline token to the server, which ends the
+ *   call attempt for the caller too (CallDeclineReceiver).
  * - It times out on its own after 45 seconds, matching the server's one-minute ring lifetime.
  */
 final class CallRinger {
@@ -80,7 +80,7 @@ final class CallRinger {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    static void ring(Context ctx, String conversationId, String callerName) {
+    static void ring(Context ctx, String conversationId, String callerName, String declineToken) {
         if (conversationId == null || conversationId.isEmpty()) return;
         ensureChannel(ctx);
         int id = notificationId(conversationId);
@@ -88,7 +88,8 @@ final class CallRinger {
 
         PendingIntent answer = openConversation(ctx, conversationId, id);
         Intent declineIntent = new Intent(ctx, CallDeclineReceiver.class)
-            .putExtra(EXTRA_CONVERSATION, conversationId);
+            .putExtra(EXTRA_CONVERSATION, conversationId)
+            .putExtra(CallDeclineReceiver.EXTRA_DECLINE_TOKEN, declineToken);
         PendingIntent decline = PendingIntent.getBroadcast(ctx, id + 1, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 

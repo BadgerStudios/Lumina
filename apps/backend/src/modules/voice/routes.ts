@@ -2,6 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { createHmac } from "node:crypto";
 import { env } from "../../config/env.js";
 import { requireAuth } from "../../plugins/authenticate.js";
+import { z } from "zod";
+import { verifyDeclineToken } from "../../lib/callToken.js";
+import { declineCall } from "../../realtime/callRing.js";
+import { getIO } from "../../realtime/io.js";
 
 const CREDENTIAL_TTL_SECONDS = 24 * 60 * 60; // 24h — generous since a call could run long; cheap to mint a fresh one per join anyway
 
@@ -22,6 +26,18 @@ function mintTurnCredential(userId: string): { username: string; credential: str
 
 /** Mounted under /api/voice */
 export default async function voiceRoutes(fastify: FastifyInstance) {
+  // Decline from a ringing phone's notification, which has no session: the ring carried a token
+  // good for this one call and this one person (lib/callToken.ts). Same effect as declining in
+  // the app — the caller stops ringing and the conversation says it was declined.
+  const declineSchema = z.object({ conversationId: z.string().min(1).max(64), token: z.string().min(1).max(512) });
+  fastify.post("/calls/decline", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const body = declineSchema.parse(request.body);
+    const userId = verifyDeclineToken(env.JWT_ACCESS_SECRET, body.conversationId, body.token);
+    if (!userId) return reply.code(401).send({ error: "This call can no longer be declined" });
+    const ok = await declineCall(getIO(), body.conversationId, userId);
+    return ok ? { ok: true } : reply.code(404).send({ error: "Call not found" });
+  });
+
   fastify.get("/turn-credentials", { preHandler: [requireAuth] }, async (request) => {
     // No TURN_SECRET configured — respond with STUN-only rather than 500ing every voice join.
     // Matches the pre-existing documented limitation (roadmap Phase 8): calls between two peers

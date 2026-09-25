@@ -305,7 +305,7 @@ export interface MessageReplyPreviewDTO {
 }
 
 /** A message a person typed, or an announcement the space posted about a member joining or leaving. */
-export type MessageSystemType = "DEFAULT" | "MEMBER_JOIN" | "MEMBER_LEAVE";
+export type MessageSystemType = "DEFAULT" | "MEMBER_JOIN" | "MEMBER_LEAVE" | "CALL";
 
 export interface MessageDTO {
   id: string; // bigint as string

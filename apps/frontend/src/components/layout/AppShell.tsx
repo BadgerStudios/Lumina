@@ -7,6 +7,8 @@ import { ActivityFeed } from "./ActivityFeed";
 import { VoiceVideoGrid } from "./VoiceVideoGrid";
 import { VoiceDock } from "./VoiceDock";
 import { IncomingCallBanner } from "./IncomingCallBanner";
+import { NotificationPrompt } from "../common/NotificationPrompt";
+import { ensureWebPushSubscription } from "../../lib/webPush";
 import { ScreenSourcePicker } from "../voice/ScreenSourcePicker";
 import { CommandPalette } from "./CommandPalette";
 import { UpdateBanner } from "./UpdateBanner";
@@ -84,6 +86,8 @@ export function AppShell() {
   // throws, never nags, and a no-op on every client that isn't the packaged Android app.
   useEffect(() => {
     void ensureNativePushRegistration();
+    // The browser equivalent: keep an existing subscription known to the server.
+    void ensureWebPushSubscription();
   }, []);
 
   // A push that lands while the app is open is handed to the app rather than drawn by Android, and
@@ -218,6 +222,8 @@ export function AppShell() {
           being an installed app that can receive notifications at all. Renders nothing on every
           other platform, and nothing once installed. */}
       <IOSInstallHint />
+      {/* Browser tabs only: the one place browser notifications get offered (see the component). */}
+      <NotificationPrompt />
       {/* Only renders when the SERVER says onboarding is due for this member — see
           queries/onboarding.ts. Placed in the shell rather than on the invite flow so it also
           catches members who joined before the server switched onboarding on. */}

@@ -5,6 +5,9 @@ import { prisma } from "../../db/prisma.js";
 import { serializeUser } from "../../lib/serialize.js";
 import { checkChannelPermission } from "../../permissions/permissionService.js";
 import { sendPushToUser } from "../../lib/push.js";
+import { env } from "../../config/env.js";
+import { signDeclineToken } from "../../lib/callToken.js";
+import { cancelRingPush, declineCall, participantsOf, ringAnswered, ringEnded, ringStarted } from "../callRing.js";
 
 /**
  * Mesh WebRTC signaling relay — the server never touches media (no SFU, no recording, no
@@ -77,33 +80,6 @@ async function broadcastRoster(io: SocketIOServer, voiceKey: string): Promise<vo
   io.to(target).emit(ServerEvents.VOICE_ROSTER_UPDATE, { channelId: voiceKey, participants });
 }
 
-/**
- * Take a ring back from phones. A phone rings on its own until told to stop (android CallRinger),
- * so every way a ring ends in the app — the caller hangs up, someone answers, someone declines —
- * has to reach the phones as well. Forced past the "active on a desktop" rule: that rule decides
- * whether to ring, and a ring that already went out must always be stoppable. Harmless where
- * nothing is ringing.
- */
-function cancelRingPush(conversationId: string, userIds: string[]): void {
-  for (const uid of new Set(userIds)) {
-    void sendPushToUser(uid, {
-      title: "",
-      body: "",
-      url: `/dm/${conversationId}`,
-      tag: `call-${conversationId}`,
-      kind: "direct",
-      ttlSeconds: 60,
-      force: true,
-      call: { phase: "cancel", conversationId, callerName: "" },
-    }).catch(() => undefined);
-  }
-}
-
-async function participantsOf(conversationId: string): Promise<string[]> {
-  const rows = await prisma.dMParticipant.findMany({ where: { conversationId }, select: { userId: true } });
-  return rows.map((r) => r.userId);
-}
-
 async function leaveVoice(io: SocketIOServer, socket: Socket): Promise<void> {
   const voiceKey = socket.data.voiceChannelId as string | undefined;
   if (!voiceKey) return;
@@ -123,6 +99,8 @@ async function leaveVoice(io: SocketIOServer, socket: Socket): Promise<void> {
       const conversationId = voiceKey.slice(DM_PREFIX.length);
       io.to(dmKey(conversationId)).emit(ServerEvents.CALL_ENDED, { conversationId });
       cancelRingPush(conversationId, await participantsOf(conversationId));
+      // Hung up before anyone answered: that is a missed call for the people rung.
+      await ringEnded(conversationId, { kind: "missed" });
     }
   }
 }
@@ -212,6 +190,7 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
         if (isDmKey(voiceKey)) {
           io.to(`user:${userId}`).except(socket.id).emit(ServerEvents.CALL_ENDED, { conversationId: voiceKey.slice(DM_PREFIX.length) });
           cancelRingPush(voiceKey.slice(DM_PREFIX.length), [userId]);
+          await ringAnswered(voiceKey.slice(DM_PREFIX.length), userId);
         }
 
         ack?.({ ok: true, participants });
@@ -288,6 +267,7 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
       const caller = await prisma.user.findUnique({ where: { id: userId } });
       if (!caller) return;
       const callerName = caller.displayName ?? caller.username;
+      await ringStarted(payload.conversationId, userId, callerName);
       for (const o of others) {
         io.to(`user:${o.userId}`).emit(ServerEvents.CALL_INCOMING, {
           conversationId: payload.conversationId,
@@ -303,7 +283,12 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
           tag: `call-${payload.conversationId}`,
           kind: "direct",
           ttlSeconds: 60,
-          call: { phase: "ring", conversationId: payload.conversationId, callerName },
+          call: {
+            phase: "ring",
+            conversationId: payload.conversationId,
+            callerName,
+            declineToken: signDeclineToken(env.JWT_ACCESS_SECRET, payload.conversationId, o.userId),
+          },
         }).catch(() => undefined);
       }
     })();
@@ -311,16 +296,8 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
 
   // Decline a ring — tells the conversation the call attempt ended (the caller stops ringing).
   socket.on(ClientEvents.CALL_DECLINE, (payload: { conversationId: string }) => {
-    void (async () => {
-      if (!payload?.conversationId) return;
-      const me = await prisma.dMParticipant.findUnique({
-        where: { conversationId_userId: { conversationId: payload.conversationId, userId } },
-        select: { id: true },
-      });
-      if (!me) return;
-      io.to(dmKey(payload.conversationId)).emit(ServerEvents.CALL_ENDED, { conversationId: payload.conversationId });
-      cancelRingPush(payload.conversationId, await participantsOf(payload.conversationId));
-    })();
+    if (!payload?.conversationId) return;
+    void declineCall(io, payload.conversationId, userId).catch(() => undefined);
   });
 
   /**

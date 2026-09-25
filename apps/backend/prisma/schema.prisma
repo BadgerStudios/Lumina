@@ -3395,4 +3395,6 @@ enum MessageType {
   DEFAULT
   MEMBER_JOIN
   MEMBER_LEAVE
+  /// A DM call that was missed or declined (realtime/callRing.ts).
+  CALL
 }

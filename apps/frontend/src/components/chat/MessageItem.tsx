@@ -2,7 +2,7 @@ import { usePreferencesStore } from "../../store/preferencesStore";
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Bookmark, Link as LinkIcon, CornerUpLeft, LogIn, LogOut } from "lucide-react";
+import { Pencil, Trash2, Reply, Check, X, Pin, PinOff, MessagesSquare, Flag, Forward, Mail, Bookmark, Link as LinkIcon, CornerUpLeft, LogIn, LogOut, PhoneMissed, PhoneOff } from "lucide-react";
 import { useSaveMessage } from "../../queries/keep";
 import { useUIStore } from "../../store/uiStore";
 import { useMarkChannelUnread } from "../../queries/readState";
@@ -175,6 +175,8 @@ export function MessageItem({
       reportError(null, "Couldn't copy the link");
     }
   }
+
+  if (message.type === "CALL") return <CallLine message={message} highlighted={highlighted} />;
 
   if (message.type === "MEMBER_JOIN" || message.type === "MEMBER_LEAVE") {
     return <SystemMessage message={message} highlighted={highlighted} displayName={displayName} avatarUrl={avatarUrl} />;
@@ -525,6 +527,32 @@ export function MessageItem({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A missed or declined DM call (the server's realtime/callRing.ts posts these). */
+function CallLine({ message, highlighted }: { message: MessageDTO; highlighted?: boolean }) {
+  const missed = message.content.startsWith("Missed");
+  const chatPrefs = usePreferencesStore((s) => s.prefs.chat);
+  return (
+    <div
+      className={cn("flex items-center gap-3 px-4 py-1.5", highlighted && "rounded-lg bg-accent/10 transition-colors duration-500")}
+      data-message-id={message.id}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+          missed ? "bg-flare/15 text-flare" : "bg-base-600 text-signal-faint",
+        )}
+      >
+        {missed ? <PhoneMissed size={13} /> : <PhoneOff size={13} />}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm text-signal-dim">{message.content}</span>
+      <time className="shrink-0 text-[11px] text-signal-faint" dateTime={message.createdAt} title={formatFullDate(message.createdAt)}>
+        {formatTime(message.createdAt, !chatPrefs.use24hClock)}
+      </time>
     </div>
   );
 }
