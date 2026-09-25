@@ -32,10 +32,11 @@ import androidx.core.app.Person;
  * - Its own channel, "Incoming calls", with the phone's ringtone at ringtone volume. A channel's
  *   sound is fixed when it is created, so this one never shares with the message tones.
  * - FLAG_INSISTENT repeats that sound until the notification goes away: that is the ringing.
- * - A full-screen intent wakes the screen over the lock screen. Where the system has withheld that
- *   (Android 14 lets a person switch it off per app), the notification still shows and rings.
- * - Answer and the tap open the conversation through the same App Link a shared link would use,
- *   so DeepLinkHandler routes it and nothing native has to know the app's routes.
+ * - A full-screen intent wakes the screen over the lock screen with IncomingCallActivity (the
+ *   caller's name, Answer, Decline). Android 14+ withholds that from sideloaded apps until the
+ *   person allows it (the app offers the switch, CallScreenPrompt); until then it still rings.
+ * - Answer and the tap open MainActivity with the conversation's URL as data, so DeepLinkHandler
+ *   routes it (and Answer joins the call) and nothing native has to know the app's routes.
  * - Decline silences this phone and posts the ring's decline token to the server, which ends the
  *   call attempt for the caller too (CallDeclineReceiver).
  * - It times out on its own after 45 seconds, matching the server's one-minute ring lifetime.
@@ -79,11 +80,16 @@ final class CallRinger {
      * resolved to nothing and Answer, and a tap on the ringing call, did nothing at all. The URL still
      * rides along as the intent's data, which is where the app reads it (DeepLinkHandler).
      */
-    private static PendingIntent openConversation(Context ctx, String conversationId, int requestCode, boolean answer) {
+    static Intent conversationIntent(Context ctx, String conversationId, boolean answer) {
         Intent open = new Intent(ctx, MainActivity.class)
             .setAction(Intent.ACTION_VIEW)
             .setData(Uri.parse(APP_HOST + "/dm/" + Uri.encode(conversationId) + (answer ? "?call=answer" : "")));
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        return open;
+    }
+
+    private static PendingIntent openConversation(Context ctx, String conversationId, int requestCode, boolean answer) {
+        Intent open = conversationIntent(ctx, conversationId, answer);
         return PendingIntent.getActivity(ctx, requestCode, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
@@ -96,6 +102,15 @@ final class CallRinger {
 
         PendingIntent answer = openConversation(ctx, conversationId, id, true);
         PendingIntent show = openConversation(ctx, conversationId, id + 2, false);
+        // What lights a locked phone: a screen that may show over the lock screen and shows only the
+        // caller (IncomingCallActivity). MainActivity cannot be that, it is every conversation.
+        Intent ringScreen = new Intent(ctx, IncomingCallActivity.class)
+            .putExtra(EXTRA_CONVERSATION, conversationId)
+            .putExtra(IncomingCallActivity.EXTRA_CALLER, who)
+            .putExtra(CallDeclineReceiver.EXTRA_DECLINE_TOKEN, declineToken)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_USER_ACTION);
+        PendingIntent fullScreen = PendingIntent.getActivity(ctx, id + 3, ringScreen,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Intent declineIntent = new Intent(ctx, CallDeclineReceiver.class)
             .putExtra(EXTRA_CONVERSATION, conversationId)
             .putExtra(CallDeclineReceiver.EXTRA_DECLINE_TOKEN, declineToken);
@@ -115,7 +130,7 @@ final class CallRinger {
             .setAutoCancel(true)
             .setTimeoutAfter(RING_TIMEOUT_MS)
             .setContentIntent(show)
-            .setFullScreenIntent(show, true)
+            .setFullScreenIntent(fullScreen, true)
             .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, decline, answer));
 
         android.app.Notification n = b.build();
@@ -130,5 +145,9 @@ final class CallRinger {
     static void cancel(Context ctx, String conversationId) {
         if (conversationId == null || conversationId.isEmpty()) return;
         NotificationManagerCompat.from(ctx).cancel(notificationId(conversationId));
+        // and close the lock-screen call screen, if one is up for this call
+        ctx.sendBroadcast(new Intent(IncomingCallActivity.ACTION_CLOSE)
+            .setPackage(ctx.getPackageName())
+            .putExtra(EXTRA_CONVERSATION, conversationId));
     }
 }

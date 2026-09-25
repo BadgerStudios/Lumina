@@ -41,6 +41,19 @@
             android:resource="@color/lumina_notify" />
 
 
+        <!-- A ringing call on a locked phone (see IncomingCallActivity): shows over the lock screen
+             and turns the screen on, and shows only who is calling. Not exported: only the app's
+             own full-screen notification opens it. -->
+        <activity
+            android:name=".IncomingCallActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.luxffa.lumina.call"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"

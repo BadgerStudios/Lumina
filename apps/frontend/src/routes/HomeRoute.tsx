@@ -8,9 +8,12 @@ import { useUIStore } from "../store/uiStore";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { SpaceAvatar } from "../components/layout/NavDeck";
 import { usePresenceStore } from "../store/presenceStore";
+import { CLIENT_TYPE } from "../lib/platform";
 
 // Checked once: a phone does not grow a keyboard mid-session, and a tablet with one reports a fine pointer.
-const HAS_KEYBOARD = typeof window !== "undefined" && window.matchMedia?.("(pointer: fine)").matches;
+// The phone app never shows it: some phones (and every emulator) report a fine pointer anyway.
+const HAS_KEYBOARD =
+  CLIENT_TYPE !== "mobile" && typeof window !== "undefined" && window.matchMedia?.("(pointer: fine)").matches;
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 /**
