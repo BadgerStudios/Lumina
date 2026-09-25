@@ -3,6 +3,7 @@ import { Phone, PhoneOff } from "lucide-react";
 import { useVoiceStore } from "../../store/voiceStore";
 import { UserAvatar } from "../common/UserAvatar";
 import { startRingtone, stopRingtone } from "../../lib/ringtone";
+import { APP_VARIANT, CLIENT_TYPE } from "../../lib/platform";
 
 /**
  * A floating banner for an incoming DM call, mounted once at the shell level (like VoiceDock) so it
@@ -25,7 +26,11 @@ export function IncomingCallBanner() {
 
   useEffect(() => {
     if (!conversationId) return;
-    startRingtone();
+    // On the phone, a call that arrives while Lumina is in the background rings natively (android
+    // CallRinger, build 120+), and the native ringer stays quiet while the app is on screen. So
+    // exactly one of the two rings: the WebView's own ringtone only while Lumina is visible.
+    const nativeRings = CLIENT_TYPE === "mobile" && APP_VARIANT !== "owner" && document.hidden;
+    if (!nativeRings) startRingtone();
     // A phone stops ringing after a while; so does this. The caller may still be waiting in the call,
     // and the conversation's call button still joins them.
     const giveUp = window.setTimeout(() => {
