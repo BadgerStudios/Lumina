@@ -77,6 +77,33 @@ async function broadcastRoster(io: SocketIOServer, voiceKey: string): Promise<vo
   io.to(target).emit(ServerEvents.VOICE_ROSTER_UPDATE, { channelId: voiceKey, participants });
 }
 
+/**
+ * Take a ring back from phones. A phone rings on its own until told to stop (android CallRinger),
+ * so every way a ring ends in the app — the caller hangs up, someone answers, someone declines —
+ * has to reach the phones as well. Forced past the "active on a desktop" rule: that rule decides
+ * whether to ring, and a ring that already went out must always be stoppable. Harmless where
+ * nothing is ringing.
+ */
+function cancelRingPush(conversationId: string, userIds: string[]): void {
+  for (const uid of new Set(userIds)) {
+    void sendPushToUser(uid, {
+      title: "",
+      body: "",
+      url: `/dm/${conversationId}`,
+      tag: `call-${conversationId}`,
+      kind: "direct",
+      ttlSeconds: 60,
+      force: true,
+      call: { phase: "cancel", conversationId, callerName: "" },
+    }).catch(() => undefined);
+  }
+}
+
+async function participantsOf(conversationId: string): Promise<string[]> {
+  const rows = await prisma.dMParticipant.findMany({ where: { conversationId }, select: { userId: true } });
+  return rows.map((r) => r.userId);
+}
+
 async function leaveVoice(io: SocketIOServer, socket: Socket): Promise<void> {
   const voiceKey = socket.data.voiceChannelId as string | undefined;
   if (!voiceKey) return;
@@ -93,7 +120,9 @@ async function leaveVoice(io: SocketIOServer, socket: Socket): Promise<void> {
   if (isDmKey(voiceKey)) {
     const remaining = await io.in(room).fetchSockets();
     if (remaining.length === 0) {
-      io.to(dmKey(voiceKey.slice(DM_PREFIX.length))).emit(ServerEvents.CALL_ENDED, { conversationId: voiceKey.slice(DM_PREFIX.length) });
+      const conversationId = voiceKey.slice(DM_PREFIX.length);
+      io.to(dmKey(conversationId)).emit(ServerEvents.CALL_ENDED, { conversationId });
+      cancelRingPush(conversationId, await participantsOf(conversationId));
     }
   }
 }
@@ -182,6 +211,7 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
         // signal for "handled elsewhere" too.
         if (isDmKey(voiceKey)) {
           io.to(`user:${userId}`).except(socket.id).emit(ServerEvents.CALL_ENDED, { conversationId: voiceKey.slice(DM_PREFIX.length) });
+          cancelRingPush(voiceKey.slice(DM_PREFIX.length), [userId]);
         }
 
         ack?.({ ok: true, participants });
@@ -273,6 +303,7 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
           tag: `call-${payload.conversationId}`,
           kind: "direct",
           ttlSeconds: 60,
+          call: { phase: "ring", conversationId: payload.conversationId, callerName },
         }).catch(() => undefined);
       }
     })();
@@ -288,6 +319,7 @@ export function registerVoiceHandlers(io: SocketIOServer, socket: Socket): void 
       });
       if (!me) return;
       io.to(dmKey(payload.conversationId)).emit(ServerEvents.CALL_ENDED, { conversationId: payload.conversationId });
+      cancelRingPush(payload.conversationId, await participantsOf(payload.conversationId));
     })();
   });
 

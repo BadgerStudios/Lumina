@@ -3174,6 +3174,9 @@ model DeviceToken {
   /// often carries both, and the console must not ring for every chat message the chat app already
   /// rang for — it only takes staff pushes (queue items, infrastructure alerts).
   app        String   @default("chat")
+  /// The app build that last registered this token. Calls ring natively only from the build that
+  /// can (see CALL_RINGER_BUILD in lib/push.ts); older builds keep the plain notification.
+  build      Int?
   createdAt  DateTime @default(now())
   /// Refreshed on every registration, so a token nothing has renewed in months is identifiable as
   /// dead without waiting for a send to fail.

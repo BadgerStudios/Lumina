@@ -7,6 +7,8 @@ const deviceSchema = z.object({
   platform: z.literal("android").optional(),
   /** Which app is registering. Absent from builds before 111, which leaves the stored value alone. */
   app: z.enum(["chat", "owner"]).optional(),
+  /** The app build registering. Absent before build 120, which leaves the stored value alone. */
+  build: z.number().int().min(1).max(1_000_000).optional(),
 });
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
@@ -72,8 +74,8 @@ export default async function pushRoutes(fastify: FastifyInstance) {
     // the phone no longer has — which Android drops without a sound or an error.
     const row = await prisma.deviceToken.upsert({
       where: { token: body.token },
-      create: { token: body.token, userId: request.userId!, platform: body.platform ?? "android", app: body.app ?? "chat" },
-      update: { userId: request.userId!, lastSeenAt: new Date(), ...(body.app ? { app: body.app } : {}) },
+      create: { token: body.token, userId: request.userId!, platform: body.platform ?? "android", app: body.app ?? "chat", build: body.build ?? null },
+      update: { userId: request.userId!, lastSeenAt: new Date(), ...(body.app ? { app: body.app } : {}), ...(body.build ? { build: body.build } : {}) },
       select: { messageSound: true, directSound: true, mentionSound: true, channelSound: true },
     });
     return { ok: true, ...row };

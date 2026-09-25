@@ -11,6 +11,9 @@ if (enabled) {
   webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY!, env.VAPID_PRIVATE_KEY!);
 }
 
+/** The first Android build whose app rings for calls itself (LuminaMessagingService + CallRinger). */
+export const CALL_RINGER_BUILD = 120;
+
 export interface PushPayload {
   title: string;
   body: string;
@@ -31,6 +34,9 @@ export interface PushPayload {
   /** Who it is for. "chat" (default) rings only the Lumina app; "staff" also rings the owner
    * console; "all" rings every registered app (the settings self-test). */
   audience?: "chat" | "staff" | "all";
+  /** An incoming call. "ring" rings the phone like a call; "cancel" takes that ring back when the
+   * caller hangs up or the call is answered or declined elsewhere. A cancel shows nothing. */
+  call?: { phase: "ring" | "cancel"; conversationId: string; callerName: string };
 }
 
 /**
@@ -90,7 +96,7 @@ async function sendNativePush(userId: string, payload: PushPayload): Promise<Del
   const audience = payload.audience ?? "chat";
   const tokens = await prisma.deviceToken.findMany({
     where: { userId, ...(audience === "chat" ? { app: { not: "owner" } } : {}) },
-    select: { id: true, token: true, messageSound: true, directSound: true, mentionSound: true, channelSound: true },
+    select: { id: true, token: true, build: true, messageSound: true, directSound: true, mentionSound: true, channelSound: true },
   });
   if (tokens.length === 0) return { sent: 0, total: 0 };
 
@@ -98,8 +104,9 @@ async function sendNativePush(userId: string, payload: PushPayload): Promise<Del
     tokens.map(async (row) => {
       const alive = await sendFcmToToken(
         row.token,
-        { title: payload.title, body: payload.body, url: payload.url, tag: payload.tag, kind: payload.kind, ttlSeconds: payload.ttlSeconds },
+        { title: payload.title, body: payload.body, url: payload.url, tag: payload.tag, kind: payload.kind, ttlSeconds: payload.ttlSeconds, call: payload.call },
         tonesFrom(row),
+        { callRinger: (row.build ?? 0) >= CALL_RINGER_BUILD },
       );
       if (!alive) await prisma.deviceToken.delete({ where: { id: row.id } }).catch(() => {});
       return alive;
@@ -110,6 +117,8 @@ async function sendNativePush(userId: string, payload: PushPayload): Promise<Del
 
 async function sendWebPush(userId: string, payload: PushPayload): Promise<Delivery> {
   if (!enabled) return { sent: 0, total: 0 };
+  // Taking a ring back is a phone-only signal: a browser notification has nothing to stop.
+  if (payload.call?.phase === "cancel") return { sent: 0, total: 0 };
   const subs = await prisma.pushSubscription.findMany({ where: { userId } });
   if (subs.length === 0) return { sent: 0, total: 0 };
 

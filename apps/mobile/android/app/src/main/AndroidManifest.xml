@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="true"
@@ -8,6 +9,25 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+
+        <!-- One receiver for every FCM message: Lumina's own, which rings for incoming calls and
+             hands everything else to the push plugin unchanged (LuminaMessagingService). The
+             plugin's service is removed so exactly one service answers MESSAGING_EVENT. -->
+        <service
+            android:name="com.capacitorjs.plugins.pushnotifications.MessagingService"
+            tools:node="remove" />
+        <service
+            android:name=".LuminaMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Decline on a ringing call silences this phone (CallDeclineReceiver). -->
+        <receiver
+            android:name=".CallDeclineReceiver"
+            android:exported="false" />
+
 
         <!-- The status-bar mark and its tint for any notification that does not name its own.
              FCM pushes name ic_stat_notify explicitly (backend lib/fcm.ts); without these two,
@@ -79,6 +99,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- A ringing call lights the screen over the lock screen (CallRinger). Without it the call
+         still rings as a heads-up notification. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Sideload builds use the system package installer for in-app updates. The Play-specific
          bundle is built from a temporary manifest without this restricted permission. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

@@ -154,6 +154,8 @@ export interface FcmMessage {
   kind?: PushKind;
   /** Store-and-forward lifetime; see PushPayload.ttlSeconds. */
   ttlSeconds?: number;
+  /** A call to ring or take back; see PushPayload.call. */
+  call?: { phase: "ring" | "cancel"; conversationId: string; callerName: string };
 }
 
 
@@ -163,7 +165,12 @@ export interface FcmMessage {
  * Returns false when the token is dead, so the caller can prune it — a device that has uninstalled
  * or reset its token otherwise stays in the table forever and is retried on every notification.
  */
-export async function sendFcmToToken(token: string, message: FcmMessage, tones: DeviceTones = DEFAULT_TONES): Promise<boolean> {
+export async function sendFcmToToken(
+  token: string,
+  message: FcmMessage,
+  tones: DeviceTones = DEFAULT_TONES,
+  opts: { callRinger?: boolean } = {},
+): Promise<boolean> {
   const account = serviceAccount();
   if (!account) return true; // not configured: nothing was attempted, nothing to prune
   const bearer = await getAccessToken();
@@ -172,12 +179,31 @@ export async function sendFcmToToken(token: string, message: FcmMessage, tones: 
   const kind: PushKind = message.kind ?? "message";
   const sound = tones[kind];
   const channel = channelIdFor(kind, sound);
+  // A call to a build that can ring is data-only: the phone builds a notification that rings until
+  // answered and wakes the screen (android CallRinger), and a later "call-cancel" can take it back.
+  // An older build gets the ring as the plain notification it always did, and no cancel at all —
+  // it would have nothing to cancel with.
+  if (message.call && !opts.callRinger && message.call.phase === "cancel") return true;
+  const payload = message.call && opts.callRinger
+    ? {
+        token,
+        data: {
+          type: message.call.phase === "ring" ? "call" : "call-cancel",
+          conversationId: message.call.conversationId,
+          callerName: message.call.callerName,
+          url: message.url,
+        },
+        // One collapse key for ring and cancel: a phone that was off receives only the latest, so
+        // it never wakes up ringing for a call that already ended.
+        android: { priority: "HIGH", ttl: "60s", collapse_key: `call-${message.call.conversationId}` },
+      }
+    : null;
   try {
     const res = await fetch(`https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`, {
       method: "POST",
       headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: {
+        message: payload ?? {
           token,
           notification: { title: message.title, body: message.body },
           data: { url: message.url },
