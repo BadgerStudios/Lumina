@@ -9,6 +9,18 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- The status-bar mark and its tint for any notification that does not name its own.
+             FCM pushes name ic_stat_notify explicitly (backend lib/fcm.ts); without these two,
+             anything else falls back to the launcher icon, which Android flattens into a
+             featureless white disc. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/lumina_notify" />
+
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -67,10 +79,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Lumina is sideloaded rather than distributed through Play, so in-app updating means
-         launching the system package installer ourselves (see AppUpdaterPlugin). Without this the
-         install intent is refused by the OS with nothing shown to the user. The user still
-         confirms every install; this permission only allows the app to *ask*. -->
+    <!-- Sideload builds use the system package installer for in-app updates. The Play-specific
+         bundle is built from a temporary manifest without this restricted permission. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Voice rooms, calls, voice messages and camera. The WebView turns getUserMedia into a runtime
          request for these (Capacitor's BridgeWebChromeClient), and Android refuses a permission the

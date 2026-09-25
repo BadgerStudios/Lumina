@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tint for the status-bar mark and the notification accent: the same tint the push payload names (backend lib/fcm.ts). -->
+    <color name="lumina_notify">#5B7CFA</color>
+</resources>

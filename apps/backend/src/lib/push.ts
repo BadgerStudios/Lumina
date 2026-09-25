@@ -59,8 +59,14 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
   // subscription; the native one is what can play the app's own sound, and web push is what still
   // reaches every desktop and browser. Failing at one must never stop the other.
   const [web, native] = await Promise.all([sendWebPush(userId, payload), sendNativePush(userId, payload)]);
-  if (web.total + native.total > 0) {
-    // One line per push so "did it go out, and to what?" is answerable from the log alone.
+  // One line per push, ALWAYS, so "did it go out, and to what?" is answerable from the log alone.
+  // The case with no targets matters most: it is what a lost registration looks like from here,
+  // and it used to print nothing — a week of DMs to a phone with no chat registration left no
+  // trace at all.
+  if (web.total + native.total === 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[push] ${kind} -> ${userId}: nowhere to send (no registered device or browser)${payload.tag ? ` (${payload.tag})` : ""}`);
+  } else {
     // eslint-disable-next-line no-console
     console.log(`[push] ${kind} -> ${userId}: native ${native.sent}/${native.total}, web ${web.sent}/${web.total}${payload.tag ? ` (${payload.tag})` : ""}`);
   }

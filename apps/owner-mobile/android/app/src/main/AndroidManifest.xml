@@ -9,6 +9,18 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- The status-bar mark and its tint for any notification that does not name its own.
+             FCM pushes name ic_stat_notify explicitly (backend lib/fcm.ts); without these two,
+             anything else falls back to the launcher icon, which Android flattens into a
+             featureless white disc. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/lumina_notify" />
+
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"

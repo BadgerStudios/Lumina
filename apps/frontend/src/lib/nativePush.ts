@@ -176,6 +176,72 @@ export async function enableNativePush(): Promise<void> {
   rememberToken(token);
 }
 
+/** Set once the first-run prompt has been shown on this install, whatever the answer was. */
+const ASKED_KEY = "lumina.push.askedOnce";
+
+function askedBefore(): boolean {
+  try {
+    return localStorage.getItem(ASKED_KEY) === "1";
+  } catch {
+    return true; // no storage: behave as if asked, so a broken store can never cause a prompt loop
+  }
+}
+
+function markAsked(): void {
+  try {
+    localStorage.setItem(ASKED_KEY, "1");
+  } catch {
+    /* nothing to do */
+  }
+}
+
+/**
+ * Make sure this phone can be notified at all — the startup path for the chat app.
+ *
+ * ## Why syncNativePushRegistration was not enough
+ *
+ * It only ever refreshes a registration this install remembers. A reinstall or a data clear wipes
+ * that memory, the server prunes the old token as dead the next time it tries it, and from then on
+ * nothing ever registers again unless someone happens to find the switch in Settings. That is
+ * exactly how the owner's phone ended up with no chat registration at all: every DM went out to
+ * zero devices, silently, for as long as nobody looked.
+ *
+ * ## What this does instead
+ *
+ * - Permission already granted, nothing remembered: register now, silently. This heals a
+ *   reinstall on Android 12 and earlier (where permission is implicit) and any install that was
+ *   granted permission before its registration was lost.
+ * - Never asked on this install: ask once, the way every messaging app does on first run, and
+ *   register if the answer is yes.
+ * - Denied, or asked before and declined: leave it. Settings is the way back, and the app does not
+ *   nag.
+ *
+ * Never throws; it runs at startup where there is nobody to show an error to.
+ */
+export async function ensureNativePushRegistration(): Promise<void> {
+  if (!isNativePushSupported()) return;
+  if (PUSH_APP === "owner") {
+    await syncNativePushRegistration();
+    return;
+  }
+  try {
+    const { receive } = await PushNotifications.checkPermissions();
+    if (receive === "granted") {
+      if (rememberedToken()) {
+        await syncNativePushRegistration();
+        return;
+      }
+      await enableNativePush();
+      return;
+    }
+    if (receive === "denied" || askedBefore()) return;
+    markAsked();
+    await enableNativePush();
+  } catch {
+    // Declined, no network, an expired session: the next startup, or the Settings switch, retries.
+  }
+}
+
 export async function disableNativePush(): Promise<void> {
   const token = rememberedToken();
   if (!token) return;
