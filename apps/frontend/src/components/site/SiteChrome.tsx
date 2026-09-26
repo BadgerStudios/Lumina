@@ -110,7 +110,8 @@ const FOOTER_COLS: Array<{ heading: string; links: Array<{ label: string; to: st
   {
     heading: "Apps",
     links: [
-      { label: "Android", to: "/api/download/android", external: true },
+      { label: "Google Play", to: "https://play.google.com/store/apps/details?id=com.luxffa.lumina", external: true },
+      { label: "Android APK", to: "/api/download/android", external: true },
       { label: "Windows", to: "/downloads/lumina-windows.zip", external: true },
       { label: "Linux desktop", to: "/api/download/desktop", external: true },
       { label: "Install guide", to: "/install" },
@@ -174,7 +175,7 @@ export function SiteFooter() {
           <p className="text-xs text-signal-faint">
             © {new Date().getFullYear()} Lumina. The flame mascot and design are property of Badger Studios LLC. All rights reserved.
           </p>
-          <p className="text-xs text-signal-faint">Built for people, not a platform.</p>
+          <p className="text-xs text-signal-faint">Google Play and the Google Play logo are trademarks of Google LLC.</p>
         </div>
       </div>
     </footer>

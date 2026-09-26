@@ -956,3 +956,8 @@ html[data-reduced-motion="true"] *::after {
   transition-duration: 1ms !important;
   scroll-behavior: auto !important;
 }
+
+/* The official Google Play badge (components/site/PlayStoreBadge). Its artwork carries its own clear space;
+   the negative margin lines the visible badge up with neighbouring buttons. */
+.play-badge { display: inline-block; line-height: 0; }
+.play-badge img { height: 4.35rem; width: auto; margin: -0.66rem -0.6rem; }

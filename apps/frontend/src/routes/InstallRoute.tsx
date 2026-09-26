@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Smartphone, Share, Plus, Download, ShieldQuestion, Monitor } from "lucide-react";
 import { isIOS } from "../lib/iosInstall";
+import { PlayStoreBadge } from "../components/site/PlayStoreBadge";
 
 /**
  * Install instructions.
@@ -23,6 +24,11 @@ export function InstallRoute() {
 
   const android = (
     <Card icon={Smartphone} title="Android">
+      <div className="mb-4">
+        <p className="mb-2 text-sm text-signal">The easiest way: install Lumina from Google Play. It updates itself.</p>
+        <PlayStoreBadge />
+        <p className="mt-3 text-xs text-signal-faint">Or install the APK directly:</p>
+      </div>
       <Step n={1}>
         Open{" "}
         <a href="/api/download/android" className="text-accent hover:underline">
