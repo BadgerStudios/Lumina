@@ -7,8 +7,8 @@ android {
         applicationId "com.luxffa.lumina"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 125
-        versionName "1.125"
+        versionCode 126
+        versionName "1.126"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -20,6 +20,13 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        // The Google Play bundle: the release build minus what only the sideload APK needs (src/play/AndroidManifest.xml
+        // removes REQUEST_INSTALL_PACKAGES, the in-app updater's permission, which Play refuses for a chat app).
+        // Build it with ./gradlew bundlePlay, then sign it with the Play upload key (lumina-upload).
+        play {
+            initWith release
+            matchingFallbacks = ['release']
         }
     }
 
@@ -46,6 +53,7 @@ android {
         }
         buildTypes.debug.signingConfig = signingConfigs.luminaShared
         buildTypes.release.signingConfig = signingConfigs.luminaShared
+        buildTypes.play.signingConfig = signingConfigs.luminaShared
     }
 }
 
