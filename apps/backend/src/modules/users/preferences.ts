@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_PREFERENCES, PUSH_KINDS, type UserPreferencesDTO } from "@lumina/shared";
+import { AUTO_LANGUAGE, DEFAULT_PREFERENCES, LANGUAGE_CODES, PUSH_KINDS, type UserPreferencesDTO } from "@lumina/shared";
 import { BadRequestError } from "../../lib/errors.js";
 
 /**
@@ -25,17 +25,22 @@ const accessibilitySchema = z.object({
 });
 const pushSchema = z.object(Object.fromEntries(PUSH_KINDS.map((k) => [k, z.boolean()])) as Record<(typeof PUSH_KINDS)[number], z.ZodBoolean>);
 const notificationsSchema = z.object({ push: pushSchema });
+const localeSchema = z.object({
+  language: z.string().refine((c) => c === AUTO_LANGUAGE || LANGUAGE_CODES.includes(c), "unknown language"),
+});
 
 export const preferencesSchema = z.object({
   chat: chatSchema,
   accessibility: accessibilitySchema,
   notifications: notificationsSchema,
+  locale: localeSchema,
 });
 
 export const preferencesPatchSchema = z.object({
   chat: chatSchema.partial().optional(),
   accessibility: accessibilitySchema.partial().optional(),
   notifications: z.object({ push: pushSchema.partial().optional() }).optional(),
+  locale: localeSchema.partial().optional(),
 });
 export type PreferencesPatch = z.infer<typeof preferencesPatchSchema>;
 
@@ -55,7 +60,7 @@ export function resolvePreferences(stored: unknown): UserPreferencesDTO {
 /** A stored blob may carry values from an older or newer app; keep only the leaves that still validate. */
 function pruneInvalid(stored: Record<string, unknown>): Record<string, unknown> {
   const keep: Record<string, unknown> = {};
-  for (const [section, schema] of Object.entries({ chat: chatSchema, accessibility: accessibilitySchema }) as Array<[keyof UserPreferencesDTO, z.ZodObject<z.ZodRawShape>]>) {
+  for (const [section, schema] of Object.entries({ chat: chatSchema, accessibility: accessibilitySchema, locale: localeSchema }) as Array<[keyof UserPreferencesDTO, z.ZodObject<z.ZodRawShape>]>) {
     const value = stored[section];
     if (!isRecord(value)) continue;
     const pruned: Record<string, unknown> = {};
@@ -78,6 +83,7 @@ function overlay(base: UserPreferencesDTO, patch: PreferencesPatch): UserPrefere
     chat: { ...base.chat, ...(patch.chat ?? {}) },
     accessibility: { ...base.accessibility, ...(patch.accessibility ?? {}) },
     notifications: { push: { ...base.notifications.push, ...(patch.notifications?.push ?? {}) } },
+    locale: { ...base.locale, ...(patch.locale ?? {}) },
   };
 }
 

@@ -46,6 +46,8 @@ COPY --from=build /repo/apps/backend/prisma ./prisma
 # Brand artwork the API itself needs — the official-account generator sets the Lumina logo as
 # the avatar, so the file has to exist inside this container rather than in the frontend build.
 COPY --from=build /repo/apps/backend/assets ./assets
+# The interface text the language packs are built from (scripts/extract-ui-strings.mjs).
+COPY --from=build /repo/apps/backend/i18n ./i18n
 COPY --from=build /repo/apps/backend/package.json ./package.json
 COPY --from=build /repo/node_modules ./node_modules
 

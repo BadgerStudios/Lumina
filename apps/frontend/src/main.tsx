@@ -7,6 +7,7 @@ import { BiometricGate } from "./components/common/BiometricGate";
 import { MinorGate } from "./components/parental/MinorGate";
 import { startViewportSync } from "./lib/viewport";
 import { installInspectGuard } from "./lib/inspectGuard";
+import { startLanguage } from "./lib/i18n/language";
 import "./index.css";
 
 // Before the first render, not inside an effect: an effect runs after the initial paint, so the app
@@ -16,6 +17,10 @@ startViewportSync();
 
 // No-op in a dev build. See the module docblock for what this does and does not achieve.
 installInspectGuard();
+
+// Before the first render too, so a returning person's language is on screen from the first paint
+// (the stored pack is applied synchronously; the network only refreshes it). See lib/i18n.
+startLanguage();
 
 const queryClient = new QueryClient({
   defaultOptions: {

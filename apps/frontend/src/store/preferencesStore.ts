@@ -15,6 +15,7 @@ export type PreferencesPatch = {
   chat?: Partial<UserPreferencesDTO["chat"]>;
   accessibility?: Partial<UserPreferencesDTO["accessibility"]>;
   notifications?: { push?: Partial<UserPreferencesDTO["notifications"]["push"]> };
+  locale?: Partial<UserPreferencesDTO["locale"]>;
 };
 
 interface PreferencesState {
@@ -29,6 +30,7 @@ function overlay(base: UserPreferencesDTO, patch: PreferencesPatch): UserPrefere
     chat: { ...base.chat, ...(patch.chat ?? {}) },
     accessibility: { ...base.accessibility, ...(patch.accessibility ?? {}) },
     notifications: { push: { ...base.notifications.push, ...(patch.notifications?.push ?? {}) } },
+    locale: { ...base.locale, ...(patch.locale ?? {}) },
   };
 }
 

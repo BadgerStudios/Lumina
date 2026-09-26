@@ -132,6 +132,10 @@ require_native_toolchain() {
 echo "== 0/4: trimming the docker build cache =="
 docker builder prune -f --keep-storage 8GB 2>&1 | tail -1 || true
 
+# The interface text for the language packs, taken from the frontend source as it is right now, so a
+# new or reworded string is translated by the backend warm-up right after this deploy.
+node scripts/extract-ui-strings.mjs
+
 echo "== 1/4: building web images =="
 docker compose build
 

@@ -110,6 +110,9 @@ const envSchema = z.object({
   // Without it the composer shows no GIF button and /api/gifs answers "not set up". A free key comes
   // from KLIPY's partner panel; testing keys allow 100 requests an hour until production is granted.
   KLIPY_API_KEY: z.string().optional(),
+  // ---- Interface translation (modules/i18n) ----
+  // The LibreTranslate container on the compose network. Unreachable just means English everywhere.
+  TRANSLATE_URL: z.string().default("http://translate:5000"),
   PERSONA_WEBHOOK_SECRET: z.string().optional(),
   PERSONA_TEMPLATE_ID: z.string().optional(),
   PERSONA_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),

@@ -388,9 +388,39 @@ services:
       # without it and decoy routing silently starts 502ing.
       - krawl_edge
 
+  # Machine translation for the app's own interface text (never for what people write: the frontend
+  # marks user content translate="no" and skips it). Only the backend talks to this, over the default
+  # network; no port is published. Every result is cached forever in Postgres (TranslationCache), so
+  # this does real work only the first time a given string is seen in a given language.
+  # Models download on first start into the named volume; LT_LOAD_ONLY keeps memory bounded.
+  translate:
+    image: libretranslate/libretranslate:latest
+    container_name: lumina-translate
+    restart: unless-stopped
+    <<: *logging
+    environment:
+      LT_LOAD_ONLY: "en,es,fr,de,pt,it,nl,pl,ru,uk,tr,ar,hi,id,vi,ja,ko,zh,zt,tl,sv,ro"
+      LT_UPDATE_MODELS: "true"
+      LT_THREADS: "4"
+      LT_DISABLE_WEB_UI: "true"
+      LT_CHAR_LIMIT: "20000"
+      LT_REQ_LIMIT: "0"
+    volumes:
+      - lumina-translate-models:/home/libretranslate/.local
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:5000/languages',timeout=4)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+    mem_limit: 5g
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   lumina-postgres-data:
   lumina-uploads:
+  lumina-translate-models:
 
 networks:
   krawl_edge:

@@ -750,12 +750,17 @@ export interface UserPreferencesDTO {
     /** Which push kinds may ring at all (see PUSH_KINDS in notificationSounds.ts). */
     push: { message: boolean; direct: boolean; mention: boolean; channel: boolean };
   };
+  locale: {
+    /** A LANGUAGES code, or "auto" (AUTO_LANGUAGE): chosen from the device language and the country. */
+    language: string;
+  };
 }
 
 export const DEFAULT_PREFERENCES: UserPreferencesDTO = {
   chat: { sendWithEnter: true, showLinkPreviews: true, showMedia: true, use24hClock: false, showJoinLeaveLines: true },
   accessibility: { reducedMotion: false, fontScale: 100 },
   notifications: { push: { message: true, direct: true, mention: true, channel: true } },
+  locale: { language: "auto" },
 };
 
 /** What a profile card shows beyond the UserDTO: how long they have been on Lumina, and what you share. */

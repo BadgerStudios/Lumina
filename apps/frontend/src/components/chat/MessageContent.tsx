@@ -34,6 +34,8 @@ export function MessageContent({
   return (
     <div
       className={className}
+      // What someone wrote: the interface translator (lib/i18n) must never rewrite it.
+      translate="no"
       onClick={(e: MouseEvent<HTMLDivElement>) => {
         // preventDefault in the bubble phase still cancels the default action, which is the point:
         // a link hidden inside a spoiler must not navigate on the same click that uncovers it.

@@ -39,3 +39,15 @@ describe("changing preferences", () => {
     expect(r.chat.sendWithEnter).toBe(false);
   });
 });
+
+describe("interface language", () => {
+  it("is automatic by default and takes a known language", () => {
+    expect(resolvePreferences(null).locale.language).toBe("auto");
+    expect(mergePreferences(null, { locale: { language: "es" } }).locale.language).toBe("es");
+    expect(mergePreferences({ locale: { language: "es" } }, { locale: { language: "auto" } }).locale.language).toBe("auto");
+  });
+  it("refuses an unknown language, and ignores one stored by some other build", () => {
+    expect(() => mergePreferences(null, { locale: { language: "klingon" } })).toThrow(/locale.language/);
+    expect(resolvePreferences({ locale: { language: "klingon" }, chat: { use24hClock: true } })).toMatchObject({ locale: { language: "auto" }, chat: { use24hClock: true } });
+  });
+});

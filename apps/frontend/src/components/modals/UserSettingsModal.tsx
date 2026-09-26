@@ -1,10 +1,11 @@
 import { AccessibilitySection, ChatSection, PushKindToggles } from "./PreferenceSections";
+import { LanguageSection } from "./LanguageSection";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { COMMON_EMOJIS } from "../../lib/commonEmoji";
-import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket, Flag, LifeBuoy, Info, ChevronRight, MessageSquare, Accessibility } from "lucide-react";
+import { User, Palette, ShieldCheck, Code2, Mic, LogOut, X, Sun, Moon, AlignJustify, Rows3, Copy, Check, RefreshCw, Trash2, Bot, Bell, Monitor, Loader2, CreditCard, Megaphone, MailWarning, Users, Gamepad2, Rocket, Flag, LifeBuoy, Info, ChevronRight, MessageSquare, Accessibility, Languages } from "lucide-react";
 import { MyReportsPanel } from "../feed/MyReportsPanel";
 import { CLIENT_TYPE } from "../../lib/platform";
 import { getInstalledVersion } from "../../lib/appUpdater";
@@ -71,7 +72,7 @@ import { ICON } from "../common/Icon";
 
 const PRESENCE_OPTIONS: PresenceStatus[] = ["ONLINE", "IDLE", "DND", "INVISIBLE"];
 
-type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "support" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about" | "chat" | "accessibility";
+type Section = "account" | "sessions" | "appearance" | "privacy" | "reports" | "support" | "family" | "connections" | "notifications" | "billing" | "advertising" | "developer" | "voice" | "about" | "chat" | "accessibility" | "language";
 
 const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "account", label: "My Account", icon: User },
@@ -79,6 +80,7 @@ const SECTIONS: Array<{ key: Section; label: string; icon: typeof User }> = [
   { key: "appearance", label: "Appearance", icon: Palette },
   { key: "chat", label: "Chat & media", icon: MessageSquare },
   { key: "accessibility", label: "Accessibility", icon: Accessibility },
+  { key: "language", label: "Language", icon: Languages },
   { key: "privacy", label: "Privacy & Safety", icon: ShieldCheck },
   { key: "reports", label: "My Reports", icon: Flag },
   { key: "support", label: "Support", icon: LifeBuoy },
@@ -111,6 +113,7 @@ const GROUPS: SettingsGroup<Section>[] = [
       { key: "appearance", label: "Appearance", icon: Palette, hint: "Theme and layout" },
       { key: "chat", label: "Chat & media", icon: MessageSquare, hint: "Sending, previews, media and the clock" },
       { key: "accessibility", label: "Accessibility", icon: Accessibility, hint: "Motion and text size" },
+      { key: "language", label: "Language", icon: Languages, hint: "The language Lumina speaks" },
       { key: "notifications", label: "Notifications", icon: Bell, hint: "What rings, and when" },
       { key: "voice", label: "Voice & Video", icon: Mic, hint: "Mic, camera and speakers" },
     ],
@@ -1989,6 +1992,7 @@ export function UserSettingsModal() {
               {section === "appearance" && <AppearanceSection />}
               {section === "chat" && <ChatSection />}
               {section === "accessibility" && <AccessibilitySection />}
+              {section === "language" && <LanguageSection />}
               {section === "privacy" && <PrivacySection />}
               {section === "reports" && <MyReportsPanel />}
               {section === "support" && <SupportSection />}

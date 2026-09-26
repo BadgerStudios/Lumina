@@ -3398,3 +3398,16 @@ enum MessageType {
   /// A DM call that was missed or declined (realtime/callRing.ts).
   CALL
 }
+
+/// One machine translation of one English interface string (modules/i18n). Keyed by language and
+/// the SHA-256 of the English so the lookup is an index hit whatever the string length. Never
+/// expires: the English for a given hash never changes, and a stale row is just an unused one.
+model TranslationCache {
+  lang      String
+  hash      String
+  source    String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@id([lang, hash])
+}

@@ -88,6 +88,8 @@ import banRoutes from "./modules/bans/routes.js";
 import billingRoutes from "./modules/billing/routes.js";
 import emojiRoutes from "./modules/emoji/routes.js";
 import gifRoutes from "./modules/gifs/routes.js";
+import i18nRoutes from "./modules/i18n/routes.js";
+import { startTranslationWarmer } from "./modules/i18n/service.js";
 import storeRoutes from "./modules/store/routes.js";
 import downloadRoutes from "./modules/metrics/downloadRoutes.js";
 import masterRoutes from "./modules/master/routes.js";
@@ -449,6 +451,7 @@ async function main() {
   await fastify.register(storeRoutes, { prefix: "/api/store" });
   await fastify.register(emojiRoutes, { prefix: "/api/servers" });
   await fastify.register(gifRoutes, { prefix: "/api/gifs" });
+  await fastify.register(i18nRoutes, { prefix: "/api/i18n" });
   await fastify.register(downloadRoutes, { prefix: "/api/download" });
   await fastify.register(masterRoutes, { prefix: "/api/master" });
   await fastify.register(lookupRoutes, { prefix: "/api/lookup" });
@@ -479,6 +482,7 @@ async function main() {
   await discordVoiceServer.start().catch((err) => console.error("[discord-voice] failed to start:", (err as Error)?.message ?? err));
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
+  startTranslationWarmer();
   fastify.log.info(`Lumina backend listening on :${env.PORT}`);
 
   /**
