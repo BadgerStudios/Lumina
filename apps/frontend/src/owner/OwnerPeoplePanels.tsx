@@ -121,6 +121,10 @@ export function OwnerUsersPanel() {
                 // change a role also opens the detail panel.
                 onClick={() => setDetailUserId(u.id)}
                 actions={
+                  u.ageReview === "PENDING" ? (
+                    // Not a member yet: decided in Age reviews (Approve / Deny), not here.
+                    <Badge>Waiting for age decision</Badge>
+                  ) : (
                   <>
 
                     {u.activeBan ? (
@@ -175,6 +179,7 @@ export function OwnerUsersPanel() {
                       </>
                     )}
                   </>
+                  )
                 }
               />
             ))}

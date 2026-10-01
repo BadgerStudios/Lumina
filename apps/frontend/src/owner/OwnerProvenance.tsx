@@ -47,6 +47,13 @@ function Shell({ title, onOpen, open, children }: { title: string; onOpen: () =>
   );
 }
 
+/** "AGE_25_34" -> "25-34", "AGE_65_PLUS" -> "65+", "UNDER_18" -> "Under 18". */
+export function ageLabel(bracket: string | null | undefined): string {
+  if (!bracket) return "—";
+  if (bracket.startsWith("UNDER_")) return `Under ${bracket.slice(6)}`;
+  return bracket.replace(/^AGE_/, "").replace(/_PLUS$/, "+").replace("_", "–");
+}
+
 function when(iso: string | null | undefined) {
   if (!iso) return "—";
   return `${new Date(iso).toLocaleString()} (${relativeTime(iso)})`;
@@ -80,7 +87,7 @@ export function UserProvenance({ userId }: { userId: string }) {
               {data.account.email} {data.account.emailVerified ? "· verified" : "· not verified"}
             </Row>
             <Row label="Age">
-              {data.account.ageBracket ?? "—"}
+              {ageLabel(data.account.ageBracket)}
               {data.account.birthDate ? ` · born ${data.account.birthDate}` : ""}
               {data.account.isMinor ? " · minor account" : ""}
               {data.account.ageReview ? ` · review ${data.account.ageReview.toLowerCase()}` : ""}

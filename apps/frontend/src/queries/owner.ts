@@ -41,6 +41,8 @@ export interface PlatformHealth {
 export interface OwnerUserRow extends UserDTO {
   email: string;
   platformRole: PlatformRole;
+  /** "PENDING" while the sign-up waits for the owner's age decision. */
+  ageReview?: string | null;
   createdAt: string;
   counts: { messages: number; videos: number; ownedServers: number };
   activeBan: { id: string; groupId: string; reason: string; expiresAt: string | null; appealStatus: string } | null;

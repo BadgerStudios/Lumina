@@ -8,7 +8,7 @@ import { Group, EmptyState, Badge, DataList, DataRow } from "./OwnerChrome";
 import { useAgeQueue, useDecideHeldSignup, useResolveFlag, type AgeQueuePending, type AgeQueueRefused } from "../queries/owner";
 import { useConfirm } from "../components/common/ConfirmDialog";
 import { relativeTime } from "../lib/relativeTime";
-import { FlagProvenance, UserProvenance } from "./OwnerProvenance";
+import { FlagProvenance, UserProvenance, ageLabel } from "./OwnerProvenance";
 
 /**
  * Everything waiting on an age decision.
@@ -203,7 +203,7 @@ function HeldSignupCard({ signup }: { signup: AgeQueuePending }) {
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
         <dt className="text-signal-faint">Age given</dt>
         <dd className="text-signal-dim">
-          {signup.ageBracket ?? "—"}
+          {ageLabel(signup.ageBracket)}
           {signup.birthDate ? ` · born ${signup.birthDate}` : ""}
         </dd>
         <dt className="text-signal-faint">Device</dt>

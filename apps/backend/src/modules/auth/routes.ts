@@ -311,6 +311,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
         signupDevice: fingerprint,
         signupClient: clientType,
         ageReview: review ? "PENDING" : null,
+        // A held account must not be findable by anyone (user search, Discover) until it is approved.
+        hiddenFromDirectory: !!review,
         ageReviewReason: review?.reason ?? null,
         ...ageData,
       },

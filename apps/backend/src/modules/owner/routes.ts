@@ -31,6 +31,9 @@ const banSchema = z.object({
   banDevice: z.boolean().default(true),
 });
 
+/** Accounts waiting on the owner's age decision are not members yet: left out of the platform counts. */
+const NOT_HELD = { OR: [{ ageReview: null }, { ageReview: { not: "PENDING" } }] };
+
 const roleSchema = z.object({
   platformRole: z.enum(["USER", "MODERATOR", "ADMIN", "EXECUTIVE", "OWNER"]),
 });
@@ -109,9 +112,9 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       ageBlocks,
       online,
     ] = await Promise.all([
-      prisma.user.count({ where: { isBot: false } }),
-      prisma.user.count({ where: { isBot: false, createdAt: { gte: dayAgo } } }),
-      prisma.user.count({ where: { isBot: false, createdAt: { gte: weekAgo } } }),
+      prisma.user.count({ where: { isBot: false, ...NOT_HELD } }),
+      prisma.user.count({ where: { isBot: false, ...NOT_HELD, createdAt: { gte: dayAgo } } }),
+      prisma.user.count({ where: { isBot: false, ...NOT_HELD, createdAt: { gte: weekAgo } } }),
       prisma.server.count(),
       prisma.message.count(),
       prisma.message.count({ where: { createdAt: { gte: dayAgo } } }),
@@ -129,7 +132,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       // 30-day series for the overview charts. Bucketed in application code rather than with raw
       // date_trunc SQL: the volume is small and this stays portable and readable.
       prisma.user.findMany({
-        where: { isBot: false, createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
+        where: { isBot: false, ...NOT_HELD, createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
         select: { createdAt: true },
       }),
       // Counted per day in the database: loading every message of the month to count them in
@@ -268,7 +271,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
             OR EXISTS (SELECT 1 FROM "RefreshToken" r WHERE r."userId" = u.id AND r."createdAt" > u."createdAt" + interval '1 day')
           ) AS came_back
         FROM "User" u
-        WHERE u."isBot" = false AND u."createdAt" >= ${since}`;
+        WHERE u."isBot" = false AND u."ageReview" IS DISTINCT FROM 'PENDING' AND u."createdAt" >= ${since}`;
       return {
         signedUp: Number(row?.signed_up ?? 0),
         confirmedEmail: Number(row?.confirmed ?? 0),
@@ -281,7 +284,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     const [last30, allTime, humans, phoneRows, browserRows] = await Promise.all([
       funnelSince(new Date(Date.now() - 30 * 86400000)),
       funnelSince(new Date(0)),
-      prisma.user.count({ where: { isBot: false } }),
+      prisma.user.count({ where: { isBot: false, ...NOT_HELD } }),
       prisma.deviceToken.findMany({ where: { app: "chat" }, select: { userId: true }, distinct: ["userId"] }),
       prisma.pushSubscription.findMany({ select: { userId: true }, distinct: ["userId"] }),
     ]);
@@ -673,6 +676,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         // the owner needs to actually administer an account.
         email: u.email,
         platformRole: u.platformRole,
+        ageReview: u.ageReview,
         createdAt: u.createdAt.toISOString(),
         counts: {
           messages: u._count.messages,

@@ -153,6 +153,7 @@ export function registerOwnerAgeRoutes(fastify: FastifyInstance) {
           ageReview: "APPROVED",
           ageReviewedAt: new Date(),
           ageReviewedById: request.userId!,
+          hiddenFromDirectory: false,
           // The birth date was the typo: the account becomes the adult range the person picked.
           ...(contradiction ? { isMinor: false, birthDate: null } : {}),
         },

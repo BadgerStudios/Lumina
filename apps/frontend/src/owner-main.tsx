@@ -7,6 +7,7 @@ import { OwnerApp } from "./owner/OwnerApp";
 import { BanScreen } from "./components/BanScreen";
 import { Login } from "./routes/Login";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { ConfirmProvider } from "./components/common/ConfirmDialog";
 import { useRoleSync } from "./hooks/useRoleSync";
 import { useAuthStore } from "./store/authStore";
 import { silentRefresh } from "./lib/apiClient";
@@ -109,9 +110,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <BanScreen />
         {/* The owner console has no route fallback and no second screen to fall back to — a throw
             anywhere in it is a blank phone. This is the floor under that. */}
-        <ErrorBoundary variant="root" label="The owner console">
-          <OwnerRoot />
-        </ErrorBoundary>
+        {/* ConfirmProvider is required by every panel that asks "are you sure" (useConfirm throws
+            without it, which blanked Message of the day, Users, Bans, Age reviews, Block reasons and
+            Official accounts). The main app mounts its own in App.tsx; this entry never goes through it. */}
+        <ConfirmProvider>
+          <ErrorBoundary variant="root" label="The owner console">
+            <OwnerRoot />
+          </ErrorBoundary>
+        </ConfirmProvider>
       </MemoryRouter>
     </QueryClientProvider>
   </React.StrictMode>,
