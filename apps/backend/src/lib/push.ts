@@ -4,6 +4,7 @@ import { prisma } from "../db/prisma.js";
 import { redis } from "../db/redis.js";
 import { env } from "../config/env.js";
 import { isFcmConfigured, sendFcmToToken } from "./fcm.js";
+import { recordInstallLoss } from "../modules/metrics/installs.js";
 import { ServerEvents, tonesFrom, type PushKind } from "@lumina/shared";
 
 const enabled = !!env.VAPID_PUBLIC_KEY && !!env.VAPID_PRIVATE_KEY;
@@ -126,7 +127,10 @@ async function sendNativePush(userId: string, payload: PushPayload): Promise<Del
   const audience = payload.audience ?? "chat";
   const tokens = await prisma.deviceToken.findMany({
     where: { userId, ...(audience === "chat" ? { app: { not: "owner" } } : {}) },
-    select: { id: true, token: true, build: true, messageSound: true, directSound: true, mentionSound: true, channelSound: true },
+    select: {
+      id: true, token: true, build: true, messageSound: true, directSound: true, mentionSound: true, channelSound: true,
+      userId: true, app: true, platform: true, createdAt: true,
+    },
   });
   if (tokens.length === 0) return { sent: 0, total: 0 };
 
@@ -138,7 +142,8 @@ async function sendNativePush(userId: string, payload: PushPayload): Promise<Del
         tonesFrom(row),
         { callRinger: (row.build ?? 0) >= CALL_RINGER_BUILD },
       );
-      if (!alive) await prisma.deviceToken.delete({ where: { id: row.id } }).catch(() => {});
+      // A dead token is an uninstalled app: prune it and count the lost install (metrics/installs.ts).
+      if (!alive) await recordInstallLoss(row, "send").catch(() => {});
       return alive;
     }),
   );

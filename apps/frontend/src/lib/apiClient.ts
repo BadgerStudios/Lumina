@@ -79,12 +79,15 @@ export class ApiError extends Error {
   status: number;
   code?: string;
   details?: unknown;
+  /** The block-reason catalogue code on a BLOCKED response, e.g. AGE_REVIEW_PENDING. */
+  reasonCode?: string;
 
-  constructor(status: number, message: string, code?: string, details?: unknown) {
+  constructor(status: number, message: string, code?: string, details?: unknown, reasonCode?: string) {
     super(message);
     this.status = status;
     this.code = code;
     this.details = details;
+    this.reasonCode = reasonCode;
   }
 }
 
@@ -357,7 +360,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
           ? "The security check didn't pass. Please try again."
           : "This action needs a quick security check, and it couldn't be completed. If you use an ad blocker or privacy extension, allow challenges.cloudflare.com and try again.";
     }
-    throw new ApiError(res.status, message, code, details);
+    throw new ApiError(res.status, message, code, details, reasonCode);
   }
 
   if (res.status === 204) return undefined as T;

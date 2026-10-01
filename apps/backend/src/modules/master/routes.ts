@@ -419,10 +419,10 @@ export default async function masterRoutes(fastify: FastifyInstance) {
 
     // How often each code has fired, so the catalogue can show real frequency rather than making
     // someone page through occurrences to find out what actually happens in practice.
-    const counts = await prisma.accountFlag.groupBy({
-      by: ["reasonCode"],
-      _count: { _all: true },
-    });
+    const [counts, openCounts] = await Promise.all([
+      prisma.accountFlag.groupBy({ by: ["reasonCode"], _count: { _all: true } }),
+      prisma.accountFlag.groupBy({ by: ["reasonCode"], where: { active: true }, _count: { _all: true } }),
+    ]);
 
     return {
       flags: flags.map((f) => ({
@@ -439,6 +439,7 @@ export default async function masterRoutes(fastify: FastifyInstance) {
         hasIp: Boolean(f.ipHash),
       })),
       counts: Object.fromEntries(counts.map((c) => [c.reasonCode, c._count._all])),
+      openCounts: Object.fromEntries(openCounts.map((c) => [c.reasonCode, c._count._all])),
     };
   });
 
@@ -447,11 +448,31 @@ export default async function masterRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const flag = await prisma.accountFlag.findUnique({ where: { id } });
     if (!flag) throw new NotFoundError("Flag not found");
+    if (!flag.active) return { ok: true };
     await prisma.accountFlag.update({
       where: { id },
       data: { active: false, resolvedAt: new Date(), resolvedById: request.userId! },
     });
+    // Resolving can lift a block (a device cooldown is enforced off its active flag), so it is a
+    // decision and belongs in the audit trail like every other one.
+    await prisma.staffAuditLog.create({
+      data: { actorId: request.userId!, actionType: "FLAG_RESOLVE", targetType: "flag", targetId: id, reason: flag.reasonCode },
+    });
     return { ok: true };
+  });
+
+  /** Clears every open flag of one code in a single decision, e.g. a backlog of age mismatches already looked at. */
+  fastify.post("/flags/resolve-code", { preHandler: [requireAuth, requireOwner] }, async (request) => {
+    const { code } = (request.body ?? {}) as { code?: unknown };
+    if (typeof code !== "string" || !/^[A-Z0-9_]{2,64}$/.test(code)) throw new BadRequestError("code is required");
+    const { count } = await prisma.accountFlag.updateMany({
+      where: { reasonCode: code, active: true },
+      data: { active: false, resolvedAt: new Date(), resolvedById: request.userId! },
+    });
+    await prisma.staffAuditLog.create({
+      data: { actorId: request.userId!, actionType: "FLAG_RESOLVE_ALL", targetType: "reason", targetId: code, reason: `${count} flag(s)` },
+    });
+    return { ok: true, resolved: count };
   });
 
   /**

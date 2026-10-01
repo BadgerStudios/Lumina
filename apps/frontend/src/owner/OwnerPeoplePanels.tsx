@@ -15,6 +15,28 @@ import { Badge, ConfirmRoleChange, DataList, DataRow, EmptyState, Toolbar } from
 import { OwnerUserDetailPanel } from "./OwnerUserDetailPanel";
 import { ROLE_META } from "./roleMeta";
 import { cn } from "../lib/cn";
+import { useConfirm } from "../components/common/ConfirmDialog";
+import { useAuthStore } from "../store/authStore";
+import { ROLE_LADDER } from "../lib/platformRole";
+
+/** Lifting a ban is one tap from a list; a mis-tap shouldn't readmit someone without a sentence first. */
+function useConfirmedLift() {
+  const liftBan = useLiftBan();
+  const { confirm } = useConfirm();
+  return {
+    isPending: liftBan.isPending,
+    lift: async (groupId: string, name: string) => {
+      if (
+        await confirm({
+          title: `Lift the ban on ${name}?`,
+          description: "They can sign in again straight away, and every identifier blocked with this ban is released.",
+          confirmText: "Lift ban",
+        })
+      )
+        liftBan.mutate({ groupId });
+    },
+  };
+}
 
 
 
@@ -32,8 +54,10 @@ export function OwnerUsersPanel() {
   const [roleChange, setRoleChange] = useState<{ user: OwnerUserRow; role: PlatformRole } | null>(null);
   const { data, isLoading } = useOwnerUsers(search, page);
   const setRole = useSetPlatformRole();
-  const liftBan = useLiftBan();
+  const liftBan = useConfirmedLift();
   const assignable = data?.assignableRoles ?? [];
+  // The server only lets you ban someone below your own rank; don't offer a button it will refuse.
+  const myRank = ROLE_LADDER.indexOf(useAuthStore((st) => st.user?.platformRole) ?? "USER");
 
   return (
     <div className="mx-auto max-w-5xl space-y-3">
@@ -104,8 +128,9 @@ export function OwnerUsersPanel() {
                         <Badge tone="bad">Banned</Badge>
                         <button
                           type="button"
-                          onClick={() => liftBan.mutate({ groupId: u.activeBan!.groupId })}
-                          className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal hover:bg-base-500"
+                          disabled={liftBan.isPending}
+                          onClick={() => void liftBan.lift(u.activeBan!.groupId, `@${u.username}`)}
+                          className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal hover:bg-base-500 disabled:opacity-50"
                         >
                           Lift
                         </button>
@@ -137,7 +162,7 @@ export function OwnerUsersPanel() {
                         )}
                         {/* Owners and the master cannot be banned server-side, so no button is
                             offered for them — removing their access is a role change, not a ban. */}
-                        {u.platformRole !== "OWNER" && u.platformRole !== "MASTER" && (
+                        {ROLE_LADDER.indexOf(u.platformRole) < myRank && u.platformRole !== "OWNER" && u.platformRole !== "MASTER" && (
                           <button
                             type="button"
                             aria-label={`Ban ${u.username}`}
@@ -182,7 +207,8 @@ export function OwnerUsersPanel() {
         </>
       )}
 
-      <BanDialog user={banTarget} onClose={() => setBanTarget(null)} />
+      {/* Keyed so each target starts with an empty form, not the last person's reason. */}
+      <BanDialog key={banTarget?.id ?? "none"} user={banTarget} onClose={() => setBanTarget(null)} />
 
       {roleChange && (
         <ConfirmRoleChange
@@ -337,7 +363,7 @@ export function OwnerBansPanel() {
   const [onlyAppeals, setOnlyAppeals] = useState(false);
   const { data: bans, isLoading } = useOwnerBans(onlyAppeals);
   const resolveAppeal = useResolveAppeal();
-  const liftBan = useLiftBan();
+  const liftBan = useConfirmedLift();
   const [responseFor, setResponseFor] = useState<string | null>(null);
   const [response, setResponse] = useState("");
 
@@ -400,15 +426,16 @@ export function OwnerBansPanel() {
                 {!b.liftedAt && (
                   <button
                     type="button"
-                    onClick={() => liftBan.mutate({ groupId: b.groupId })}
-                    className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal"
+                    disabled={liftBan.isPending}
+                    onClick={() => void liftBan.lift(b.groupId, b.user ? `@${b.user.username}` : "this account")}
+                    className="rounded-lg bg-base-600 px-2 py-1 text-xs text-signal disabled:opacity-50"
                   >
                     Lift ban
                   </button>
                 )}
               </div>
 
-              {b.appealStatus === "PENDING" && (
+              {b.appealStatus === "PENDING" && !b.liftedAt && (
                 <div className="mt-3 space-y-2 border-t border-hairline pt-3">
                   {responseFor === b.groupId ? (
                     <>
@@ -421,7 +448,7 @@ export function OwnerBansPanel() {
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          disabled={!response.trim()}
+                          disabled={!response.trim() || resolveAppeal.isPending}
                           onClick={() => {
                             resolveAppeal.mutate({ groupId: b.groupId, approve: true, response: response.trim() });
                             setResponseFor(null);
@@ -433,7 +460,7 @@ export function OwnerBansPanel() {
                         </button>
                         <button
                           type="button"
-                          disabled={!response.trim()}
+                          disabled={!response.trim() || resolveAppeal.isPending}
                           onClick={() => {
                             resolveAppeal.mutate({ groupId: b.groupId, approve: false, response: response.trim() });
                             setResponseFor(null);

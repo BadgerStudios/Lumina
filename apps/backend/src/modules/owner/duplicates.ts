@@ -37,6 +37,8 @@ export interface LinkedAccount {
   ageBracket: string | null;
   /** Unresolved flags on this account, so a linked pair that is ALSO flagged stands out. */
   openFlags: number;
+  /** Unresolved "shares a device / address" sign-up flags: what the attention count is made of. */
+  toReview: number;
   /** Most recent session, as a proxy for "is this account actually in use". */
   lastSeenAt: string | null;
 }
@@ -81,13 +83,27 @@ function opaqueKey(kind: LinkKind, index: number): string {
   return `${kind}-${index + 1}`;
 }
 
+export const LINK_FLAG_CODES = ["DEVICE_MULTI_ACCOUNT", "IP_MULTI_ACCOUNT"];
+
+/** Marks the "linked to an existing account" sign-up flags reviewed - one account's, or all of them. */
+export async function resolveLinkFlags(actorId: string, userId: string | null): Promise<number> {
+  const { count } = await prisma.accountFlag.updateMany({
+    where: { reasonCode: { in: LINK_FLAG_CODES }, resolvedAt: null, ...(userId ? { userId } : {}) },
+    data: { active: false, resolvedAt: new Date(), resolvedById: actorId },
+  });
+  await prisma.staffAuditLog.create({
+    data: { actorId, actionType: "LINKED_ACCOUNTS_REVIEWED", targetType: userId ? "user" : "all", targetId: userId ?? "all", reason: `${count} flag(s)` },
+  });
+  return count;
+}
+
 export async function listLinkedAccounts(): Promise<LinkedGroup[]> {
   const [deviceRows, ipRows] = await Promise.all([groupsBy("deviceFingerprint"), groupsBy("ipAddress")]);
 
   const everyUserId = [...new Set([...deviceRows, ...ipRows].flatMap((r) => r.users))];
   if (everyUserId.length === 0) return [];
 
-  const [users, flagCounts, lastSessions] = await Promise.all([
+  const [users, flagCounts, lastSessions, linkFlags] = await Promise.all([
     prisma.user.findMany({
       where: { id: { in: everyUserId } },
       select: {
@@ -115,11 +131,17 @@ export async function listLinkedAccounts(): Promise<LinkedGroup[]> {
       where: { userId: { in: everyUserId } },
       _max: { createdAt: true },
     }),
+    prisma.accountFlag.groupBy({
+      by: ["userId"],
+      where: { userId: { in: everyUserId }, reasonCode: { in: LINK_FLAG_CODES }, resolvedAt: null },
+      _count: { _all: true },
+    }),
   ]);
 
   const byId = new Map(users.map((u) => [u.id, u]));
   const flagsById = new Map(flagCounts.map((f) => [f.userId, f._count._all]));
   const seenById = new Map(lastSessions.map((s) => [s.userId, s._max.createdAt]));
+  const toReviewById = new Map(linkFlags.map((f) => [f.userId, f._count._all]));
 
   const build = (kind: LinkKind, rows: Row[]): LinkedGroup[] =>
     rows.map((row, index) => {
@@ -143,6 +165,7 @@ export async function listLinkedAccounts(): Promise<LinkedGroup[]> {
           ageRecordedAt: u.ageRecordedAt?.toISOString() ?? null,
           ageBracket: u.ageBracket,
           openFlags: flagsById.get(u.id) ?? 0,
+          toReview: toReviewById.get(u.id) ?? 0,
           lastSeenAt: seenById.get(u.id)?.toISOString() ?? null,
         }));
       return {

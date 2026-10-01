@@ -112,7 +112,7 @@ const FOOTER_COLS: Array<{ heading: string; links: Array<{ label: string; to: st
     links: [
       { label: "Google Play", to: "https://play.google.com/store/apps/details?id=com.luxffa.lumina", external: true },
       { label: "Android APK", to: "/api/download/android", external: true },
-      { label: "Windows", to: "/downloads/lumina-windows.zip", external: true },
+      { label: "Windows", to: "/api/download/windows", external: true },
       { label: "Linux desktop", to: "/api/download/desktop", external: true },
       { label: "Install guide", to: "/install" },
     ],

@@ -30,7 +30,7 @@ import {
   usePlatformStats,
   useAttentionItems,
   usePlatformHealth,
-  useBusinessMetrics, useGrowth, useEngagement } from "../queries/owner";
+  useBusinessMetrics, useGrowth, useEngagement, combinedDownloads } from "../queries/owner";
 import {
   RevenuePanel,
   DownloadsPanel,
@@ -218,7 +218,8 @@ export function OwnerApp() {
 
   const [chosen, setChosen] = useState<Section | null>(null);
   const [navOpen, setNavOpen] = useState(false);
-  const [reviewing, setReviewing] = useState(false);
+  // false = closed; true = open on the first queue; a string = open on that queue (the item tapped).
+  const [reviewing, setReviewing] = useState<boolean | string>(false);
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
   const role = user?.platformRole;
@@ -448,7 +449,7 @@ export function OwnerApp() {
           <ErrorBoundary resetKey={section} label={SECTION_LABELS[section]}>
             <div className="mx-auto max-w-6xl space-y-6">
               {section === "overview" && (
-                <OverviewSection onNavigate={go} onReview={() => setReviewing(true)} />
+                <OverviewSection onNavigate={go} onReview={(kind) => setReviewing(kind ?? true)} />
               )}
               {section === "revenue" && <RevenuePanel />}
               {section === "downloads" && (
@@ -485,7 +486,9 @@ export function OwnerApp() {
       </div>
 
       {/* Fixed-position overlay, so it belongs at the root rather than inside the scrolling main. */}
-      {reviewing && <OwnerReviewModal onClose={() => setReviewing(false)} />}
+      {reviewing !== false && (
+        <OwnerReviewModal initialKind={typeof reviewing === "string" ? reviewing : undefined} onClose={() => setReviewing(false)} />
+      )}
 
       <ToastHost />
     </div>
@@ -533,6 +536,16 @@ function GrowthGroup() {
           state={pushes7d.nowhere + pushes7d.failed > pushes7d.delivered ? "bad" : pushes7d.nowhere + pushes7d.failed > 0 ? "warn" : "good"}
         />
       </div>
+      {data.lost?.tracking && (
+        <div className="mt-2.5 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+          <Metric
+            label="Lost users, 30 days"
+            value={data.lost.users30d}
+            sub={`${data.lost.installs30d} uninstall${data.lost.installs30d === 1 ? "" : "s"} seen`}
+            state={data.lost.users30d > 0 ? "warn" : "good"}
+          />
+        </div>
+      )}
       <div className="mt-2.5 overflow-x-auto rounded-xl border border-hairline bg-base-800 p-4">
         <table className="w-full text-left text-sm">
           <thead>
@@ -568,7 +581,7 @@ function OverviewSection({
   onReview,
 }: {
   onNavigate: (s: Section) => void;
-  onReview: () => void;
+  onReview: (kind?: string) => void;
 }) {
   const { data: stats, isLoading } = usePlatformStats();
   const { data: attention } = useAttentionItems();
@@ -603,7 +616,7 @@ function OverviewSection({
                 // Opens the review window rather than navigating. Going to the section works,
                 // but it costs the list: you lose sight of everything else outstanding at the
                 // moment you act on one of them. The window keeps all of it in front of you.
-                onClick={onReview}
+                onClick={() => onReview(item.kind)}
               />
             ))}
           </div>
@@ -710,8 +723,11 @@ function OverviewSection({
           />
           <Metric
             label="Downloads"
-            value={(business?.downloads.total ?? 0).toLocaleString()}
-            sub={`+${business?.downloads.last7Days ?? 0} this week`}
+            // Site + GitHub + Google Play together (combinedDownloads); the Downloads page splits them.
+            value={combinedDownloads(business).total.toLocaleString()}
+            sub={`+${combinedDownloads(business).last7Days} this week${
+              business?.installs?.lostLast7Days ? ` · ${business.installs.lostLast7Days} uninstalled` : ""
+            }`}
             trend={
               business ? (
                 <div className="h-full text-accent">

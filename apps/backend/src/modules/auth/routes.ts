@@ -23,7 +23,9 @@ import {
 import { checkIdentifierBans } from "../bans/service.js";
 import { BannedError, BadRequestError, BlockedError } from "../../lib/errors.js";
 import { sendEmailCode, resendEmailCode, verifyEmailCode } from "./emailCode.js";
-import { checkAge, UNDERAGE_SIGNUP_COOLDOWN_DAYS } from "../age/service.js";
+import { checkAge, isMinorBracket, MINIMUM_AGE, UNDERAGE_SIGNUP_COOLDOWN_DAYS } from "../age/service.js";
+import { notifyStaffOfAgeReview } from "../owner/age.js";
+import { AGE_REVIEW_PENDING_MESSAGE } from "../owner/ageMessages.js";
 import { SUPPORT_EMAIL } from "../../config/support.js";
 import { refreshMinorStatus } from "../parental/service.js";
 import { hasPlatformRole } from "../../lib/platformRole.js";
@@ -199,7 +201,7 @@ function ageBlockMessage(reasonCode: string): string {
   if (reasonCode === "AGE_MISMATCH") {
     return `The date of birth and the age range you picked don't agree about whether you're 18 or over. If that was a typo, email ${SUPPORT_EMAIL} and a person will sort it out. If the account is for someone under 18, a parent or guardian can set up a linked account instead.`;
   }
-  return `Lumina is for people aged 13 and over. This device can't start a new sign-up for ${UNDERAGE_SIGNUP_COOLDOWN_DAYS} days. If you're 18 or over and got here by mistyping your date of birth, email ${SUPPORT_EMAIL}.`;
+  return `Lumina is for people aged ${MINIMUM_AGE} and over. This device can't start a new sign-up for ${UNDERAGE_SIGNUP_COOLDOWN_DAYS} days. If you got here by mistyping your date of birth, email ${SUPPORT_EMAIL}.`;
 }
 
 export default async function authRoutes(fastify: FastifyInstance) {
@@ -258,25 +260,43 @@ export default async function authRoutes(fastify: FastifyInstance) {
     if (yearsAgo < 0 || yearsAgo > 120) throw new BadRequestError("That date of birth isn't valid");
 
     const result = checkAge(body.ageBracket, birthDate);
+    const clientTypeRaw = request.headers["x-client-type"];
+    const clientType = (Array.isArray(clientTypeRaw) ? clientTypeRaw[0] : clientTypeRaw)?.slice(0, 32) ?? null;
+    const userAgentRaw = request.headers["user-agent"];
+    const provenance = {
+      userAgent: (Array.isArray(userAgentRaw) ? userAgentRaw[0] : userAgentRaw) ?? null,
+      country: requestCountry(request),
+      clientType,
+    };
+    // Sign-ups the owner decides by hand (owner decision 2026-10-01): an under-18 answer, and the
+    // contradiction "picked an adult range but typed a birth date under 13", which is almost always
+    // a mistyped year. Both create the account but hold it: no session is issued until the owner
+    // approves (see owner/age.ts and the gate in issueTokenPair).
+    let review: { reason: string } | null = null;
+    let heldFlagId: string | null = null;
     if (!result.ok) {
-      await recordFlag({
+      const contradiction = result.reasonCode === "AGE_UNDER_MINIMUM" && !isMinorBracket(body.ageBracket);
+      const flagId = await recordFlag({
         email: body.email,
         ipAddress: request.ip,
         deviceFingerprint: fingerprint,
         reasonCode: result.reasonCode,
-        detail: `selected=${body.ageBracket} derived=${result.bracket}`,
+        detail: `selected=${body.ageBracket} derived=${result.bracket}${contradiction ? " (held for owner review)" : ""}`,
+        provenance,
       });
-      // Both outcomes used to surface to the person as the single word "Blocked" — no reason, no
-      // way forward. A mismatch is very often a typo in the date, so it gets a route to a human
-      // rather than a dead end; an under-18 answer gets the honest reason and the retry window.
-      throw new BlockedError(result.reasonCode, ageBlockMessage(result.reasonCode));
+      if (!contradiction) {
+        // A self-declared under-13 answer is refused outright: that is the legal floor, not a doubt.
+        throw new BlockedError(result.reasonCode, ageBlockMessage(result.reasonCode));
+      }
+      heldFlagId = flagId;
+      review = { reason: `Picked ${body.ageBracket.replace("AGE_", "").replace("_PLUS", "+").replace("_", "-")} but the date of birth works out under ${MINIMUM_AGE}` };
+    } else if (result.isMinor) {
+      review = { reason: "Under 18 (their own answer)" };
     }
-    const ageData = {
-      ageBracket: result.bracket,
-      birthDate,
-      isMinor: result.isMinor,
-      ageRecordedAt: new Date(),
-    };
+    // A held contradiction is walled as a minor until decided; approval as an adult lifts it.
+    const ageData = result.ok
+      ? { ageBracket: result.bracket, birthDate, isMinor: result.isMinor, ageRecordedAt: new Date() }
+      : { ageBracket: body.ageBracket, birthDate, isMinor: true, ageRecordedAt: new Date() };
 
     const passwordHash = await hashPassword(body.password);
     const user = await prisma.user.create({
@@ -286,6 +306,12 @@ export default async function authRoutes(fastify: FastifyInstance) {
         passwordHash,
         displayName: body.displayName ?? null,
         signupCountry: requestCountry(request),
+        signupIp: request.ip?.slice(0, 64) ?? null,
+        signupUserAgent: provenance.userAgent?.slice(0, 400) ?? null,
+        signupDevice: fingerprint,
+        signupClient: clientType,
+        ageReview: review ? "PENDING" : null,
+        ageReviewReason: review?.reason ?? null,
         ...ageData,
       },
     });
@@ -311,7 +337,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // Start the new account in the official welcome server rather than in no server at all
       // (see onboarding/welcome.ts). After the age signal above, so its checks see the final state.
       // Fire-and-forget: joining is a courtesy and must never slow or fail the signup.
-      void joinWelcomeServer(user.id).catch((err) => console.error("[welcome] join failed for", user.id, err));
+      // A held account joins on approval instead (owner/age.ts): until then it must not show up anywhere.
+      if (!review) void joinWelcomeServer(user.id).catch((err) => console.error("[welcome] join failed for", user.id, err));
 
       // Has this device signed in as somebody else before? RefreshToken is where a device
       // fingerprint gets recorded against an account, so it is the only table that can answer it.
@@ -388,6 +415,15 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // there. A link asks them to leave the app, and on a phone it often opens a different browser
       // than the one holding the half-finished session — which is exactly where signups die.
       // Fire-and-forget, like the link: a slow SMTP server must never make signup slow or fail.
+      if (review) {
+        // The held typo's flag is tied to its account, so approving the account can clear the
+        // device cooldown that flag would otherwise put on the person's phone for 30 days.
+        if (heldFlagId) await prisma.accountFlag.update({ where: { id: heldFlagId }, data: { userId: user.id } }).catch(() => {});
+        // Held for the owner: no session, no email code yet (confirming the address needs a session).
+        // The owner is told straight away; the person is told exactly what happens next.
+        void notifyStaffOfAgeReview(user.username).catch(() => {});
+        throw new BlockedError("AGE_REVIEW_PENDING", AGE_REVIEW_PENDING_MESSAGE);
+      }
       void sendEmailCode({ userId: user.id, email: user.email, username: user.username });
 
       const tokens = await issueTokenPair(user.id, request);

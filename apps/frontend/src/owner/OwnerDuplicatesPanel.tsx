@@ -1,9 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Smartphone, Wifi } from "lucide-react";
 import { api } from "../lib/apiClient";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { relativeTime, shortDate } from "../lib/relativeTime";
 import { cn } from "../lib/cn";
+import { reportError } from "../store/toastStore";
+import { UserProvenance } from "./OwnerProvenance";
+
+function useResolveLinks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string | null) => api.post<{ resolved: number }>("/owner/duplicates/resolve", userId ? { userId } : {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["owner"], predicate: (q) => q.queryKey[1] !== "provenance" }),
+    onError: (e) => reportError(e, "Couldn't mark those reviewed"),
+  });
+}
 
 interface LinkedAccount {
   id: string;
@@ -19,6 +30,7 @@ interface LinkedAccount {
   ageRecordedAt: string | null;
   ageBracket: string | null;
   openFlags: number;
+  toReview: number;
   lastSeenAt: string | null;
 }
 
@@ -45,7 +57,7 @@ interface LinkedGroup {
 export function OwnerDuplicatesPanel() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["owner", "duplicates"],
-    queryFn: () => api.get<{ groups: LinkedGroup[] }>("/owner/duplicates"),
+    queryFn: () => api.get<{ groups: LinkedGroup[]; toReview?: number; unlinkedToReview?: number }>("/owner/duplicates"),
     refetchInterval: 5 * 60 * 1000,
   });
 
@@ -55,17 +67,28 @@ export function OwnerDuplicatesPanel() {
   const groups = data?.groups ?? [];
   const device = groups.filter((g) => g.kind === "device");
   const ip = groups.filter((g) => g.kind === "ip");
+  const toReview = data?.toReview ?? 0;
+  const unlinked = data?.unlinkedToReview ?? 0;
+
+  const header =
+    toReview > 0 ? (
+      <ReviewBar toReview={toReview} unlinked={unlinked} />
+    ) : null;
 
   if (groups.length === 0) {
     return (
-      <p className="rounded-xl bg-[var(--oc-panel)] p-6 text-center text-sm text-signal-faint ring-1 ring-[var(--oc-line)]">
-        No accounts share a device or an address.
-      </p>
+      <div className="space-y-4">
+        {header}
+        <p className="rounded-xl bg-[var(--oc-panel)] p-6 text-center text-sm text-signal-faint ring-1 ring-[var(--oc-line)]">
+          No accounts share a device or an address.
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="space-y-8">
+      {header}
       <Section
         title="Same device"
         icon={<Smartphone size={13} />}
@@ -78,6 +101,31 @@ export function OwnerDuplicatesPanel() {
         blurb="Only a shared IP. Home broadband, offices, schools and especially mobile networks put unrelated people behind one address — a carrier can front thousands. On its own this means very little; it is worth something alongside a shared device."
         groups={ip}
       />
+    </div>
+  );
+}
+
+function ReviewBar({ toReview, unlinked }: { toReview: number; unlinked: number }) {
+  const resolve = useResolveLinks();
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl bg-[var(--oc-panel)] p-3 text-sm ring-1 ring-[var(--oc-line)]">
+      <span className="text-signal">
+        {toReview} linked sign-up{toReview === 1 ? "" : "s"} to review
+        {unlinked > 0 && (
+          <span className="text-xs text-signal-faint">
+            {" "}
+            ({unlinked} whose other account is gone or no longer signed in, so not shown below)
+          </span>
+        )}
+      </span>
+      <button
+        type="button"
+        disabled={resolve.isPending}
+        onClick={() => resolve.mutate(null)}
+        className="ml-auto rounded bg-online/15 px-3 py-1.5 text-xs font-medium text-online ring-1 ring-online/30 hover:bg-online/25 disabled:opacity-50"
+      >
+        Mark all reviewed
+      </button>
     </div>
   );
 }
@@ -126,8 +174,10 @@ function Section({
 
 function AccountRow({ account }: { account: LinkedAccount }) {
   const name = account.displayName ?? account.username;
+  const resolve = useResolveLinks();
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-[var(--oc-bg)] px-3 py-2">
+    <div className="space-y-1.5 rounded-lg bg-[var(--oc-bg)] px-3 py-2">
+    <div className="flex items-center gap-3">
       <UserAvatar avatarUrl={account.avatarUrl} name={name} size={32} />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 items-center gap-1.5 truncate text-sm text-signal">
@@ -156,6 +206,19 @@ function AccountRow({ account }: { account: LinkedAccount }) {
           {account.openFlags} flag{account.openFlags === 1 ? "" : "s"}
         </span>
       )}
+      {account.toReview > 0 && (
+        <button
+          type="button"
+          disabled={resolve.isPending}
+          onClick={() => resolve.mutate(account.id)}
+          title="This sign-up was flagged as linked to another account. Mark it reviewed."
+          className="shrink-0 rounded px-2 py-0.5 text-[11px] text-signal-faint ring-1 ring-hairline hover:text-signal disabled:opacity-50"
+        >
+          Mark reviewed
+        </button>
+      )}
+    </div>
+    <UserProvenance userId={account.id} />
     </div>
   );
 }

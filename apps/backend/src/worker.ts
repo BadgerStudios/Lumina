@@ -28,6 +28,9 @@ import { sweepEventReminders } from "./modules/events/service.js";
 import { rotatePqKeys } from "./modules/pq/service.js";
 import { runFinancialAssertions } from "./modules/economy/reconcile.js";
 import { refreshMinorStatus } from "./modules/parental/service.js";
+import { purgeExpiredFlagProvenance } from "./modules/flags/service.js";
+import { refreshGithubDownloads, refreshPlayStats } from "./modules/metrics/storeStats.js";
+import { sweepDeadDeviceTokens } from "./modules/metrics/installs.js";
 
 /** How long a video may sit in PROCESSING before the sweep assumes its job was lost. Comfortably
  * longer than a real transcode (bounded at 10 minutes by ffmpeg's own timeout). */
@@ -380,6 +383,57 @@ async function main() {
   void postMediaTick();
   const postMediaTimer = setInterval(() => void postMediaTick(), 60 * 60 * 1000);
   postMediaTimer.unref();
+
+  const flagProvenanceTick = async () => {
+    try {
+      const cleared = await purgeExpiredFlagProvenance();
+      if (cleared > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[worker] cleared sign-up provenance on ${cleared} age flag(s) past 90 days`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] flag provenance purge failed:", err);
+    }
+  };
+  void flagProvenanceTick();
+  const flagProvenanceTimer = setInterval(() => void flagProvenanceTick(), 6 * 60 * 60 * 1000);
+  flagProvenanceTimer.unref();
+
+  // Store numbers for the owner's Downloads page: GitHub hourly (cheap, public), Play every six
+  // hours (its report updates daily). Each failure is logged and leaves the last snapshot standing.
+  const storeStatsTick = async (play: boolean) => {
+    try {
+      await refreshGithubDownloads();
+      if (play) await refreshPlayStats();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] store stats refresh failed:", err);
+    }
+  };
+  let storeTicks = 0;
+  void storeStatsTick(true);
+  const storeStatsTimer = setInterval(() => void storeStatsTick(++storeTicks % 6 === 0), 60 * 60 * 1000);
+  storeStatsTimer.unref();
+
+  // Uninstalls: ask FCM about every push token once a day (validate-only, nothing is delivered);
+  // a dead one is an app that was removed, recorded as a lost install.
+  const installSweepTick = async () => {
+    try {
+      const r = await sweepDeadDeviceTokens();
+      if (r.checked > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[worker] install sweep: ${r.checked} token(s) checked, ${r.lost} uninstalled, ${r.unknown} unanswered`);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[worker] install sweep failed:", err);
+    }
+  };
+  const installSweepStart = setTimeout(() => void installSweepTick(), 10 * 60 * 1000);
+  installSweepStart.unref();
+  const installSweepTimer = setInterval(() => void installSweepTick(), 24 * 60 * 60 * 1000);
+  installSweepTimer.unref();
 
   void identityDocTick();
   const identityDocTimer = setInterval(() => void identityDocTick(), 15 * 60 * 1000);

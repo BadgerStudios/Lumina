@@ -88,6 +88,8 @@ export interface GrowthDTO {
   funnel: { last30Days: GrowthFunnel; allTime: GrowthFunnel };
   reach: { humans: number; reachable: number; phones: number; browsers: number };
   pushes7d: { delivered: number; failed: number; nowhere: number; skipped: number };
+  /** Absent from a backend older than build 129. */
+  lost?: { installs30d: number; users30d: number; tracking: boolean };
 }
 
 export function useGrowth() {
@@ -202,7 +204,10 @@ function useOwnerMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
     mutationFn: fn,
     // Any owner action can move counts across several panels at once (banning changes stats, the
     // user list and the ban list), so the whole owner namespace is refreshed rather than guessing.
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["owner"] }),
+    // Provenance is left alone: each read of it writes a staff audit row, so it is fetched only when
+    // the owner opens it, never as a side effect of some other action.
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: ["owner"], predicate: (q) => q.queryKey[1] !== "provenance" }),
     // A failed ban, unban, role change, or appeal decision previously failed completely silently
     // — the dialog closed as if it had worked, same root cause as staff.ts/reports.ts before they
     // were fixed earlier this session.
@@ -273,13 +278,168 @@ export interface BandwidthDay {
   total: number;
 }
 
+export interface StoreStats {
+  github: {
+    repo: string;
+    total: number;
+    last7Days: number;
+    byPlatform: Array<{ platform: string; count: number }>;
+    updatedAt: string | null;
+  };
+  play: {
+    connected: boolean;
+    serviceAccount: string | null;
+    installsTotal: number;
+    installsLast7Days: number;
+    uninstallsLast7Days: number;
+    uninstallsLast30Days: number;
+    activeInstalls: number | null;
+    latestDay: string | null;
+    updatedAt: string | null;
+  };
+  series: Array<{ date: string; github: number; playInstalls: number; playUninstalls: number }>;
+}
+
+export interface InstallStats {
+  tracking: boolean;
+  activeInstalls: Array<{ app: string; platform: string; count: number }>;
+  lostLast7Days: number;
+  lostLast30Days: number;
+  lostTotal: number;
+  lostUsers30Days: number;
+  series: Array<{ date: string; lost: number; installed: number }>;
+}
+
+export interface BusinessMetrics {
+  revenue: RevenueStats;
+  downloads: DownloadStats;
+  bandwidth: BandwidthDay[];
+  /** Absent from a backend older than build 129. */
+  store?: StoreStats;
+  installs?: InstallStats;
+}
+
+/**
+ * Every download Lumina can count, as one number: the site's own counted links, GitHub release
+ * assets and Google Play installs. The owner console's own APK is left out of all three - it is a
+ * staff tool, not a user download.
+ */
+export function combinedDownloads(b: BusinessMetrics | undefined) {
+  if (!b) return { total: 0, last7Days: 0 };
+  const siteOwner = b.downloads.byPlatform.find((p) => p.platform === "android-owner")?.count ?? 0;
+  const ghOwner = b.store?.github.byPlatform.find((p) => p.platform === "android-owner")?.count ?? 0;
+  const ghUser = (b.store?.github.byPlatform ?? []).reduce((n, p) => n + p.count, 0) - ghOwner;
+  return {
+    total: b.downloads.total - siteOwner + ghUser + (b.store?.play.installsTotal ?? 0),
+    last7Days: b.downloads.last7Days + (b.store?.github.last7Days ?? 0) + (b.store?.play.installsLast7Days ?? 0),
+  };
+}
+
 export function useBusinessMetrics() {
   return useQuery({
     queryKey: ["owner", "business"],
-    queryFn: () =>
-      api.get<{ revenue: RevenueStats; downloads: DownloadStats; bandwidth: BandwidthDay[] }>(
-        "/owner/business",
-      ),
+    queryFn: () => api.get<BusinessMetrics>("/owner/business"),
     refetchInterval: 60_000,
   });
+}
+
+// ---- Age review (owner decision 2026-10-01): held sign-ups the owner approves or denies ----
+
+export interface AgeQueuePending {
+  id: string;
+  username: string;
+  displayName: string | null;
+  email: string;
+  createdAt: string;
+  ageBracket: string | null;
+  birthDate: string | null;
+  reason: string | null;
+  country: string | null;
+  client: string | null;
+  device: string;
+  otherAccountsOnDevice: number;
+}
+
+export interface AgeQueueRefused {
+  id: string;
+  reasonCode: string;
+  detail: string | null;
+  createdAt: string;
+  country: string | null;
+  client: string | null;
+  device: string | null;
+  hasProvenance: boolean;
+  heldForReview: boolean;
+  active: boolean;
+}
+
+export interface AgeQueue {
+  pending: AgeQueuePending[];
+  refused: AgeQueueRefused[];
+  decided: Array<{ id: string; username: string; reason: string | null; decidedAt: string | null; minor: boolean }>;
+}
+
+export function useAgeQueue() {
+  return useQuery({
+    queryKey: ["owner", "age-queue"],
+    queryFn: () => api.get<AgeQueue>("/owner/age-queue"),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useDecideHeldSignup() {
+  return useOwnerMutation(
+    ({ userId, decision, note }: { userId: string; decision: "APPROVE" | "DENY"; note?: string }) =>
+      api.post<{ ok: true; decision: string; minor?: boolean }>(`/owner/age-queue/${userId}/decide`, { decision, note }),
+  );
+}
+
+export interface UserProvenance {
+  signup: { at: string; ip: string | null; userAgent: string | null; device: string | null; client: string | null; country: string | null; recorded: boolean };
+  account: { email: string; emailVerified: boolean; ageBracket: string | null; birthDate: string | null; isMinor: boolean; ageReview: string | null; ageReviewReason: string | null };
+  devices: Array<{ device: string; userAgent: string | null; ips: string[]; firstSeen: string; lastSeen: string; sessions: number; active: number }>;
+  apps: Array<{ app: string; platform: string; build: number | null; installedAt: string; lastSeen: string }>;
+  otherAccountsOnTheseDevices: Array<{ id: string; username: string }>;
+  flags: Array<{ id: string; reasonCode: string; detail: string | null; createdAt: string; active: boolean; resolvedAt: string | null }>;
+}
+
+export interface FlagProvenance {
+  id: string;
+  reasonCode: string;
+  detail: string | null;
+  createdAt: string;
+  ip: string | null;
+  userAgent: string | null;
+  device: string | null;
+  country: string | null;
+  client: string | null;
+  purgedAt: string | null;
+  otherFlagsFromThisDevice: number;
+  otherFlagsFromThisAddress: number;
+}
+
+/** Provenance reads are audited server-side, so they only run when the owner opens them. */
+export function useUserProvenance(userId: string | null) {
+  return useQuery({
+    queryKey: ["owner", "provenance", "user", userId],
+    queryFn: () => api.get<UserProvenance>(`/owner/users/${userId}/provenance`),
+    enabled: !!userId,
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+}
+
+export function useFlagProvenance(flagId: string | null) {
+  return useQuery({
+    queryKey: ["owner", "provenance", "flag", flagId],
+    queryFn: () => api.get<FlagProvenance>(`/owner/flags/${flagId}/provenance`),
+    enabled: !!flagId,
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+}
+
+/** Resolves one flag. On an under-13 refusal or a denial this lifts the device's sign-up cooldown. */
+export function useResolveFlag() {
+  return useOwnerMutation(({ flagId }: { flagId: string }) => api.post(`/master/flags/${flagId}/resolve`, {}));
 }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/apiClient";
+import { reportError } from "../store/toastStore";
 import type { RemovalBan } from "../components/common/BanOptions";
 
 export type ImageFilter = "reported" | "pending" | "all" | "removed";
@@ -50,6 +51,8 @@ function useImageAction<T>(fn: (vars: T) => Promise<unknown>) {
       // anything here is decided.
       void queryClient.invalidateQueries({ queryKey: ["owner", "attention"] });
     },
+    // Approve had no error surface at all: a failed approve looked like nothing happened.
+    onError: (e) => reportError(e, "That image action didn't go through"),
   });
 }
 

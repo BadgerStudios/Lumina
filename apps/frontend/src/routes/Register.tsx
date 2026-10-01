@@ -148,6 +148,23 @@ export function Register() {
     }
   }
 
+  // Held for the owner's age review (owner decision 2026-10-01): the account exists, nothing is
+  // wrong, and the person needs to know what happens next - not a red error under the form.
+  if (register.error instanceof ApiError && register.error.reasonCode === "AGE_REVIEW_PENDING") {
+    return (
+      <div className="lm-route relative flex min-h-app items-center justify-center bg-base-900">
+        <div className="lm-enter-scale w-full max-w-md rounded-md bg-base-800 p-8 text-center shadow-lg">
+          <img src="/icons/logo-128.png" alt="Lumina" className="mx-auto mb-4 h-16 w-16" />
+          <h1 className="mb-2 text-2xl font-bold text-signal">Almost there</h1>
+          <p className="mb-6 text-sm text-base-300">{register.error.message}</p>
+          <Link to="/login" className="text-sm font-medium text-accent hover:underline">
+            Back to sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (awaitingCode) {
     return (
       <div className="lm-route relative flex min-h-app items-center justify-center bg-base-900">

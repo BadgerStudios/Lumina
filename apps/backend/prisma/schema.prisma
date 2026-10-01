@@ -268,6 +268,21 @@ model User {
   // ISO country code from Cloudflare's CF-IPCountry header at signup. Country granularity only:
   // enough to plot a dot on a world map, not enough to locate anyone.
   signupCountry   String?          @db.VarChar(2)
+  // ---- sign-up provenance (owner-only, read through an audited "Provenance" button) ----
+  // What the person signed up from. Kept on the account rather than derived from the first
+  // RefreshToken because a held account (ageReview PENDING) has no session at all.
+  signupIp        String?          @db.VarChar(64)
+  signupUserAgent String?          @db.VarChar(400)
+  signupDevice    String?          @db.VarChar(128)
+  /// X-Client-Type at sign-up: "mobile" (the Android app), "desktop", or null for the web.
+  signupClient    String?          @db.VarChar(32)
+  // ---- age review (owner decision on under-18 and contradictory-age sign-ups) ----
+  /// null = no review needed; PENDING = cannot sign in until the owner decides; APPROVED = decided.
+  /// A denied account is deleted, so DENIED is never stored for long (see owner/age.ts).
+  ageReview       String?          @db.VarChar(16)
+  ageReviewReason String?          @db.VarChar(300)
+  ageReviewedAt   DateTime?
+  ageReviewedById String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -341,6 +356,7 @@ model User {
   giftsReceived          GiftSend[]               @relation("GiftsReceived")
   motdsPublished         Motd[]                   @relation("MotdAuthor")
   deviceTokens           DeviceToken[]
+  appInstallLosses       AppInstallLoss[]
   attachmentsReviewed    Attachment[]             @relation("AttachmentReviewer")
   ticketMessages         TicketMessage[]          @relation("TicketMessageAuthor")
   posts                  Post[]                   @relation("PostAuthor")
@@ -365,6 +381,8 @@ model User {
   /// unchanged one come back the next day. Either alone gets one of the two cases wrong.
   motdSeenId             String?
   motdSeenAt             DateTime?
+
+  @@index([ageReview])
 }
 
 // A "dev portal" app a human user owns. Each Application has exactly one bot User (see
@@ -1548,6 +1566,14 @@ model AccountFlag {
   deviceHash   String?
   reasonCode   String
   detail       String?   @db.VarChar(500)
+  // Plaintext provenance, recorded for age refusals only so the owner can judge a refused sign-up
+  // (typo or real) the way video provenance is judged. Owner-only, audited on read, purged after
+  // 90 days by the worker (provenancePurgedAt). Every other flag stays hash-only.
+  ipAddress    String?   @db.VarChar(64)
+  userAgent    String?   @db.VarChar(400)
+  country      String?   @db.VarChar(2)
+  clientType   String?   @db.VarChar(32)
+  provenancePurgedAt DateTime?
   severity     String    @default("INFO")
   // Whether this flag is currently blocking access, as opposed to being a historical record.
   active       Boolean   @default(true)
@@ -1560,6 +1586,7 @@ model AccountFlag {
   @@index([userId])
   @@index([active, createdAt])
   @@index([deviceHash])
+  @@index([ipAddress])
 }
 
 // A user-created tag on the video feed.
@@ -3410,4 +3437,44 @@ model TranslationCache {
   createdAt DateTime @default(now())
 
   @@id([lang, hash])
+}
+
+/// An app install that went away: its push token came back UNREGISTERED from FCM (the app was
+/// uninstalled, or its data cleared). Recorded when DeviceToken is pruned, by a send or by the daily
+/// validate-only sweep. A token can also be rotated by FCM on a device that keeps the app, so a loss
+/// is marked recovered when the same account registers that app on that platform again within
+/// RECOVERY_DAYS - what is left is a real lost install.
+model AppInstallLoss {
+  id          String    @id @default(cuid())
+  userId      String?
+  app         String
+  platform    String
+  build       Int?
+  installedAt DateTime
+  lostAt      DateTime  @default(now())
+  /// "send" (a real notification bounced) or "sweep" (the daily validate-only check).
+  detectedBy  String    @db.VarChar(16)
+  recoveredAt DateTime?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([lostAt])
+  @@index([userId, app])
+}
+
+/// Download and install numbers from outside Lumina's own site: GitHub release asset downloads
+/// (cumulative, snapshotted hourly) and Google Play's daily install report (per day). One row per
+/// source/day/metric/platform; re-fetching a day overwrites it.
+model StoreStatsSnapshot {
+  id        String   @id @default(cuid())
+  /// "github" | "play"
+  source    String   @db.VarChar(16)
+  day       DateTime @db.Date
+  /// github: "downloads_total" (cumulative). play: "installs" | "uninstalls" | "active_installs".
+  metric    String   @db.VarChar(32)
+  platform  String   @default("all") @db.VarChar(16)
+  value     Int
+  fetchedAt DateTime @default(now()) @updatedAt
+
+  @@unique([source, day, metric, platform])
+  @@index([source, metric, day])
 }

@@ -10,14 +10,17 @@ import { env } from "../../config/env.js";
 import { requireAuth, requireStaff, requireAdmin, requireExecutive, requireOwner } from "../../plugins/authenticate.js";
 import { BadRequestError, NotFoundError } from "../../lib/errors.js";
 import { applyRoleGrant } from "../../lib/roleGrant.js";
-import { assignableRoles, isOwner } from "../../lib/platformRole.js";
+import { assignableRoles, isOwner, ROLE_LADDER } from "../../lib/platformRole.js";
 import { serializeUser } from "../../lib/serialize.js";
 import { serializeVideoWithStatus, VIDEO_AUTHOR_SELECT, VIDEO_TAGS_INCLUDE, VIDEO_SOURCE_INCLUDE } from "../videos/serialize.js";
 import { banUser, liftBan, resolveAppeal } from "../bans/service.js";
 import { getTranscodeQueue } from "../videos/queue.js";
 import { getBandwidthSeries, getDownloadStats, getRevenueStats } from "../metrics/service.js";
+import { getStoreStats } from "../metrics/storeStats.js";
+import { getInstallStats } from "../metrics/installs.js";
 import { isBillingConfigured } from "../billing/stripe.js";
-import { listLinkedAccounts } from "./duplicates.js";
+import { listLinkedAccounts, resolveLinkFlags, LINK_FLAG_CODES } from "./duplicates.js";
+import { registerOwnerAgeRoutes } from "./age.js";
 
 const banSchema = z.object({
   reason: z.string().min(1).max(500),
@@ -49,6 +52,7 @@ const appealResolveSchema = z.object({
  * can actually render it. Changing who holds a role stays with owners.
  */
 export default async function ownerRoutes(fastify: FastifyInstance) {
+  registerOwnerAgeRoutes(fastify);
   /** Headline platform statistics. Every number here is measured, never estimated. */
 /**
  * Who is connected right now, counted from the live socket table rather than from
@@ -113,7 +117,12 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       prisma.message.count({ where: { createdAt: { gte: dayAgo } } }),
       prisma.video.count(),
       prisma.video.count({ where: { status: "PENDING_REVIEW" } }),
-      prisma.videoReport.count({ where: { status: "OPEN" } }),
+      // Video reports AND user/message reports - the tile used to count only the first, so a queue
+      // of reported messages read as zero here while the attention list said otherwise.
+      Promise.all([
+        prisma.videoReport.count({ where: { status: "OPEN" } }),
+        prisma.contentReport.count({ where: { status: { in: ["OPEN", "IN_PROGRESS", "INVESTIGATING"] } } }),
+      ]).then(([v, c]) => v + c),
       prisma.platformBan.count({ where: { appealStatus: "PENDING", liftedAt: null } }),
       prisma.platformBan.count({ where: { scope: "ACCOUNT", liftedAt: null } }),
       prisma.video.aggregate({ _sum: { sizeBytes: true } }),
@@ -123,20 +132,25 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         where: { isBot: false, createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
         select: { createdAt: true },
       }),
-      prisma.message.findMany({
-        where: { createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
-        select: { createdAt: true },
-      }),
+      // Counted per day in the database: loading every message of the month to count them in
+      // memory grows with the platform and was the heaviest thing the dashboard did.
+      prisma.$queryRaw<{ day: Date; n: bigint }[]>`
+        SELECT date_trunc('day', "createdAt") AS day, count(*) AS n FROM "Message"
+         WHERE "createdAt" >= now() - interval '30 days' GROUP BY 1`,
       prisma.video.findMany({
         where: { createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
         select: { createdAt: true },
       }),
-      prisma.accountFlag.count({ where: { reasonCode: { startsWith: "AGE_" } } }),
+      // Blocks in force, not every age event ever recorded (most are informational or resolved).
+      prisma.accountFlag.count({ where: { reasonCode: { startsWith: "AGE_" }, active: true } }),
       countOnline(),
     ]);
 
     const userSeries = bucketByDay(recentUsers.map((u) => u.createdAt), 30);
-    const messageSeries = bucketByDay(recentMessages.map((m) => m.createdAt), 30);
+    const messageSeries = bucketByDay([], 30).map((d) => ({
+      ...d,
+      count: Number(recentMessages.find((r) => r.day.toISOString().slice(0, 10) === d.date)?.n ?? 0),
+    }));
     const videoSeries = bucketByDay(recentVideos.map((v) => v.createdAt), 30);
 
     return {
@@ -286,6 +300,8 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       funnel: { last30Days: last30, allTime },
       reach: { humans, reachable: reachable.size, phones: phones.size, browsers: browsers.size },
       pushes7d: pushes,
+      // Uninstalls seen through dead push tokens (metrics/installs.ts): the users the app has lost.
+      lost: await getInstallStats(30).then((i) => ({ installs30d: i.lostLast30Days, users30d: i.lostUsers30Days, tracking: i.tracking })),
     };
   });
 
@@ -333,7 +349,8 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       // Age reviews waiting on a person. The console has had this queue all along and nothing
       // pointed at it, so the one item here that blocks a real account from being used was the one
       // item the dashboard never mentioned.
-      prisma.manualAgeReview.count({ where: { status: "PENDING" } }),
+      prisma.manualAgeReview.count({ where: { status: "PENDING" } }).then(async (selfies) =>
+        selfies + (await prisma.user.count({ where: { ageReview: "PENDING" } }))),
       // Images on a message somebody reported. Counted separately from the rest of the queue
       // because these are the ones worth opening first, and a single number mixing them in would
       // hide four urgent images behind four hundred ordinary ones.
@@ -385,7 +402,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       items.push({
         kind: "age_review",
         section: "ageReviews",
-        label: `${pendingAgeReviews} age review${pendingAgeReviews === 1 ? "" : "s"} awaiting a decision`,
+        label: `${pendingAgeReviews} sign-up${pendingAgeReviews === 1 ? "" : "s"} waiting for your age decision`,
         count: pendingAgeReviews,
         href: "/owner",
         // Urgent because the account on the other side cannot use the platform until it is answered.
@@ -406,7 +423,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
       const rest = pendingImages - reportedImages;
       items.push({
         kind: "image_review",
-        section: "images",
+        section: "images:pending",
         label: `${rest} image${rest === 1 ? "" : "s"} not yet reviewed`,
         count: rest,
         href: "/owner",
@@ -427,7 +444,8 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     if (openReports > 0) {
       items.push({
         kind: "reports",
-        section: "videos",
+        // Video reports are worked in the ticket queue (tickets/service.ts lists them), not on the Videos page.
+        section: "reports",
         label: `${openReports} open report${openReports === 1 ? "" : "s"}`,
         count: openReports,
         href: "/staff/videos",
@@ -450,7 +468,8 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         label: `${barrierLeaks} case${barrierLeaks === 1 ? "" : "s"} of an adult and a minor able to interact`,
         count: barrierLeaks,
         href: "/owner",
-        section: "reasons",
+        // Opens the catalogue on exactly these flags, with Resolve on each - not the bare list of reasons.
+        section: "reasons:AGE_BARRIER_LEAK",
         severity: "urgent",
       });
     }
@@ -467,10 +486,11 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     if (underageAttempts > 0) {
       items.push({
         kind: "underage_attempts",
-        label: `${underageAttempts} under-18 signup attempt${underageAttempts === 1 ? "" : "s"} this week`,
+        label: `${underageAttempts} age-refused sign-up${underageAttempts === 1 ? "" : "s"} this week`,
         count: underageAttempts,
         href: "/owner",
-        section: "reasons",
+        // The Age reviews section lists them, with the device each came from (Provenance).
+        section: "ageReviews",
         // Nothing to do: each one was refused when it happened. Here to be seen, not actioned.
         severity: "info",
       });
@@ -560,12 +580,15 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
    * where none is being measured.
    */
   fastify.get("/business", { preHandler: [requireAuth, requireExecutive] }, async () => {
-    const [revenue, downloads, bandwidth] = await Promise.all([
+    const [revenue, downloads, bandwidth, store, installs] = await Promise.all([
       getRevenueStats(isBillingConfigured(), 30),
       getDownloadStats(30),
       getBandwidthSeries(30),
+      // GitHub release + Google Play numbers, and lost installs (uninstalls) from push tokens.
+      getStoreStats(30),
+      getInstallStats(30),
     ]);
-    return { revenue, downloads, bandwidth };
+    return { revenue, downloads, bandwidth, store, installs };
   });
 
   /**
@@ -576,7 +599,22 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
    * would defeat the only thing this view is for.
    */
   fastify.get("/duplicates", { preHandler: [requireAuth, requireAdmin] }, async () => {
-    return { groups: await listLinkedAccounts() };
+    // `unlinkedToReview`: flagged sign-ups whose matching account has gone (deleted, or its session
+    // expired out of RefreshToken), so they appear in no group - without this they'd be counted on
+    // the overview forever with nothing on this page to clear them.
+    const groups = await listLinkedAccounts();
+    const shown = new Set(groups.flatMap((g) => g.accounts.map((a) => a.id)));
+    const open = await prisma.accountFlag.findMany({
+      where: { reasonCode: { in: LINK_FLAG_CODES }, resolvedAt: null },
+      select: { userId: true },
+    });
+    return { groups, toReview: open.length, unlinkedToReview: open.filter((f) => !f.userId || !shown.has(f.userId)).length };
+  });
+
+  fastify.post("/duplicates/resolve", { preHandler: [requireAuth, requireAdmin] }, async (request) => {
+    const { userId } = (request.body ?? {}) as { userId?: unknown };
+    if (userId !== undefined && typeof userId !== "string") throw new BadRequestError("userId must be a string");
+    return { ok: true, resolved: await resolveLinkFlags(request.userId!, userId ?? null) };
   });
 
   /** Paginated user directory with search. */
@@ -736,8 +774,16 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     if (!parsed.success) throw new BadRequestError("A ban reason is required");
     if (id === request.userId) throw new BadRequestError("You cannot ban yourself");
 
-    const target = await prisma.user.findUnique({ where: { id }, select: { platformRole: true } });
+    const [target, actor] = await Promise.all([
+      prisma.user.findUnique({ where: { id }, select: { platformRole: true } }),
+      prisma.user.findUnique({ where: { id: request.userId! }, select: { platformRole: true } }),
+    ]);
     if (!target) throw new NotFoundError("User not found");
+    // Only someone below you on the ladder: an admin banning an executive (or a fellow admin) was
+    // allowed, because the one check below only protects owners.
+    if (!actor || ROLE_LADDER.indexOf(target.platformRole) >= ROLE_LADDER.indexOf(actor.platformRole)) {
+      throw new BadRequestError("You can only ban accounts below your own rank");
+    }
     // Rank, not equality. `=== "OWNER"` let an owner ban the MASTER — the one account that can
     // appoint owners — because MASTER is a different string. Anyone at owner level or above is
     // off limits from here; removing their access is a role change, not a ban.
@@ -835,6 +881,10 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     const parsed = appealResolveSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("A response is required");
 
+    // Only an appeal still waiting: deciding one already decided silently overwrote the first answer,
+    // and an unknown group wrote an audit row for a decision that changed nothing.
+    const waiting = await prisma.platformBan.count({ where: { groupId, appealStatus: "PENDING" } });
+    if (waiting === 0) throw new NotFoundError("No appeal is waiting on that ban");
     await resolveAppeal(groupId, request.userId!, parsed.data.approve, parsed.data.response);
     await prisma.staffAuditLog.create({
       data: {

@@ -102,8 +102,8 @@ export function DownloadsRoute() {
             { name: "Lumina on Google Play", detail: "Android · the easiest install, updates automatically", href: "https://play.google.com/store/apps/details?id=com.luxffa.lumina", size: "Play Store", icon: Smartphone },
             { name: "Lumina for Android (APK)", detail: "Install from unknown sources · uninstall it before switching to the Play version", href: "/api/download/android", size: "~9 MB", icon: Smartphone },
             { name: "Lumina for Linux", detail: "AppImage · chmod +x and run", href: "/api/download/desktop", size: "158 MB", icon: Monitor },
-            { name: "Lumina for Windows", detail: "Installer · run it and follow the prompts", href: "/downloads/lumina-windows-setup.exe", size: "130 MB", icon: Monitor },
-            { name: "Lumina for Windows (portable)", detail: "Zip · extract and run Lumina.exe, no install", href: "/downloads/lumina-windows.zip", size: "169 MB", icon: Monitor },
+            { name: "Lumina for Windows", detail: "Installer · run it and follow the prompts", href: "/api/download/windows", size: "130 MB", icon: Monitor },
+            { name: "Lumina for Windows (portable)", detail: "Zip · extract and run Lumina.exe, no install", href: "/api/download/windows-portable", size: "169 MB", icon: Monitor },
           ]}
         />
 

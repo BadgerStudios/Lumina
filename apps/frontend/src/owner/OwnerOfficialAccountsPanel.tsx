@@ -4,6 +4,7 @@ import { BadgeCheck, Copy, Check, Loader2, ShieldOff, ShieldCheck } from "lucide
 import { api } from "../lib/apiClient";
 import { reportError, toast } from "../store/toastStore";
 import { UserAvatar } from "../components/common/UserAvatar";
+import { useConfirm } from "../components/common/ConfirmDialog";
 
 interface OfficialAccount {
   id: string;
@@ -32,6 +33,7 @@ interface GeneratedAccount {
  * identity claim only means something if it comes from somewhere a user can't write to.
  */
 export function OwnerOfficialAccountsPanel() {
+  const { confirm } = useConfirm();
   const queryClient = useQueryClient();
   const accounts = useQuery({
     queryKey: ["master", "official"],
@@ -137,7 +139,18 @@ export function OwnerOfficialAccountsPanel() {
               </div>
               <button
                 type="button"
-                onClick={() => setBadge.mutate({ id: a.id, isOfficial: false })}
+                onClick={async () => {
+                  // Once removed the account leaves this list, so getting the badge back is not one tap.
+                  if (
+                    await confirm({
+                      title: `Remove the official badge from @${a.username}?`,
+                      description: "The account stays; it just stops showing as official and leaves this list.",
+                      confirmText: "Remove badge",
+                      danger: true,
+                    })
+                  )
+                    setBadge.mutate({ id: a.id, isOfficial: false });
+                }}
                 disabled={setBadge.isPending}
                 title="Remove the official badge (keeps the account)"
                 aria-label={`Remove the official badge from ${a.username}`}

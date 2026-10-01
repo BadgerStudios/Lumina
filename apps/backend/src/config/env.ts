@@ -177,6 +177,18 @@ const envSchema = z.object({
   // NOT granted (the band is ignored and we fall back to self-declared) — never trusted unverified.
   GOOGLE_PLAY_PACKAGE_NAME: z.string().optional(),
   GOOGLE_PLAY_INTEGRITY_SA_JSON: z.string().optional(), // service-account JSON (or a path) for Play Integrity API
+
+  // ---- Store download numbers (owner console → Downloads) ----
+  // GitHub release asset downloads come from the public API; a token only raises the rate limit.
+  GITHUB_RELEASES_REPO: z.string().default("BadgerStudios/Lumina"),
+  GITHUB_STATS_TOKEN: z.string().optional(),
+  // Google Play: the Cloud Storage bucket Play Console exports reports to ("pubsite_prod_rev_…",
+  // Play Console → Download reports → Statistics → Copy Cloud Storage URI), and a service account
+  // invited in Play Console (Users and permissions) with "View app information and download bulk
+  // reports". Falls back to the Play Integrity, then the FCM, service account, so inviting one that
+  // already exists is enough. Unset bucket = Play shows as "not connected", never as zero.
+  PLAY_REPORTS_BUCKET: z.string().optional(),
+  PLAY_REPORTS_SA_JSON: z.string().optional(),
   GOOGLE_CLOUD_PROJECT_NUMBER: z.string().optional(),
   APPLE_APP_ATTEST_TEAM_ID: z.string().optional(),
   APPLE_APP_ATTEST_BUNDLE_ID: z.string().optional(),

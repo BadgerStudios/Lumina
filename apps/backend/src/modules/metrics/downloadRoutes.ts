@@ -20,6 +20,9 @@ const RELEASES: Record<string, { file: string; platform: string; contentType: st
   android: { file: "lumina.apk", platform: "android", contentType: "application/vnd.android.package-archive" },
   owner: { file: "lumina-owner.apk", platform: "android-owner", contentType: "application/vnd.android.package-archive" },
   desktop: { file: "lumina-desktop.AppImage", platform: "desktop-linux", contentType: "application/octet-stream" },
+  // Windows was linked straight at /downloads/, so every Windows download went uncounted.
+  windows: { file: "lumina-windows-setup.exe", platform: "desktop-windows", contentType: "application/vnd.microsoft.portable-executable" },
+  "windows-portable": { file: "lumina-windows.zip", platform: "desktop-windows", contentType: "application/zip" },
 };
 
 /** Where compose bind-mounts ./downloads for the frontend container. The backend reads the same

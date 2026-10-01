@@ -100,13 +100,24 @@ export const BLOCK_REASONS: BlockReason[] = [
   },
   {
     code: "AGE_UNDER_MINIMUM",
-    title: "Under 18 — not eligible",
+    title: "Under 13 — not eligible",
     category: "age",
     severity: "HARD_BLOCK",
     userMessage:
-      "You need to be 18 or over to use Lumina. You're welcome to come back when you are.",
+      "You need to be 13 or over to use Lumina. You're welcome to come back when you are.",
     staffNote:
-      "Under 18 by date of birth or by their own selection. Signup refused and the device is placed on a 30-day new-account cooldown — deliberately NOT a permanent ban: permanently banning the people who answer honestly rewards lying, and devices are shared and outlive the condition. Existing accounts on that device are unaffected.",
+      "Birth date under 13. A self-declared under-18 answer is refused outright and the device is placed on a 30-day new-account cooldown — deliberately NOT a permanent ban (see age/service.ts). If an ADULT age range was picked, the account is created but held for the owner's age review instead (owner decision 2026-10-01), because that contradiction is almost always a mistyped year.",
+    selfResolvable: false,
+  },
+  {
+    code: "AGE_REVIEW_PENDING",
+    title: "Waiting for the owner's age decision",
+    category: "age",
+    severity: "SOFT_BLOCK",
+    userMessage:
+      "Your account has been created. Because of the age you entered, the Lumina team checks accounts like yours before they can be used, usually within a day. We'll email you as soon as it's decided.",
+    staffNote:
+      "An under-18 answer (13-17), or an adult range picked with a birth date under 13. The account exists but gets no session until the owner approves (open as chosen) or denies (account deleted, device cooldown) in Age reviews.",
     selfResolvable: false,
   },
   {

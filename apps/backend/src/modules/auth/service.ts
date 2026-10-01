@@ -10,6 +10,8 @@ import {
   signAccessToken,
 } from "../../lib/jwt.js";
 import { MEDIA_COOKIE_NAME, MEDIA_COOKIE_PATH } from "../../lib/mediaAuth.js";
+import { BlockedError } from "../../lib/errors.js";
+import { AGE_REVIEW_PENDING_MESSAGE } from "../owner/ageMessages.js";
 
 export const REFRESH_COOKIE_NAME = "lumina_refresh";
 export const REFRESH_COOKIE_PATH = "/api/auth";
@@ -45,6 +47,11 @@ export function readDeviceFingerprint(request: FastifyRequest): string | null {
 }
 
 export async function issueTokenPair(userId: string, request: FastifyRequest, familyId?: string | null): Promise<IssuedTokens> {
+  // The one place every sign-in path (password, MFA, passkey, refresh) gets a session, so the age
+  // review hold is enforced here rather than in each route: a held account has no way in until the
+  // owner approves it (owner/age.ts).
+  const held = await prisma.user.findUnique({ where: { id: userId }, select: { ageReview: true } });
+  if (held?.ageReview === "PENDING" || held?.ageReview === "DENIED") throw new BlockedError("AGE_REVIEW_PENDING", AGE_REVIEW_PENDING_MESSAGE);
   const accessToken = signAccessToken(userId);
   const refreshToken = generateRefreshToken();
   const tokenHash = hashRefreshToken(refreshToken);

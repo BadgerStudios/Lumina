@@ -249,3 +249,31 @@ export async function sendFcmToToken(
     return true;
   }
 }
+
+/**
+ * Is this token still installed? A `validate_only` send: FCM checks the token exactly as for a real
+ * message but delivers nothing, so the daily sweep can find uninstalled apps without anyone's phone
+ * buzzing. "dead" only for the answers that mean the token will never work again; any other failure
+ * is "unknown", so a network blip is never counted as an uninstall.
+ */
+export async function validateFcmToken(token: string): Promise<"alive" | "dead" | "unknown"> {
+  const account = serviceAccount();
+  if (!account) return "unknown";
+  const bearer = await getAccessToken();
+  if (!bearer) return "unknown";
+  try {
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ validate_only: true, message: { token, data: { type: "ping" } } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return "alive";
+    const body = (await res.json().catch(() => ({}))) as { error?: { status?: string } };
+    const status = body.error?.status;
+    if (res.status === 404 || status === "UNREGISTERED" || status === "NOT_FOUND") return "dead";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}

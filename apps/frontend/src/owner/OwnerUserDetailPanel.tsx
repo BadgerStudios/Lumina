@@ -2,6 +2,7 @@ import { Loader2, X, Monitor, Globe, Shield, MessageSquare, Video, Server as Ser
 import { useOwnerUserDetail } from "../queries/owner";
 import { videoMediaUrl } from "../queries/videos";
 import { UserAvatar } from "../components/common/UserAvatar";
+import { UserProvenance } from "./OwnerProvenance";
 
 /**
  * Everything known about one account, in one place.
@@ -56,6 +57,8 @@ export function OwnerUserDetailPanel({ userId, onClose }: { userId: string; onCl
                   </p>
                 </div>
               </div>
+
+              <UserProvenance userId={userId} />
 
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Stat icon={MessageSquare} label="Messages" value={data.counts.messages} />

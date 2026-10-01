@@ -178,7 +178,8 @@ export function Login() {
           </label>
 
           {login.isError ? (
-            <p className="text-sm text-dnd">
+            // A held sign-up is waiting on a person, not failing: say so in the normal text colour.
+            <p className={login.error instanceof ApiError && login.error.reasonCode === "AGE_REVIEW_PENDING" ? "text-sm text-signal-dim" : "text-sm text-dnd"}>
               {/* A non-ApiError here means something threw client-side AFTER a request the
                   server may have handled successfully — the generic "Login failed" that used to
                   show gave no way to tell those two apart from on-device. Surfacing the real

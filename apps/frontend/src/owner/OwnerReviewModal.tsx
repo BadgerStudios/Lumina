@@ -34,6 +34,10 @@ const SEVERITY: Record<string, StatusState> = {
 
 /** Which panel answers each kind of pending work. */
 function panelFor(section: string) {
+  // "reasons:CODE" opens the reason catalogue with that code already expanded, so an attention
+  // item about one specific reason lands on its flags rather than on a list of every reason.
+  if (section.startsWith("reasons:")) return <OwnerReasonsPanel key={section} initialCode={section.slice(8)} />;
+  if (section === "images:pending") return <OwnerImagesPanel key={section} initialFilter="pending" />;
   switch (section) {
     case "reports":
       return <TicketQueue status="ACTIVE" />;
@@ -54,9 +58,9 @@ function panelFor(section: string) {
   }
 }
 
-export function OwnerReviewModal({ onClose }: { onClose: () => void }) {
+export function OwnerReviewModal({ onClose, initialKind }: { onClose: () => void; initialKind?: string }) {
   const { data, isLoading } = useAttentionItems();
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(initialKind ?? null);
 
   const items = data?.items ?? [];
   // Derived rather than stored, so clearing the last item of a queue moves on instead of leaving

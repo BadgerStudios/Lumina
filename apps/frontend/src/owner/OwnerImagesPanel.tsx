@@ -34,8 +34,8 @@ const FILTERS: Array<{ key: ImageFilter; label: string }> = [
   { key: "removed", label: "Removed" },
 ];
 
-export function OwnerImagesPanel() {
-  const [filter, setFilter] = useState<ImageFilter>("reported");
+export function OwnerImagesPanel({ initialFilter = "reported" }: { initialFilter?: ImageFilter } = {}) {
+  const [filter, setFilter] = useState<ImageFilter>(initialFilter);
   const [removing, setRemoving] = useState<ImageReviewRow | null>(null);
   const { data, isLoading } = useReviewImages(filter);
   const approve = useApproveImage();

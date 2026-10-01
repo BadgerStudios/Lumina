@@ -1,5 +1,6 @@
 import { DollarSign, Download, Gauge, AlertCircle, Loader2 } from "lucide-react";
-import { useBusinessMetrics } from "../queries/owner";
+import { useBusinessMetrics, combinedDownloads } from "../queries/owner";
+import { relativeTime } from "../lib/relativeTime";
 import { Sparkline, MiniBars } from "./Sparkline";
 
 export function formatBytes(bytes: number): string {
@@ -85,29 +86,141 @@ export function DownloadsPanel() {
   const { data, isLoading } = useBusinessMetrics();
   if (isLoading || !data) return <PanelSpinner />;
   const d = data.downloads;
+  const store = data.store;
+  const installs = data.installs;
+  const all = combinedDownloads(data);
+  const siteBy = (p: string) => d.byPlatform.find((x) => x.platform === p)?.count ?? 0;
+  const ghBy = (p: string) => store?.github.byPlatform.find((x) => x.platform === p)?.count ?? 0;
+  // Per day, all sources stacked into one bar so the shape of the week reads at a glance.
+  const daily = d.series.map((s) => {
+    const st = store?.series.find((x) => x.date === s.date);
+    return s.count + (st?.github ?? 0) + (st?.playInstalls ?? 0);
+  });
 
   return (
     <section className="space-y-3">
       <SectionHeading icon={<Download className="h-4 w-4" />}>App downloads</SectionHeading>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Total" value={d.total.toLocaleString()} />
-        <StatTile label="Last 7 days" value={d.last7Days.toLocaleString()} />
-        {d.byPlatform.slice(0, 2).map((p) => (
-          <StatTile key={p.platform} label={p.platform} value={p.count.toLocaleString()} />
-        ))}
+        <StatTile label="All downloads" value={all.total.toLocaleString()} sub="site + GitHub + Google Play" />
+        <StatTile label="Last 7 days" value={all.last7Days.toLocaleString()} />
+        <StatTile
+          label="Uninstalled, 30 days"
+          value={installs ? installs.lostLast30Days.toLocaleString() : "—"}
+          sub={installs ? `${installs.lostUsers30Days} user${installs.lostUsers30Days === 1 ? "" : "s"} lost the app` : undefined}
+          tone={installs && installs.lostLast30Days > 0 ? "warn" : "default"}
+        />
+        <StatTile
+          label="Installed now"
+          value={installs ? installs.activeInstalls.filter((a) => a.app !== "owner").reduce((n, a) => n + a.count, 0).toLocaleString() : "—"}
+          sub="with notifications registered"
+        />
       </div>
+
       <div className="rounded-xl border border-hairline bg-base-800 p-4">
-        <p className="mb-2 text-xs uppercase tracking-wide text-signal-faint">Downloads per day</p>
+        <p className="mb-2 text-xs uppercase tracking-wide text-signal-faint">Downloads per day, all sources</p>
         <div className="text-accent">
-          <MiniBars values={d.series.map((s) => s.count)} height={56} />
+          <MiniBars values={daily} height={56} />
         </div>
-        {/* Stated rather than left to be inferred — the number is honest about what it counts. */}
-        <p className="mt-2 text-xs text-signal-faint">
-          Counts downloads started from the app's own download links. Files fetched directly from
-          /downloads/ bypass the counter.
-        </p>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <SourceCard title="Lumina site" note="Counted download links on the site (Windows counted from build 129).">
+          <Line label="Total" value={d.total - siteBy("android-owner")} />
+          <Line label="Last 7 days" value={d.last7Days} />
+          <Line label="Android APK" value={siteBy("android")} />
+          <Line label="Windows" value={siteBy("desktop-windows")} />
+          <Line label="Linux" value={siteBy("desktop-linux")} />
+          <Line label="Owner console APK" value={siteBy("android-owner")} muted />
+        </SourceCard>
+
+        <SourceCard
+          title="GitHub releases"
+          note={store?.github.updatedAt ? `${store.github.repo} · updated ${relativeTime(store.github.updatedAt)}` : "Not fetched yet — the worker checks hourly."}
+        >
+          <Line label="Total" value={(store?.github.total ?? 0)} />
+          <Line label="Last 7 days" value={store?.github.last7Days ?? 0} />
+          <Line label="Android APK" value={ghBy("android")} />
+          <Line label="Windows" value={ghBy("desktop-windows")} />
+          <Line label="Linux" value={ghBy("desktop-linux")} />
+          <Line label="Owner console APK" value={ghBy("android-owner")} muted />
+        </SourceCard>
+
+        <SourceCard
+          title="Google Play"
+          note={
+            store?.play.connected
+              ? store.play.latestDay
+                ? `Play report through ${store.play.latestDay}${store.play.updatedAt ? ` · fetched ${relativeTime(store.play.updatedAt)}` : ""}`
+                : "Connected — waiting for the first report."
+              : undefined
+          }
+        >
+          {store?.play.connected ? (
+            <>
+              <Line label="Installs (reported)" value={store.play.installsTotal} />
+              <Line label="Installs, 7 days" value={store.play.installsLast7Days} />
+              <Line label="Uninstalls, 7 days" value={store.play.uninstallsLast7Days} />
+              <Line label="Uninstalls, 30 days" value={store.play.uninstallsLast30Days} />
+              <Line label="Active devices" value={store.play.activeInstalls ?? 0} />
+            </>
+          ) : (
+            <p className="text-xs leading-relaxed text-signal-faint">
+              Not connected. In Play Console → Users and permissions, invite{" "}
+              {store?.play.serviceAccount ? (
+                <span className="select-all font-mono text-signal-dim">{store.play.serviceAccount}</span>
+              ) : (
+                "a Google service account"
+              )}{" "}
+              with &ldquo;View app information and download bulk reports&rdquo;, then set PLAY_REPORTS_BUCKET to the bucket from
+              Download reports → Statistics (Copy Cloud Storage URI).
+            </p>
+          )}
+        </SourceCard>
+      </div>
+
+      <div className="rounded-xl border border-hairline bg-base-800 p-4">
+        <p className="mb-2 text-xs uppercase tracking-wide text-signal-faint">Uninstalls per day</p>
+        {installs?.tracking === false ? (
+          <p className="text-xs text-signal-faint">Push (FCM) isn&apos;t configured, so uninstalls can&apos;t be seen.</p>
+        ) : (
+          <>
+            <div className="text-amber">
+              <MiniBars
+                values={(installs?.series ?? []).map((s) => {
+                  const st = store?.series.find((x) => x.date === s.date);
+                  return s.lost + (st?.playUninstalls ?? 0);
+                })}
+                height={40}
+              />
+            </div>
+            <p className="mt-2 text-xs text-signal-faint">
+              An uninstall is seen when the app&apos;s push token stops working: checked on every notification and once a day
+              for every device. Only phones that allowed notifications can be seen; a token FCM simply rotated is not counted.
+              Google Play&apos;s own uninstall numbers are added when Play is connected.
+            </p>
+          </>
+        )}
       </div>
     </section>
+  );
+}
+
+function SourceCard({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5 rounded-xl border border-hairline bg-base-800 p-3">
+      <p className="text-xs uppercase tracking-wide text-signal-faint">{title}</p>
+      <div className="space-y-0.5">{children}</div>
+      {note && <p className="pt-1 text-[11px] text-signal-faint">{note}</p>}
+    </div>
+  );
+}
+
+function Line({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
+  return (
+    <div className={`flex items-baseline justify-between text-sm ${muted ? "text-signal-faint" : "text-signal"}`}>
+      <span className="text-xs text-signal-dim">{label}</span>
+      <span className="font-display">{value.toLocaleString()}</span>
+    </div>
   );
 }
 

@@ -1,3 +1,4 @@
+import { reportError } from "../store/toastStore";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/apiClient";
 
@@ -130,7 +131,11 @@ export function useDecideAgeReview() {
         decision: input.decision,
         note: input.note,
       }),
-    onSuccess: () =>
-      void queryClient.invalidateQueries({ queryKey: ["verification", "owner", "age-reviews"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["verification", "owner", "age-reviews"] });
+      // The overview's "waiting for your age decision" count includes these.
+      void queryClient.invalidateQueries({ queryKey: ["owner", "attention"] });
+    },
+    onError: (e) => reportError(e, "That age decision didn't go through"),
   });
 }

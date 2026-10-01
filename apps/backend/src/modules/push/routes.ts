@@ -14,6 +14,7 @@ import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { requireAuth } from "../../plugins/authenticate.js";
 import { sendPushToUser } from "../../lib/push.js";
+import { markInstallRecovered } from "../metrics/installs.js";
 import { isSoundId } from "@lumina/shared";
 
 const subscribeSchema = z.object({
@@ -76,9 +77,12 @@ export default async function pushRoutes(fastify: FastifyInstance) {
       where: { token: body.token },
       create: { token: body.token, userId: request.userId!, platform: body.platform ?? "android", app: body.app ?? "chat", build: body.build ?? null },
       update: { userId: request.userId!, lastSeenAt: new Date(), ...(body.app ? { app: body.app } : {}), ...(body.build ? { build: body.build } : {}) },
-      select: { messageSound: true, directSound: true, mentionSound: true, channelSound: true },
+      select: { messageSound: true, directSound: true, mentionSound: true, channelSound: true, app: true, platform: true },
     });
-    return { ok: true, ...row };
+    const { app, platform, ...tones } = row;
+    // The same app coming back on this account settles a recent "lost install" (token rotation, reinstall).
+    void markInstallRecovered(request.userId!, app, platform);
+    return { ok: true, ...tones };
   });
 
   const soundsSchema = z.object({

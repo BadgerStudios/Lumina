@@ -433,10 +433,10 @@ function Apps() {
               <span>An installer, or a portable version that runs without installing.</span>
             </div>
             <div className="lm2-app-actions">
-              <a href="/downloads/lumina-windows-setup.exe" className="lm2-btn lm2-btn-quiet">
+              <a href="/api/download/windows" className="lm2-btn lm2-btn-quiet">
                 Download for Windows
               </a>
-              <a href="/downloads/lumina-windows.zip" className="lm2-textlink">
+              <a href="/api/download/windows-portable" className="lm2-textlink">
                 Portable zip
               </a>
             </div>

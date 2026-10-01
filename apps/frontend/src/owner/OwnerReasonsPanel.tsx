@@ -1,10 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, Loader2, ShieldAlert, Info, AlertTriangle, Ban, Check } from "lucide-react";
 import type { BlockReason, BlockSeverity } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { Group } from "./OwnerChrome";
+import { FlagProvenance } from "./OwnerProvenance";
+import { useConfirm } from "../components/common/ConfirmDialog";
+import { reportError } from "../store/toastStore";
+import { useAuthStore } from "../store/authStore";
+import { isOwner } from "../lib/platformRole";
 import { cn } from "../lib/cn";
 
 interface FlagRow {
@@ -18,6 +23,9 @@ interface FlagRow {
   hasDevice: boolean;
   hasIp: boolean;
 }
+
+/** Codes whose flags keep plaintext sign-up provenance (backend flags/service.ts AGE_PROVENANCE_CODES). */
+const AGE_PROVENANCE_CODES = new Set(["AGE_UNDER_MINIMUM", "AGE_MISMATCH", "AGE_SIGNUP_COOLDOWN"]);
 
 const SEVERITY_META: Record<BlockSeverity, { icon: typeof Info; className: string; label: string }> = {
   INFO: { icon: Info, className: "text-signal-faint", label: "Info" },
@@ -33,9 +41,9 @@ const SEVERITY_META: Record<BlockSeverity, { icon: typeof Info; className: strin
  * are what DID happen. Support needs both — someone quotes a code, you look up what it means and
  * then how often it's been firing.
  */
-export function OwnerReasonsPanel() {
+export function OwnerReasonsPanel({ initialCode }: { initialCode?: string } = {}) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialCode ?? null);
   const queryClient = useQueryClient();
 
   const { data: catalogue, isLoading } = useQuery({
@@ -46,17 +54,43 @@ export function OwnerReasonsPanel() {
   const { data: flagData } = useQuery({
     queryKey: ["master", "flags", selected],
     queryFn: () =>
-      api.get<{ flags: FlagRow[]; counts: Record<string, number> }>(
+      api.get<{ flags: FlagRow[]; counts: Record<string, number>; openCounts?: Record<string, number> }>(
         `/master/flags${selected ? `?code=${encodeURIComponent(selected)}` : ""}`,
       ),
   });
 
+  // Both refresh the owner namespace too: the attention list counts open flags, and a resolve that
+  // left "14 age mismatches" on the overview would read as though it hadn't worked.
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["master", "flags"] });
+    void queryClient.invalidateQueries({ queryKey: ["owner"], predicate: (q) => q.queryKey[1] !== "provenance" });
+  };
   const resolve = useMutation({
     mutationFn: (id: string) => api.post(`/master/flags/${id}/resolve`, {}),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["master", "flags"] }),
+    onSuccess: refresh,
+    onError: (e) => reportError(e, "Couldn't resolve that flag"),
+  });
+  const resolveAll = useMutation({
+    mutationFn: (code: string) => api.post<{ resolved: number }>(`/master/flags/resolve-code`, { code }),
+    onSuccess: refresh,
+    onError: (e) => reportError(e, "Couldn't resolve those flags"),
+  });
+  const { confirm } = useConfirm();
+  const owner = isOwner(useAuthStore((s) => s.user?.platformRole));
+
+  // Opened from an attention item: bring that reason into view rather than leaving it somewhere
+  // down a list of a hundred.
+  const selectedRef = useRef<HTMLDivElement | null>(null);
+  const scrolled = useRef(false);
+  useEffect(() => {
+    if (initialCode && !scrolled.current && selectedRef.current) {
+      scrolled.current = true;
+      selectedRef.current.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
   });
 
   const counts = flagData?.counts ?? {};
+  const openCounts = flagData?.openCounts ?? {};
 
   return (
     <div className="space-y-5">
@@ -83,7 +117,7 @@ export function OwnerReasonsPanel() {
               const open = selected === r.code;
               const fired = counts[r.code] ?? 0;
               return (
-                <div key={r.code} className="oc-panel oc-panel-lift overflow-hidden">
+                <div key={r.code} ref={open ? selectedRef : undefined} className="oc-panel oc-panel-lift overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setSelected(open ? null : r.code)}
@@ -107,6 +141,9 @@ export function OwnerReasonsPanel() {
                     <span className="shrink-0 text-right">
                       <span className="oc-num block text-sm text-signal">{fired}</span>
                       <span className="block text-[10px] text-signal-faint">fired</span>
+                      {(openCounts[r.code] ?? 0) > 0 && (
+                        <span className="block text-[10px] text-amber">{openCounts[r.code]} open</span>
+                      )}
                     </span>
                   </button>
 
@@ -123,16 +160,37 @@ export function OwnerReasonsPanel() {
                       </p>
 
                       <div>
-                        <p className="oc-label mb-1.5">Recent occurrences</p>
+                        <div className="mb-1.5 flex items-center gap-2">
+                          <p className="oc-label">Recent occurrences</p>
+                          {owner && (openCounts[r.code] ?? 0) > 1 && (
+                            <button
+                              type="button"
+                              disabled={resolveAll.isPending}
+                              onClick={async () => {
+                                const n = openCounts[r.code] ?? 0;
+                                if (
+                                  await confirm({
+                                    title: `Resolve all ${n} open ${r.code} flags?`,
+                                    description:
+                                      "Marks every open one resolved. Where a flag is what enforces a block (a sign-up cooldown), resolving it lifts the block.",
+                                    confirmText: "Resolve all",
+                                  })
+                                )
+                                  resolveAll.mutate(r.code);
+                              }}
+                              className="ml-auto rounded px-2 py-0.5 text-[11px] text-signal-faint ring-1 ring-hairline hover:text-signal disabled:opacity-50"
+                            >
+                              Resolve all {openCounts[r.code]}
+                            </button>
+                          )}
+                        </div>
                         {!flagData || flagData.flags.length === 0 ? (
                           <p className="text-xs text-signal-faint">None recorded.</p>
                         ) : (
                           <div className="space-y-1">
-                            {flagData.flags.slice(0, 20).map((f) => (
-                              <div
-                                key={f.id}
-                                className="flex items-center gap-2 rounded-lg bg-[var(--oc-bg)] px-2 py-1.5"
-                              >
+                            {flagData.flags.slice(0, 50).map((f) => (
+                              <div key={f.id} className="space-y-1 rounded-lg bg-[var(--oc-bg)] px-2 py-1.5">
+                              <div className="flex items-center gap-2">
                                 {f.user ? (
                                   <UserAvatar
                                     avatarUrl={f.user.avatarUrl}
@@ -159,16 +217,21 @@ export function OwnerReasonsPanel() {
                                 <span className="shrink-0 text-[10px] text-signal-faint">
                                   {new Date(f.createdAt).toLocaleDateString()}
                                 </span>
-                                {f.active && (
+                                {f.active ? (
                                   <button
                                     type="button"
+                                    disabled={resolve.isPending}
                                     onClick={() => resolve.mutate(f.id)}
                                     title="Mark resolved"
-                                    className="shrink-0 text-signal-faint hover:text-pulse"
+                                    className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-signal-faint ring-1 ring-hairline hover:text-pulse disabled:opacity-50"
                                   >
-                                    <Check className="h-3.5 w-3.5" />
+                                    <Check className="h-3 w-3" /> Resolve
                                   </button>
+                                ) : (
+                                  <span className="shrink-0 text-[10px] text-signal-faint">resolved</span>
                                 )}
+                              </div>
+                              {(f.hasIp || f.hasDevice) && AGE_PROVENANCE_CODES.has(f.reasonCode) && <FlagProvenance flagId={f.id} />}
                               </div>
                             ))}
                           </div>
