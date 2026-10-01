@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { requireAuth, requireStaff, requireAdmin } from "../../plugins/authenticate.js";
+import { requireAuth, requireMaster } from "../../plugins/authenticate.js";
 import { approveImage, listImages, removeImage, type ImageFilter } from "./images.js";
 
 const listSchema = z.object({
@@ -36,8 +36,9 @@ const removeSchema = z.object({
  * gate the ban routes themselves carry, and it would be strange for this screen to be the way
  * around it.
  */
+// Image review is MASTER-only (owner decision 2026-10-01): admins, executives and owners do not see it.
 export default async function imageReviewRoutes(fastify: FastifyInstance) {
-  fastify.get("/", { preHandler: [requireAuth, requireStaff] }, async (request) => {
+  fastify.get("/", { preHandler: [requireAuth, requireMaster] }, async (request) => {
     const parsed = listSchema.parse(request.query ?? {});
     return listImages({
       filter: parsed.filter as ImageFilter,
@@ -46,14 +47,14 @@ export default async function imageReviewRoutes(fastify: FastifyInstance) {
     });
   });
 
-  fastify.post("/:id/approve", { preHandler: [requireAuth, requireStaff] }, async (request) => {
+  fastify.post("/:id/approve", { preHandler: [requireAuth, requireMaster] }, async (request) => {
     await approveImage((request.params as { id: string }).id, request.userId!);
     return { ok: true };
   });
 
   fastify.post(
     "/:id/remove",
-    { schema: { body: removeSchema }, preHandler: [requireAuth, requireAdmin] },
+    { schema: { body: removeSchema }, preHandler: [requireAuth, requireMaster] },
     async (request) => {
       const body = request.body as z.infer<typeof removeSchema>;
       return removeImage({

@@ -153,7 +153,7 @@ const NAV_GROUPS: Array<{
     items: [
       { key: "users", label: "Users", icon: Users, minRole: "ADMIN" },
       { key: "videos", label: "Videos", icon: Film },
-      { key: "images", label: "Images", icon: ImageIcon },
+      { key: "images", label: "Images", icon: ImageIcon, minRole: "MASTER" },
       { key: "reports", label: "Tickets", icon: Flag },
       { key: "archive", label: "Ticket archive", icon: Archive },
       { key: "bans", label: "Bans & appeals", icon: Gavel, minRole: "ADMIN" },
@@ -461,7 +461,7 @@ export function OwnerApp() {
               {section === "system" && <SystemSection />}
               {section === "users" && <OwnerUsersPanel />}
               {section === "videos" && <StaffVideosRoute />}
-              {section === "images" && <OwnerImagesPanel />}
+              {section === "images" && isMaster && <OwnerImagesPanel />}
               {/* The same queue the staff suite uses — see components/tickets/TicketQueue. */}
               {section === "reports" && <TicketQueue status="ACTIVE" />}
               {section === "archive" && <TicketQueue status="CLOSED" />}

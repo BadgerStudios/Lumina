@@ -305,7 +305,7 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
     };
   });
 
-  fastify.get("/attention", { preHandler: [requireAuth, requireStaff] }, async () => {
+  fastify.get("/attention", { preHandler: [requireAuth, requireStaff] }, async (request) => {
     // Failed transcodes only count for a week. A FAILED row is terminal — the uploader already saw
     // the reason and the source file is gone — so without a window every old rejection (including
     // the pre-launch test fixtures) would sit in "Needs attention" forever. updatedAt is when the
@@ -505,7 +505,9 @@ async function countOnline(): Promise<{ users: number; bots: number }> {
         severity: "info",
       });
     }
-    return { items };
+    // Image review is MASTER-only: nobody else is shown image queues they cannot open.
+    const viewer = await prisma.user.findUnique({ where: { id: request.userId! }, select: { platformRole: true } });
+    return { items: viewer?.platformRole === "MASTER" ? items : items.filter((i) => !i.section.startsWith("images")) };
   });
 
   /**
