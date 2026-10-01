@@ -30,16 +30,16 @@ struct DecodingTests {
         #expect(server.createdAt.timeIntervalSince1970 > 1_700_000_000)
     }
 
-    @Test("Foundation's stock .iso8601 strategy would have rejected the real payload")
-    func provesTheTrapIsReal() throws {
-        // Guards the fix rather than the behaviour: if someone later "simplifies" LuminaJSON to
-        // `.iso8601`, this test documents precisely what breaks and why the custom strategy exists.
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+    @Test("The fractional part of the real server timestamp is kept, not dropped")
+    func fractionalSecondsArePreserved() throws {
+        // Asserts what OUR decoder guarantees. It used to assert that Foundation's stock `.iso8601`
+        // throws on `.191Z`, which is Apple's behaviour, not ours - newer Foundation accepts it, and
+        // the test went red on CI without anything in Lumina having changed. What matters is that
+        // the milliseconds survive (message ordering and "edited" times depend on them).
         let json = #"{"id":"cm1","name":"T","iconUrl":null,"bannerUrl":null,"accentColor":null,"ownerId":"u1","systemChannelId":null,"createdAt":"2026-08-11T20:11:38.191Z"}"#
-        #expect(throws: (any Error).self) {
-            try decoder.decode(Server.self, from: Data(json.utf8))
-        }
+        let server = try LuminaJSON.decoder.decode(Server.self, from: Data(json.utf8))
+        let fraction = server.createdAt.timeIntervalSince1970.truncatingRemainder(dividingBy: 1)
+        #expect(abs(fraction - 0.191) < 0.001)
     }
 
     @Test("Message ids stay strings and never lose precision")
