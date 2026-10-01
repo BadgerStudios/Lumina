@@ -6,7 +6,7 @@ import { getIO } from "../../realtime/io.js";
 import { requireAuth, requireStaff } from "../../plugins/authenticate.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { parseCursor, parseLimit } from "../../lib/pagination.js";
-import { isAdmin, isOwner } from "../../lib/platformRole.js";
+import { isAdmin, isOwner, ROLE_LADDER } from "../../lib/platformRole.js";
 import { banUser } from "../bans/service.js";
 import { serializeVideoWithStatus, VIDEO_AUTHOR_SELECT, VIDEO_TAGS_INCLUDE, VIDEO_SOURCE_INCLUDE } from "../videos/serialize.js";
 import { VIDEO_DIRS, unlinkOrThrow } from "../videos/storage.js";
@@ -59,7 +59,10 @@ export default async function staffRoutes(fastify: FastifyInstance) {
     const limit = parseLimit(rawLimit);
 
     const videos = await prisma.video.findMany({
-      where: { status, ...(cursor !== undefined ? { id: { lt: cursor } } : {}) },
+      // The pending queue runs oldest-first, so its next page is the ids AFTER the cursor; every other
+      // tab runs newest-first and pages to the ids before it. One `lt` for both made page two of the
+      // pending queue return the rows already shown.
+      where: { status, ...(cursor !== undefined ? { id: status === "PENDING_REVIEW" ? { gt: cursor } : { lt: cursor } } : {}) },
       // Oldest-first for the pending queue (fairness — the longest-waiting upload is reviewed
       // first), newest-first for every retrospective tab.
       orderBy: { id: status === "PENDING_REVIEW" ? "asc" : "desc" },
@@ -137,6 +140,12 @@ export default async function staffRoutes(fastify: FastifyInstance) {
       }
       if (video.authorId === request.userId!) {
         throw new BadRequestError("That video is yours — removing it won't ban you");
+      }
+      // Same rule as the ban route: only someone below the banner's own rank. This path skipped it,
+      // so an admin could ban an executive (or another admin) just by removing their video.
+      const target = await prisma.user.findUnique({ where: { id: video.authorId }, select: { platformRole: true } });
+      if (target && (ROLE_LADDER.indexOf(target.platformRole) >= ROLE_LADDER.indexOf(actor!.platformRole) || isOwner(target.platformRole))) {
+        throw new BadRequestError("You can only ban accounts below your own rank — the video was still removed");
       }
       await banUser({
         userId: video.authorId,

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/apiClient";
 import { reportError } from "../store/toastStore";
+import type { VideoDTO } from "@lumina/shared";
 
 export type TicketCategory = "USER_REPORT" | "SYSTEM_FLAGGED" | "CUSTOMER_SUPPORT";
 export type TicketKind = "message" | "video" | "image" | "user" | "support";
@@ -40,7 +41,24 @@ export interface TicketMessage {
   author: TicketPerson | null;
 }
 
+/** What was actually reported (staff view only). */
+export type TicketTarget =
+  | {
+      kind: "message";
+      messageId: string;
+      content: string;
+      createdAt: string;
+      deleted: boolean;
+      location: string;
+      author: TicketPerson | null;
+      attachments: Array<{ id: string; url: string; fileName: string; mimeType: string; removed: boolean; reported: boolean }>;
+    }
+  | { kind: "video"; video: VideoDTO }
+  | { kind: "user"; user: TicketPerson & { bio: string | null; createdAt: string; isMinor: boolean; banned: boolean } }
+  | { kind: "gone"; what: string };
+
 export interface TicketDetail extends TicketCard {
+  target?: TicketTarget | null;
   messages: TicketMessage[];
 }
 
@@ -82,6 +100,7 @@ function useTicketAction<T>(fn: (args: T) => Promise<unknown>) {
       void queryClient.invalidateQueries({ queryKey: ["ticketQueue"] });
       void queryClient.invalidateQueries({ queryKey: ["ticket"] });
       void queryClient.invalidateQueries({ queryKey: ["owner", "attention"] });
+      void queryClient.invalidateQueries({ queryKey: ["owner", "stats"] });
     },
     onError: (e) => reportError(e, "That action didn't go through"),
   });

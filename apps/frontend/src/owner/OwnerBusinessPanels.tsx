@@ -1,5 +1,5 @@
 import { DollarSign, Download, Gauge, AlertCircle, Loader2 } from "lucide-react";
-import { useBusinessMetrics, combinedDownloads } from "../queries/owner";
+import { useBusinessMetrics, combinedDownloads, combinedDownloadSeries } from "../queries/owner";
 import { relativeTime } from "../lib/relativeTime";
 import { Sparkline, MiniBars } from "./Sparkline";
 
@@ -92,10 +92,7 @@ export function DownloadsPanel() {
   const siteBy = (p: string) => d.byPlatform.find((x) => x.platform === p)?.count ?? 0;
   const ghBy = (p: string) => store?.github.byPlatform.find((x) => x.platform === p)?.count ?? 0;
   // Per day, all sources stacked into one bar so the shape of the week reads at a glance.
-  const daily = d.series.map((s) => {
-    const st = store?.series.find((x) => x.date === s.date);
-    return s.count + (st?.github ?? 0) + (st?.playInstalls ?? 0);
-  });
+  const daily = combinedDownloadSeries(data);
 
   return (
     <section className="space-y-3">

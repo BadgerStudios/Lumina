@@ -17,6 +17,8 @@ interface ActivityEvent {
   active: boolean;
   subject: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
   actor: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
+  /** Who/what a staff action was done to, e.g. "@someone". */
+  target?: string | null;
 }
 
 const SEVERITY_ICON: Record<string, { icon: typeof Info; className: string }> = {
@@ -54,7 +56,12 @@ export function OwnerActivityPanel() {
   const { data, isLoading } = useQuery({
     queryKey: ["master", "activity", filter],
     queryFn: () =>
-      api.get<{ events: ActivityEvent[]; series: Array<{ date: string; count: number }>; activeFlags: number }>(
+      api.get<{
+        events: ActivityEvent[];
+        series: Array<{ date: string; count: number }>;
+        activeFlags: number;
+        last14Days?: { flags: number; staffActions: number; hardBlocks: number };
+      }>(
         `/master/activity${filter === "all" ? "" : `?kind=${filter}`}`,
       ),
     refetchInterval: 30_000,
@@ -68,16 +75,19 @@ export function OwnerActivityPanel() {
     );
   }
 
-  const flagCount = data.events.filter((e) => e.kind === "flag").length;
-  const staffCount = data.events.filter((e) => e.kind === "staff").length;
-  const blocks = data.events.filter((e) => e.severity === "HARD_BLOCK").length;
+  // The 14-day totals come from the server. Counting the rows on screen (the latest 80 of all time)
+  // under a "Last 14 days" heading reported numbers that were neither.
+  const flagCount = data.last14Days?.flags ?? data.events.filter((e) => e.kind === "flag").length;
+  const staffCount = data.last14Days?.staffActions ?? data.events.filter((e) => e.kind === "staff").length;
+  const blocks = data.last14Days?.hardBlocks ?? data.events.filter((e) => e.severity === "HARD_BLOCK").length;
 
   return (
     <div className="space-y-5">
       <Group label="Last 14 days">
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
           <Metric
-            label="Events shown"
+            label="Latest events"
+            sub="newest 80 below"
             value={data.events.length}
             trend={
               <div className="h-full text-accent">
@@ -88,7 +98,8 @@ export function OwnerActivityPanel() {
           <Metric label="System flags" value={flagCount} />
           <Metric label="Staff actions" value={staffCount} />
           <Metric
-            label="Needs review"
+            label="Open flags"
+            sub="all time, still unresolved"
             value={data.activeFlags}
             state={(data.activeFlags > 0 ? "warn" : "good") as StatusState}
           />
@@ -146,7 +157,8 @@ export function OwnerActivityPanel() {
                         </span>
                       )}
                     </p>
-                    {e.detail && <p className="truncate text-xs text-signal-dim">{e.detail}</p>}
+                    {e.detail && <p className="break-words text-xs text-signal-dim">{e.detail}</p>}
+                    {e.target && <p className="text-xs text-signal-faint">→ {e.target}</p>}
                     {person && (
                       <p className="mt-1 flex items-center gap-1.5 text-xs text-signal-faint">
                         <UserAvatar
@@ -158,7 +170,9 @@ export function OwnerActivityPanel() {
                       </p>
                     )}
                   </div>
-                  <span className="oc-num shrink-0 text-xs text-signal-faint">{relativeTime(e.at)}</span>
+                  <span className="oc-num shrink-0 text-xs text-signal-faint" title={new Date(e.at).toLocaleString()}>
+                    {relativeTime(e.at)}
+                  </span>
                 </div>
               );
             })}

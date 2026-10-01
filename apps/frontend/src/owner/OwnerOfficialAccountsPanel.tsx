@@ -5,6 +5,7 @@ import { api } from "../lib/apiClient";
 import { reportError, toast } from "../store/toastStore";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { useConfirm } from "../components/common/ConfirmDialog";
+import { UserSearchInput } from "../components/common/UserSearchInput";
 
 interface OfficialAccount {
   id: string;
@@ -117,6 +118,26 @@ export function OwnerOfficialAccountsPanel() {
         </p>
       </div>
 
+      <div className="flex flex-col gap-2 rounded-lg border border-hairline bg-base-900 p-3">
+        <span className="text-xs font-bold uppercase text-signal-dim">Give the badge to an existing account</span>
+        {/* The badge can be removed above and, until now, never put back: this is the way back, and the
+            way to badge an account that already exists rather than minting a new one. */}
+        <UserSearchInput
+          placeholder="Find an account…"
+          excludeIds={(accounts.data ?? []).map((a) => a.id)}
+          onSelect={async (u) => {
+            if (
+              await confirm({
+                title: `Make @${u.username} official?`,
+                description: "They get the Lumina badge everywhere their name appears. Only you can remove it.",
+                confirmText: "Give badge",
+              })
+            )
+              setBadge.mutate({ id: u.id, isOfficial: true });
+          }}
+        />
+      </div>
+
       <div className="flex flex-col gap-2">
         {accounts.isLoading ? (
           <div className="flex justify-center py-4">
@@ -187,16 +208,28 @@ function GeneratedCredentials({ account, onDone }: { account: GeneratedAccount; 
         reset the account.
       </p>
       <div className="mt-2 flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded bg-base-900 px-2 py-1.5 font-mono text-xs text-signal">
+        <code
+          id="official-generated-password"
+          className="min-w-0 flex-1 select-all break-all rounded bg-base-900 px-2 py-1.5 font-mono text-xs text-signal"
+        >
           {account.password}
         </code>
         <button
           type="button"
           onClick={() => {
-            void navigator.clipboard.writeText(`${account.email}\n${account.password}`).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-            });
+            // The password exists only here, so a copy that silently fails must be loud - some
+            // WebViews refuse the clipboard. Falls back to selecting the text for a manual copy.
+            navigator.clipboard
+              .writeText(`${account.email}\n${account.password}`)
+              .then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              })
+              .catch(() => {
+                toast.error("Couldn't copy automatically - select the password and copy it by hand");
+                const el = document.getElementById("official-generated-password");
+                if (el) window.getSelection()?.selectAllChildren(el);
+              });
           }}
           className="flex shrink-0 items-center gap-1 rounded bg-base-700 px-2 py-1.5 text-xs font-medium text-signal hover:bg-base-600"
         >

@@ -4,6 +4,7 @@ import { useAttentionItems } from "../queries/owner";
 import { StatusDot } from "./OwnerChrome";
 import { TicketQueue } from "../components/tickets/TicketQueue";
 import { OwnerImagesPanel } from "./OwnerImagesPanel";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import { OwnerBansPanel } from "./OwnerPeoplePanels";
 import { OwnerAgeReviewsPanel } from "./OwnerAgeReviewsPanel";
 import { OwnerReasonsPanel } from "./OwnerReasonsPanel";
@@ -61,6 +62,7 @@ function panelFor(section: string) {
 export function OwnerReviewModal({ onClose, initialKind }: { onClose: () => void; initialKind?: string }) {
   const { data, isLoading } = useAttentionItems();
   const [chosen, setChosen] = useState<string | null>(initialKind ?? null);
+  useEscapeKey(onClose);
 
   const items = data?.items ?? [];
   // Derived rather than stored, so clearing the last item of a queue moves on instead of leaving
@@ -69,7 +71,7 @@ export function OwnerReviewModal({ onClose, initialKind }: { onClose: () => void
   const activeItem = items.find((i) => i.kind === active) ?? null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 sm:p-4">
+    <div role="dialog" aria-modal="true" aria-label="Needs review" className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 p-0 sm:p-4">
       <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-none border-[var(--oc-line)] bg-[var(--oc-bg)] sm:rounded-xl sm:border">
         <header
           className="flex shrink-0 items-center gap-3 border-b border-[var(--oc-line)] px-4 py-3"

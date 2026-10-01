@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Check, X, EyeOff, Trash2, Fingerprint } from "lucide-react";
 import { api } from "../lib/apiClient";
+import { useConfirm } from "../components/common/ConfirmDialog";
 import type { VideoDTO } from "@lumina/shared";
 import {
   useStaffVideos,
@@ -70,7 +71,8 @@ export function StaffVideosRoute() {
 }
 
 function QueuePanel({ status }: { status: StaffQueueStatus }) {
-  const { data: videos, isLoading } = useStaffVideos(status);
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useStaffVideos(status);
+  const videos = data?.pages.flat();
 
   if (isLoading) {
     return (
@@ -88,6 +90,17 @@ function QueuePanel({ status }: { status: StaffQueueStatus }) {
       {videos.map((video) => (
         <ReviewCard key={video.id} video={video} status={status} />
       ))}
+      {hasNextPage && (
+        <button
+          type="button"
+          onClick={() => void fetchNextPage()}
+          disabled={isFetchingNextPage}
+          className="col-span-full mx-auto flex items-center gap-2 rounded-lg bg-base-700 px-4 py-2 text-sm text-signal hover:bg-base-600 disabled:opacity-50"
+        >
+          {isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin" />}
+          Load more
+        </button>
+      )}
     </div>
   );
 }
@@ -97,6 +110,7 @@ function ReviewCard({ video, status }: { video: VideoDTO; status: StaffQueueStat
   const reject = useRejectVideo();
   const remove = useRemoveVideo();
   const purge = usePurgeVideoMedia();
+  const { confirm } = useConfirm();
   const [reason, setReason] = useState("");
   const [mode, setMode] = useState<"none" | "reject" | "remove">("none");
   const [banning, setBanning] = useState(false);
@@ -258,7 +272,17 @@ function ReviewCard({ video, status }: { video: VideoDTO; status: StaffQueueStat
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => purge.mutate({ videoId: video.id })}
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: "Purge this video's media?",
+                      description: "The video, its source and its thumbnail are deleted from disk for good. The record and audit trail stay.",
+                      confirmText: "Purge media",
+                      danger: true,
+                    })
+                  )
+                    purge.mutate({ videoId: video.id });
+                }}
                 className="flex items-center gap-1 rounded-lg bg-base-600 px-3 py-1.5 text-sm text-signal disabled:opacity-50"
                 title="Delete the media files. The record and audit trail are kept."
               >

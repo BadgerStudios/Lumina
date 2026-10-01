@@ -1,5 +1,7 @@
 import { Megaphone, Check, X, Loader2 } from "lucide-react";
 import { useAdReviewQueue, useReviewCampaign } from "../../queries/ads";
+import { videoMediaUrl } from "../../queries/videos";
+import { useConfirm } from "../common/ConfirmDialog";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -17,6 +19,7 @@ const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function AdReviewQueue() {
   const queue = useAdReviewQueue();
   const review = useReviewCampaign();
+  const { prompt } = useConfirm();
 
   if (queue.isLoading) {
     return (
@@ -39,7 +42,9 @@ export function AdReviewQueue() {
       {queue.data!.map((c) => (
         <div key={c.id} className="flex items-start gap-3 rounded-lg border border-hairline bg-base-800 p-3">
           {c.video?.thumbnailUrl && (
-            <img src={c.video.thumbnailUrl} alt="" className="h-16 w-10 shrink-0 rounded object-cover" />
+            // Resolved like every other media URL: the bare root-relative path pointed at the wrong
+            // origin inside the Android app, so reviewers approved ads without seeing them.
+            <img src={videoMediaUrl(c.video.thumbnailUrl) ?? ""} alt="" className="h-16 w-10 shrink-0 rounded object-cover" />
           )}
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
@@ -73,10 +78,18 @@ export function AdReviewQueue() {
             </button>
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 // A rejection without a reason is one the advertiser can't act on, so the server
-                // requires one and so does this.
-                const reason = window.prompt("Why is this being rejected?");
+                // requires one and so does this. The themed prompt, not window.prompt, which a
+                // WebView may not show at all.
+                const reason = await prompt({
+                  title: `Reject "${c.name}"?`,
+                  description: "The advertiser sees this reason.",
+                  placeholder: "Why is this being rejected?",
+                  confirmText: "Reject",
+                  danger: true,
+                  required: true,
+                });
                 if (reason?.trim()) review.mutate({ id: c.id, approve: false, reason: reason.trim() });
               }}
               disabled={review.isPending}

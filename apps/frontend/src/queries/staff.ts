@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { VideoDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import type { RemovalBan } from "../components/common/BanOptions";
@@ -17,10 +17,17 @@ export interface StaffAuditEntry {
   actor: { id: string; username: string; displayName: string | null; avatarUrl: string | null } | null;
 }
 
+const STAFF_VIDEO_PAGE = 24;
+
 export function useStaffVideos(status: StaffQueueStatus) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: queryKeys.staffVideos(status),
-    queryFn: () => api.get<VideoDTO[]>(`/staff/videos?status=${status}`),
+    initialPageParam: undefined as string | undefined,
+    // The API pages on an id cursor (`before`); this fetched only the first page, so anything past it
+    // was unreachable from any tab.
+    queryFn: ({ pageParam }) =>
+      api.get<VideoDTO[]>(`/staff/videos?status=${status}&limit=${STAFF_VIDEO_PAGE}${pageParam ? `&before=${pageParam}` : ""}`),
+    getNextPageParam: (last) => (last.length >= STAFF_VIDEO_PAGE ? last[last.length - 1]?.id : undefined),
   });
 }
 
@@ -51,6 +58,9 @@ function useStaffAction<TArgs>(fn: (args: TArgs) => Promise<VideoDTO>) {
       void queryClient.invalidateQueries({ queryKey: ["staffVideos"] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.staffVideoCounts() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.staffAudit() });
+      // The owner Overview and the Needs-attention list count these queues too.
+      void queryClient.invalidateQueries({ queryKey: ["owner", "attention"] });
+      void queryClient.invalidateQueries({ queryKey: ["owner", "stats"] });
     },
     // Without this, a failed moderation action (e.g. two staff racing to decide the same video)
     // looked identical to success — the confirm dialog closed either way with nothing on screen.

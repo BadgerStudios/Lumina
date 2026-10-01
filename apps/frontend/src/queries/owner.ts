@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PlatformRole, UserDTO, VideoDTO } from "@lumina/shared";
 import { api } from "../lib/apiClient";
 import { reportError } from "../store/toastStore";
@@ -143,6 +143,9 @@ export function useOwnerUsers(search: string, page: number) {
         users: OwnerUserRow[];
       }>(`/owner/users?${params.toString()}`);
     },
+    // Keep showing the current rows while the next search loads: without this every keystroke swapped
+    // the list for a full-panel spinner.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -208,8 +211,11 @@ function useOwnerMutation<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
     // user list and the ban list), so the whole owner namespace is refreshed rather than guessing.
     // Provenance is left alone: each read of it writes a staff audit row, so it is fetched only when
     // the owner opens it, never as a side effect of some other action.
-    onSuccess: () =>
-      void queryClient.invalidateQueries({ queryKey: ["owner"], predicate: (q) => q.queryKey[1] !== "provenance" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["owner"], predicate: (q) => q.queryKey[1] !== "provenance" });
+      // A role change made here also changes who is on the Team page (and vice versa).
+      void queryClient.invalidateQueries({ queryKey: ["master", "team"] });
+    },
     // A failed ban, unban, role change, or appeal decision previously failed completely silently
     // — the dialog closed as if it had worked, same root cause as staff.ts/reports.ts before they
     // were fixed earlier this session.
@@ -335,6 +341,15 @@ export function combinedDownloads(b: BusinessMetrics | undefined) {
     total: b.downloads.total - siteOwner + ghUser + (b.store?.play.installsTotal ?? 0),
     last7Days: b.downloads.last7Days + (b.store?.github.last7Days ?? 0) + (b.store?.play.installsLast7Days ?? 0),
   };
+}
+
+/** Per-day downloads across the site, GitHub and Google Play, aligned to the site's 30-day window. */
+export function combinedDownloadSeries(b: BusinessMetrics | undefined): number[] {
+  if (!b) return [];
+  return b.downloads.series.map((s) => {
+    const st = b.store?.series.find((x) => x.date === s.date);
+    return s.count + (st?.github ?? 0) + (st?.playInstalls ?? 0);
+  });
 }
 
 export function useBusinessMetrics() {

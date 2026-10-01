@@ -5,7 +5,7 @@ import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { hashPassword } from "../../lib/password.js";
 import { fitImage } from "../../lib/imageFit.js";
-import { BadRequestError, ConflictError } from "../../lib/errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "../../lib/errors.js";
 
 /**
  * Minting first-party Lumina accounts.
@@ -98,6 +98,9 @@ export async function generateOfficialAccount(params: {
       avatarUrl,
       bio: (params.bio?.trim() || OFFICIAL_BIO).slice(0, 190),
       isOfficial: true,
+      // The address is a placeholder on our own domain that can never receive a code, so the account
+      // would otherwise stay "unverified" forever and be refused by anything that needs a verified email.
+      emailVerifiedAt: new Date(),
       // Age is recorded so these accounts aren't caught by the adult gate on the feed and by
       // canContact() — an official account that cannot be messaged is not much use as a support
       // account. A first-party account is not a person, so the date is nominal rather than false
@@ -155,12 +158,14 @@ export async function listOfficialAccounts() {
 /** Turning the badge off is as important as turning it on: an account that stops being official
  * must stop looking official immediately, without deleting its history. */
 export async function setOfficial(userId: string, isOfficial: boolean) {
-  const user = await prisma.user.update({
+  // 404, not a raw Prisma "record not found" 500, for an id that doesn't exist.
+  const exists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!exists) throw new NotFoundError("That account doesn't exist");
+  return prisma.user.update({
     where: { id: userId },
     data: { isOfficial },
     select: { id: true, username: true, isOfficial: true },
   });
-  return user;
 }
 
 /** The server-level twin of setOfficial. Same tier, same reasoning: the badge is what an

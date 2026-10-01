@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 export type StatusState = "good" | "warn" | "bad" | "idle";
 
@@ -95,11 +96,14 @@ export function Group({
 export function StatusStrip({
   items,
   updating,
+  asOf,
 }: {
   /** An item with `onClick` renders as a button — the strip reports status, but a status that has
    *  something waiting behind it should be a way in rather than only a number to read. */
   items: Array<{ label: string; state: StatusState; detail?: string; onClick?: () => void }>;
   updating?: boolean;
+  /** When the data shown was actually fetched (ms). Falls back to now, which is only ever "when this re-rendered". */
+  asOf?: number;
 }) {
   const worst: StatusState = items.some((i) => i.state === "bad")
     ? "bad"
@@ -150,7 +154,7 @@ export function StatusStrip({
           <span className="oc-live" aria-live="polite">updating…</span>
         ) : (
           <span aria-live="polite">
-            as of {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            as of {new Date(asOf || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
         )}
       </span>
@@ -316,9 +320,10 @@ export function ConfirmRoleChange({
   onCancel: () => void;
 }) {
   const removing = toLabel === "User";
+  useEscapeKey(onCancel);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-base-800 p-4 shadow-xl">
+      <div role="dialog" aria-modal="true" aria-label="Confirm role change" className="w-full max-w-sm rounded-lg bg-base-800 p-4 shadow-xl">
         <h3 className="text-base font-semibold text-signal">
           {removing ? `Remove @${username}'s access?` : `Make @${username} ${toLabel}?`}
         </h3>

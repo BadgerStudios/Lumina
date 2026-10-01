@@ -3,6 +3,7 @@ import { useOwnerUserDetail } from "../queries/owner";
 import { videoMediaUrl } from "../queries/videos";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { UserProvenance } from "./OwnerProvenance";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 /**
  * Everything known about one account, in one place.
@@ -19,10 +20,18 @@ import { UserProvenance } from "./OwnerProvenance";
  */
 export function OwnerUserDetailPanel({ userId, onClose }: { userId: string; onClose: () => void }) {
   const { data, isLoading, error } = useOwnerUserDetail(userId);
+  useEscapeKey(onClose);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-6"
+      // Tapping the dimmed area closes it; a tap inside the sheet doesn't reach this.
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Account details"
         className="flex max-h-[calc(var(--app-height-safe)*0.90)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-hairline bg-base-800 sm:rounded-2xl"
         // Bottom-anchored on a phone and centred on a desktop: the owner console is used on both,
         // and a centred sheet on a 390px screen wastes the half of the height a thumb can reach.

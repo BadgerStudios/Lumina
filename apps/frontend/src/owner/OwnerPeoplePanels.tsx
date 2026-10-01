@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import type { PlatformRole } from "@lumina/shared";
 import {
@@ -16,6 +16,7 @@ import { OwnerUserDetailPanel } from "./OwnerUserDetailPanel";
 import { ROLE_META } from "./roleMeta";
 import { cn } from "../lib/cn";
 import { useConfirm } from "../components/common/ConfirmDialog";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import { useAuthStore } from "../store/authStore";
 import { ROLE_LADDER } from "../lib/platformRole";
 
@@ -48,11 +49,17 @@ function useConfirmedLift() {
  */
 export function OwnerUsersPanel() {
   const [search, setSearch] = useState("");
+  // The box updates instantly; the request waits until typing pauses (one call per word, not per key).
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [page, setPage] = useState(0);
   const [banTarget, setBanTarget] = useState<OwnerUserRow | null>(null);
   const [detailUserId, setDetailUserId] = useState<string | null>(null);
   const [roleChange, setRoleChange] = useState<{ user: OwnerUserRow; role: PlatformRole } | null>(null);
-  const { data, isLoading } = useOwnerUsers(search, page);
+  const { data, isLoading } = useOwnerUsers(query, page);
   const setRole = useSetPlatformRole();
   const liftBan = useConfirmedLift();
   const assignable = data?.assignableRoles ?? [];
@@ -84,8 +91,8 @@ export function OwnerUsersPanel() {
         </div>
       ) : !data || data.users.length === 0 ? (
         <EmptyState
-          title={search ? `No account matches "${search}"` : "No users yet"}
-          hint={search ? "Search covers username, display name and email." : undefined}
+          title={query ? `No account matches "${query}"` : "No users yet"}
+          hint={query ? "Search covers username, display name and email." : undefined}
         />
       ) : (
         <>
@@ -245,12 +252,13 @@ function BanDialog({ user, onClose }: { user: OwnerUserRow | null; onClose: () =
   const [banDevice, setBanDevice] = useState(true);
   const [banIp, setBanIp] = useState(false);
   const banUser = useBanUser();
+  useEscapeKey(onClose);
 
   if (!user) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-md rounded-xl border border-hairline bg-base-800 p-5">
+      <div role="dialog" aria-modal="true" aria-label={`Ban ${user.username}`} className="w-full max-w-md rounded-xl border border-hairline bg-base-800 p-5">
         <h2 className="mb-1 font-display text-lg text-signal">Ban {user.displayName ?? user.username}</h2>
         <p className="mb-4 text-xs text-signal-faint">
           This revokes every active session immediately and blocks the identifiers you select below.

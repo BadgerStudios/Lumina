@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Crown, ShieldCheck, User as UserIcon, Loader2, Upload, CheckCircle2, XCircle, FileText } from "lucide-react";
+import { Crown, ShieldCheck, User as UserIcon, Loader2, Upload, CheckCircle2, XCircle, FileText, Download, Trash2 } from "lucide-react";
 import type { PlatformRole, UserDTO } from "@lumina/shared";
-import { api } from "../lib/apiClient";
+import { api, silentRefresh } from "../lib/apiClient";
+import { useConfirm } from "../components/common/ConfirmDialog";
+import { reportError } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
 import { UserAvatar } from "../components/common/UserAvatar";
 import { UserSearchInput } from "../components/common/UserSearchInput";
@@ -40,6 +42,7 @@ function useGrantRole() {
       void queryClient.invalidateQueries({ queryKey: ["master"] });
       void queryClient.invalidateQueries({ queryKey: ["owner"] });
     },
+    onError: (e) => reportError(e, "Couldn't change that role"),
   });
 }
 
@@ -100,11 +103,10 @@ export function TeamPanel() {
                         key={role}
                         type="button"
                         disabled={grant.isPending}
+                        // Through the same confirmation as every other rank change: "Make Owner" used to
+                        // be one tap from a search result.
                         onClick={() =>
-                          grant.mutate(
-                            { userId: pending.id, platformRole: role },
-                            { onSuccess: () => setPending(null) },
-                          )
+                          setRoleChange({ id: pending.id, username: pending.username, from: "USER", role })
                         }
                         className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
                       >
@@ -232,7 +234,10 @@ export function TeamPanel() {
           pending={grant.isPending}
           onCancel={() => setRoleChange(null)}
           onConfirm={() =>
-            grant.mutate({ userId: roleChange.id, platformRole: roleChange.role }, { onSettled: () => setRoleChange(null) })
+            grant.mutate(
+              { userId: roleChange.id, platformRole: roleChange.role },
+              { onSettled: () => setRoleChange(null), onSuccess: () => setPending(null) },
+            )
           }
         />
       )}
@@ -244,6 +249,9 @@ interface PlatformConfig {
   billing: { stripeSecretKey: boolean; stripePublishableKey: boolean; stripeWebhookSecret: boolean; operational: boolean };
   push: { vapidPublicKey: boolean; vapidPrivateKey: boolean };
   voice: { turnSecret: boolean; turnHost: string };
+  /** Absent from a backend older than build 132. */
+  fcm?: { configured: boolean };
+  stores?: { githubRepo: string; playConnected: boolean; playBucketSet: boolean };
   roles: { masterEmailSet: boolean; ownerCount: number; staffCount: number };
   limits: { maxUploadMb: number; maxVideoUploadMb: number; maxVideoDurationSec: number; maxVideoUploadsPerDay: number };
   environment: string;
@@ -282,6 +290,27 @@ export function ConfigPanel() {
             detail={data.push.vapidPublicKey ? "VAPID keys present" : "Not configured"} />
           <ConfigRow label="Voice relay (TURN)" ok={data.voice.turnSecret}
             detail={data.voice.turnSecret ? data.voice.turnHost : "STUN only — restrictive NATs will fail"} />
+          {data.fcm && (
+            <ConfigRow
+              label="Phone push (FCM)"
+              ok={data.fcm.configured}
+              detail={data.fcm.configured ? "Configured — also how uninstalls are noticed" : "Not configured — no phone notifications, no uninstall tracking"}
+            />
+          )}
+          {data.stores && (
+            <ConfigRow
+              label="Google Play numbers"
+              ok={data.stores.playConnected}
+              detail={
+                data.stores.playConnected
+                  ? "Reading the Play report bucket"
+                  : data.stores.playBucketSet
+                    ? "Bucket set, but no service account could be loaded"
+                    : "Not connected — set PLAY_REPORTS_BUCKET (see Downloads)"
+              }
+            />
+          )}
+          {data.stores && <ConfigRow label="GitHub release numbers" ok detail={data.stores.githubRepo} />}
           <ConfigRow label="Master account" ok={data.roles.masterEmailSet}
             detail={data.roles.masterEmailSet ? "MASTER_EMAIL set" : "Not set"} />
         </div>
@@ -351,6 +380,38 @@ export function BrandKitPanel() {
     queryFn: () => api.get<{ files: BrandFile[] }>("/master/brand-kit"),
   });
 
+  const { confirm } = useConfirm();
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/master/brand-kit/${encodeURIComponent(id)}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["master", "brand-kit"] }),
+    onError: (e) => reportError(e, "Couldn't delete that file"),
+  });
+  const [downloading, setDownloading] = useState<string | null>(null);
+  async function download(f: BrandFile) {
+    setDownloading(f.id);
+    try {
+      // Fetched with the login header and saved from memory: a plain link can't carry the header.
+      const token = useAuthStore.getState().accessToken;
+      const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "/api";
+      const res = await fetch(`${base}/master/brand-kit/${encodeURIComponent(f.id)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(res.status === 404 ? "That file is gone" : `Download failed (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = f.fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (e) {
+      reportError(e, "Couldn't download that file");
+    } finally {
+      setDownloading(null);
+    }
+  }
+
   const upload = useMutation({
     // `File[]`, NOT `FileList`, and that is the entire bug this signature exists to prevent.
     //
@@ -360,8 +421,19 @@ export function BrandKitPanel() {
     // React Query invokes mutationFn asynchronously, so by the time this ran the list had zero
     // entries: a multipart body with no file parts, a 400 in 20ms, and an upload that looked broken
     // for no visible reason. Taking an array forces the caller to snapshot it synchronously.
-    mutationFn: (files: File[]) =>
-      new Promise<{ uploaded: unknown[]; rejected: Array<{ fileName: string; reason: string }> }>((resolve, reject) => {
+    mutationFn: async (files: File[]) => {
+      type Result = { uploaded: unknown[]; rejected: Array<{ fileName: string; reason: string }> };
+      // This upload is its own XHR (for progress), so it never went through apiClient's refresh: on a
+      // session older than the access token's lifetime it just failed with "Unauthorized". One
+      // refresh, one retry, like every other request in the app.
+      try {
+        return await send(files);
+      } catch (e) {
+        if ((e as Error & { status?: number }).status === 401 && (await silentRefresh())) return await send(files);
+        throw e;
+      }
+      function send(files: File[]) {
+        return new Promise<Result>((resolve, reject) => {
         const form = new FormData();
         for (const file of files) form.append("file", file);
         // XHR rather than fetch: a brand kit can be large and fetch cannot report upload progress,
@@ -388,12 +460,14 @@ export function BrandKitPanel() {
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve({ uploaded: body.uploaded ?? [], rejected: body.rejected ?? [] });
           } else {
-            reject(new Error(body.error ?? "Upload failed"));
+            reject(Object.assign(new Error(body.error ?? "Upload failed"), { status: xhr.status }));
           }
         };
         xhr.onerror = () => reject(new Error("Upload failed — check your connection"));
         xhr.send(form);
-      }),
+        });
+      }
+    },
     onSuccess: (result) => {
       setProgress(0);
       // A partly-rejected drop is a success for the files that landed and a failure for the rest.
@@ -491,7 +565,38 @@ export function BrandKitPanel() {
               <div key={f.id} className="flex items-center gap-3 p-3">
                 <FileText className="h-4 w-4 shrink-0 text-signal-faint" />
                 <span className="min-w-0 flex-1 truncate text-sm text-signal">{f.fileName}</span>
-                <span className="shrink-0 text-xs text-signal-faint">{formatBytes(f.sizeBytes)}</span>
+                <span className="shrink-0 text-xs text-signal-faint">
+                  {f.uploadedAt ? `${new Date(f.uploadedAt).toLocaleDateString()} · ` : ""}
+                  {formatBytes(f.sizeBytes)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void download(f)}
+                  disabled={downloading === f.id}
+                  aria-label={`Download ${f.fileName}`}
+                  className="shrink-0 rounded p-1.5 text-signal-faint hover:text-signal disabled:opacity-50"
+                >
+                  {downloading === f.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  disabled={remove.isPending}
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: `Delete ${f.fileName}?`,
+                        description: "It is removed from the server and can't be recovered.",
+                        confirmText: "Delete",
+                        danger: true,
+                      })
+                    )
+                      remove.mutate(f.id);
+                  }}
+                  aria-label={`Delete ${f.fileName}`}
+                  className="shrink-0 rounded p-1.5 text-signal-faint hover:text-dnd disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </div>
             ))}
           </div>

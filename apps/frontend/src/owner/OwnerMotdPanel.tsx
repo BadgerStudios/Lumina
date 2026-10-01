@@ -39,7 +39,11 @@ export function OwnerMotdPanel() {
       }))
     )
       return;
-    await publish.mutateAsync({ title: title.trim() || null, body: body.trim() });
+    try {
+      await publish.mutateAsync({ title: title.trim() || null, body: body.trim() });
+    } catch {
+      return; // the hook already showed why; the draft stays so nothing has to be retyped
+    }
     setTitle("");
     setBody("");
   };

@@ -3,7 +3,7 @@ import { generateOfficialAccount, listOfficialAccounts, setOfficial, setServerOf
 import { z } from "zod";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../db/prisma.js";
@@ -15,6 +15,8 @@ import { assignableRoles } from "../../lib/platformRole.js";
 import { applyRoleGrant } from "../../lib/roleGrant.js";
 import { isBillingConfigured, isWebhookConfigured } from "../billing/stripe.js";
 import { searchBlockReasons } from "@lumina/shared";
+import { isFcmConfigured } from "../../lib/fcm.js";
+import { isPlayConnected } from "../metrics/storeStats.js";
 
 /** Per-file cap for a brand-kit part. Deliberately generous (1GB) — brand kits are working design
  * assets (layered PSDs, whole font families, a zipped style guide, a screen-recording walkthrough)
@@ -225,6 +227,9 @@ export default async function masterRoutes(fastify: FastifyInstance) {
         vapidPrivateKey: configured(env.VAPID_PRIVATE_KEY),
       },
       voice: { turnSecret: configured(env.TURN_SECRET), turnHost: env.TURN_HOST },
+      // Native push (also how uninstalls are noticed) and the store-number sources behind Downloads.
+      fcm: { configured: isFcmConfigured() },
+      stores: { githubRepo: env.GITHUB_RELEASES_REPO, playConnected: isPlayConnected(), playBucketSet: configured(env.PLAY_REPORTS_BUCKET) },
       roles: {
         masterEmailSet: configured(env.MASTER_EMAIL),
         ownerCount: env.OWNER_EMAILS.split(",").filter((e) => e.trim()).length,
@@ -315,7 +320,13 @@ export default async function masterRoutes(fastify: FastifyInstance) {
       // Adding that listener switches the stream into flowing mode the moment it is attached —
       // before pipeline() has wired up its destination — so on a fast upload the first chunks can
       // be emitted to a reader that isn't writing them anywhere yet.
-      await pipeline(part.file, createWriteStream(dest));
+      try {
+        await pipeline(part.file, createWriteStream(dest));
+      } catch (err) {
+        // The connection dropped mid-upload: don't leave a truncated file in the listing's folder.
+        await fs.unlink(dest).catch(() => undefined);
+        throw err;
+      }
       const size = (await fs.stat(dest)).size;
 
       if (part.file.truncated) {
@@ -384,6 +395,49 @@ export default async function masterRoutes(fastify: FastifyInstance) {
       });
     }
     return { files: files.sort((a, b) => (b.uploadedAt ?? "").localeCompare(a.uploadedAt ?? "")) };
+  });
+
+  /** Our own generated ids only (uuid + the original extension) - never a path the caller chose. */
+  const BRAND_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[^/\\\0]{1,10})?$/;
+
+  /** Download one uploaded file. Until now the master could put assets in and never get them back out. */
+  fastify.get("/brand-kit/:id", { preHandler: [requireAuth, requireMaster] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!BRAND_ID.test(id)) throw new NotFoundError("File not found");
+    const file = path.join(env.UPLOADS_DIR, "brand-kit", id);
+    let size: number;
+    try {
+      size = (await fs.stat(file)).size;
+    } catch {
+      throw new NotFoundError("File not found");
+    }
+    let name = id;
+    try {
+      name = (JSON.parse(await fs.readFile(`${file}.meta.json`, "utf8")) as { originalName?: string }).originalName ?? id;
+    } catch {
+      /* no metadata - the stored name will do */
+    }
+    reply.header("Content-Type", "application/octet-stream");
+    reply.header("Content-Length", String(size));
+    reply.header("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    reply.header("Cache-Control", "no-store");
+    return reply.send(createReadStream(file));
+  });
+
+  fastify.delete("/brand-kit/:id", { preHandler: [requireAuth, requireMaster] }, async (request) => {
+    const { id } = request.params as { id: string };
+    if (!BRAND_ID.test(id)) throw new NotFoundError("File not found");
+    const file = path.join(env.UPLOADS_DIR, "brand-kit", id);
+    try {
+      await fs.unlink(file);
+    } catch {
+      throw new NotFoundError("File not found");
+    }
+    await fs.unlink(`${file}.meta.json`).catch(() => undefined);
+    await prisma.staffAuditLog.create({
+      data: { actorId: request.userId!, actionType: "BRAND_KIT_DELETE", targetType: "file", targetId: id, reason: null },
+    });
+    return { ok: true };
   });
 
   /**
@@ -504,6 +558,19 @@ export default async function masterRoutes(fastify: FastifyInstance) {
           }),
     ]);
 
+    // Who each staff action was done to. The audit row only holds an id, which on a timeline reads
+    // as "Ban lifted" with no hint of whom.
+    const userTargetIds = [...new Set(audit.filter((a) => a.targetType === "user").map((a) => a.targetId))];
+    const targetUsers = userTargetIds.length
+      ? new Map((await prisma.user.findMany({ where: { id: { in: userTargetIds } }, select: { id: true, username: true } })).map((u) => [u.id, u.username]))
+      : new Map<string, string>();
+    const targets = new Map(
+      audit.map((a) => [
+        `audit:${a.id}`,
+        a.targetType === "user" ? (targetUsers.has(a.targetId) ? `@${targetUsers.get(a.targetId)}` : "a deleted account") : `${a.targetType} ${a.targetId.length > 14 ? a.targetId.slice(0, 8) + "…" : a.targetId}`,
+      ]),
+    );
+
     const events = [
       ...flags.map((f) => ({
         id: `flag:${f.id}`,
@@ -533,10 +600,13 @@ export default async function masterRoutes(fastify: FastifyInstance) {
 
     // Per-day counts for the feed's chart, so volume is visible without reading every row.
     const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const recent = await prisma.accountFlag.findMany({
-      where: { createdAt: { gte: since } },
-      select: { createdAt: true, severity: true },
-    });
+    const [recent, activeFlagsTotal, staff14, hardBlocks14] = await Promise.all([
+      prisma.accountFlag.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true, severity: true } }),
+      // The real number of open flags, not "how many of the 80 shown happen to be open".
+      prisma.accountFlag.count({ where: { active: true } }),
+      prisma.staffAuditLog.count({ where: { createdAt: { gte: since } } }),
+      prisma.accountFlag.count({ where: { createdAt: { gte: since }, severity: "HARD_BLOCK" } }),
+    ]);
     const buckets = new Map<string, number>();
     for (let i = 13; i >= 0; i--) {
       buckets.set(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10), 0);
@@ -547,9 +617,10 @@ export default async function masterRoutes(fastify: FastifyInstance) {
     }
 
     return {
-      events,
+      events: events.map((e) => ({ ...e, target: e.kind === "staff" ? targets.get(e.id) ?? null : null })),
       series: Array.from(buckets.entries()).map(([date, count]) => ({ date, count })),
-      activeFlags: flags.filter((f) => f.active).length,
+      activeFlags: activeFlagsTotal,
+      last14Days: { flags: recent.length, staffActions: staff14, hardBlocks: hardBlocks14 },
     };
   });
 

@@ -30,7 +30,7 @@ import {
   usePlatformStats,
   useAttentionItems,
   usePlatformHealth,
-  useBusinessMetrics, useGrowth, useEngagement, combinedDownloads } from "../queries/owner";
+  useBusinessMetrics, useGrowth, useEngagement, combinedDownloads, combinedDownloadSeries } from "../queries/owner";
 import {
   RevenuePanel,
   DownloadsPanel,
@@ -226,7 +226,7 @@ export function OwnerApp() {
   const isMaster = checkMaster(role);
   const rank = role ? ROLE_META[role] : null;
 
-  const { data: health, isFetching: healthFetching } = usePlatformHealth();
+  const { data: health, isFetching: healthFetching, dataUpdatedAt: healthAt } = usePlatformHealth();
   const { data: attention } = useAttentionItems();
 
   const groups = NAV_GROUPS.map((g) => ({
@@ -434,7 +434,7 @@ export function OwnerApp() {
 
         {/* Pinned under the header on every section — the answer to "is anything wrong" should not
             depend on which page happens to be open. */}
-        <StatusStrip items={statusItems} updating={healthFetching} />
+        <StatusStrip items={statusItems} updating={healthFetching} asOf={healthAt} />
 
         <main
           className="min-h-0 flex-1 overflow-y-auto p-4"
@@ -731,10 +731,7 @@ function OverviewSection({
             trend={
               business ? (
                 <div className="h-full text-accent">
-                  <MiniBars
-                    values={business.downloads.series.map((s) => s.count)}
-                    height={32}
-                  />
+                  <MiniBars values={combinedDownloadSeries(business)} height={32} />
                 </div>
               ) : undefined
             }
@@ -772,6 +769,7 @@ function OverviewSection({
             label="Open reports"
             value={stats.moderation.openReports}
             state={stats.moderation.openReports > 0 ? "bad" : "good"}
+            onClick={() => onNavigate("reports")}
           />
           <Metric
             label="Appeals"
@@ -785,10 +783,11 @@ function OverviewSection({
             onClick={() => onNavigate("bans")}
           />
           <Metric
-            label="Age blocks"
+            label="Age flags open"
             value={stats.moderation.ageBlocks}
-            sub="under-18 signups refused"
-            onClick={() => onNavigate("activity")}
+            sub="refused or mismatched sign-ups"
+            state={stats.moderation.ageBlocks > 0 ? "warn" : "good"}
+            onClick={() => onNavigate("ageReviews")}
           />
         </div>
       </Group>
@@ -894,8 +893,8 @@ function SystemSection() {
         {diskUsedPct !== null && diskUsedPct > 70 && (
           <p className="flex items-center gap-2 text-xs text-amber">
             <StatusDot state={diskUsedPct > 85 ? "bad" : "warn"} />
-            Uploads are the fastest-growing thing on this host and there are no
-            automated backups yet.
+            Uploads are the fastest-growing thing on this host — worth clearing
+            space before the disk fills.
           </p>
         )}
       </Group>

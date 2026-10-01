@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/apiClient";
 import { reportError } from "../store/toastStore";
 import type { RemovalBan } from "../components/common/BanOptions";
@@ -32,9 +32,14 @@ export interface ImageReviewPage {
 }
 
 export function useReviewImages(filter: ImageFilter) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["owner", "images", filter],
-    queryFn: () => api.get<ImageReviewPage>(`/owner/images?filter=${filter}`),
+    // The server pages at 24 and hands back a cursor; this ignored it, so a queue of 80 reported
+    // images could only ever be worked 24 at a time with no way to see the rest.
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      api.get<ImageReviewPage>(`/owner/images?filter=${filter}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`),
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     // The queue is worked alongside reports arriving, so a stale count is a queue you think is
     // empty. Cheap: one indexed page plus two counts.
     refetchInterval: 60_000,

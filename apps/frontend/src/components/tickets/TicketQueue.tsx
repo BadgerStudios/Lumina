@@ -23,9 +23,12 @@ import {
   type TicketCard as Card,
   type TicketCategory,
   type TicketKind,
+  type TicketTarget,
   type QueueStatus,
 } from "../../queries/tickets";
 import { UserAvatar } from "../common/UserAvatar";
+import { videoMediaUrl } from "../../queries/videos";
+import { attachmentUrl } from "../../lib/apiClient";
 import { useAuthStore } from "../../store/authStore";
 import { relativeTime } from "../../lib/relativeTime";
 import { cn } from "../../lib/cn";
@@ -247,6 +250,106 @@ function TicketRow({
   );
 }
 
+function ReportedContent({ target }: { target: TicketTarget }) {
+  return (
+    <div className="mb-3 rounded-lg border border-flare/30 bg-base-900 p-2.5">
+      <p className="mb-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-flare">What was reported</p>
+
+      {target.kind === "gone" && <p className="text-sm text-signal-faint">{target.what}</p>}
+
+      {target.kind === "message" && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <UserAvatar
+              avatarUrl={target.author?.avatarUrl ?? null}
+              name={target.author?.displayName ?? target.author?.username ?? "?"}
+              size={24}
+            />
+            <div className="min-w-0 text-xs">
+              <span className="text-signal">{target.author?.displayName ?? target.author?.username ?? "[deleted user]"}</span>
+              <span className="text-signal-faint">
+                {" "}
+                · {target.location} · {new Date(target.createdAt).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          {target.deleted && <p className="text-xs text-amber">This message has since been deleted.</p>}
+          {target.content ? (
+            <p className="whitespace-pre-wrap break-words rounded bg-base-800 p-2 text-sm text-signal">{target.content}</p>
+          ) : (
+            !target.attachments.length && <p className="text-xs text-signal-faint">No text in this message.</p>
+          )}
+          {target.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {target.attachments.map((a) =>
+                a.removed ? (
+                  <span key={a.id} className="rounded bg-base-800 px-2 py-1 text-xs text-signal-faint">
+                    {a.fileName} — removed
+                  </span>
+                ) : a.mimeType.startsWith("image/") ? (
+                  <a key={a.id} href={attachmentUrl(a.url)} target="_blank" rel="noreferrer" className="block">
+                    <img
+                      src={attachmentUrl(a.url)}
+                      alt={a.fileName}
+                      loading="lazy"
+                      className={cn("max-h-48 rounded object-contain", a.reported && "ring-2 ring-flare")}
+                    />
+                  </a>
+                ) : (
+                  <a
+                    key={a.id}
+                    href={attachmentUrl(a.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded bg-base-800 px-2 py-1 text-xs text-accent hover:underline"
+                  >
+                    {a.fileName}
+                  </a>
+                ),
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {target.kind === "video" && (
+        <div className="space-y-2">
+          <div className="aspect-video overflow-hidden rounded bg-black">
+            {target.video.playbackUrl ? (
+              <video src={videoMediaUrl(target.video.playbackUrl) ?? undefined} controls preload="metadata" className="h-full w-full object-contain" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-signal-faint">
+                No playable media{target.video.failureReason ? ` — ${target.video.failureReason}` : ""}
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-signal-faint">
+            By {target.video.author?.displayName ?? target.video.author?.username ?? "[deleted user]"} · {(target.video.status ?? "").toLowerCase()}
+            {target.video.caption ? ` · ${target.video.caption}` : ""}
+          </p>
+        </div>
+      )}
+
+      {target.kind === "user" && (
+        <div className="flex items-start gap-2.5">
+          <UserAvatar avatarUrl={target.user.avatarUrl} name={target.user.displayName ?? target.user.username} size={36} />
+          <div className="min-w-0 text-xs">
+            <p className="text-sm text-signal">
+              {target.user.displayName ?? target.user.username} <span className="text-signal-faint">@{target.user.username}</span>
+            </p>
+            <p className="text-signal-faint">
+              Joined {new Date(target.user.createdAt).toLocaleDateString()}
+              {target.user.isMinor ? " · minor account" : ""}
+              {target.user.banned ? " · currently banned" : ""}
+            </p>
+            {target.user.bio && <p className="mt-1 break-words text-signal-dim">{target.user.bio}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Both sides of a ticket, and the decision at the end of it.
  *
@@ -281,6 +384,10 @@ export function TicketConversation({ refId, onClose }: { refId: string; onClose?
       {data.detail && (
         <p className="mb-3 rounded-lg bg-base-900 p-2 text-sm text-signal-dim">{data.detail}</p>
       )}
+
+      {/* The thing that was reported. A report is only a claim about something; the person working
+          it has to be able to look at that something without going hunting for it. */}
+      {data.target && <ReportedContent target={data.target} />}
 
       <div className="mb-3 space-y-2">
         {data.messages.length === 0 ? (

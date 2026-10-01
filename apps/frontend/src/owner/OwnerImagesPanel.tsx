@@ -14,6 +14,7 @@ import { BanOptions, DEFAULT_REMOVAL_BAN, type RemovalBan } from "../components/
 // Media auth differs per platform — a cookie on the web, ?token= inside a native WebView,
 // which can carry neither a header nor our cookie. attachmentUrl is what knows the difference.
 import { attachmentUrl } from "../lib/apiClient";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 /**
  * Image review.
@@ -37,7 +38,11 @@ const FILTERS: Array<{ key: ImageFilter; label: string }> = [
 export function OwnerImagesPanel({ initialFilter = "reported" }: { initialFilter?: ImageFilter } = {}) {
   const [filter, setFilter] = useState<ImageFilter>(initialFilter);
   const [removing, setRemoving] = useState<ImageReviewRow | null>(null);
-  const { data, isLoading } = useReviewImages(filter);
+  const { data: pages, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useReviewImages(filter);
+  // Counts ride on every page; the newest fetch is the freshest. Rows are the pages end to end.
+  const data = pages
+    ? { images: pages.pages.flatMap((p) => p.images), counts: pages.pages[pages.pages.length - 1]!.counts }
+    : undefined;
   const approve = useApproveImage();
 
   return (
@@ -103,6 +108,18 @@ export function OwnerImagesPanel({ initialFilter = "reported" }: { initialFilter
             />
           ))}
         </div>
+      )}
+
+      {hasNextPage && (
+        <button
+          type="button"
+          onClick={() => void fetchNextPage()}
+          disabled={isFetchingNextPage}
+          className="mx-auto flex items-center gap-2 rounded-lg bg-[var(--oc-panel-raised)] px-4 py-2 text-sm text-signal hover:text-white disabled:opacity-50"
+        >
+          {isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin" />}
+          Load more
+        </button>
       )}
 
       {removing && <RemoveDialog image={removing} onClose={() => setRemoving(null)} />}
@@ -233,10 +250,11 @@ function RemoveDialog({ image, onClose }: { image: ImageReviewRow; onClose: () =
   const [banning, setBanning] = useState(false);
   const [ban, setBan] = useState<RemovalBan>(DEFAULT_REMOVAL_BAN);
   const name = image.author?.displayName ?? image.author?.username ?? "this account";
+  useEscapeKey(onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-xl border border-[var(--oc-line)] bg-[var(--oc-panel)] p-4">
+      <div role="dialog" aria-modal="true" aria-label="Remove this image" className="w-full max-w-md rounded-xl border border-[var(--oc-line)] bg-[var(--oc-panel)] p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-display text-base text-signal">Remove this image</h2>
           <button type="button" onClick={onClose} aria-label="Cancel" className="text-signal-faint hover:text-signal">
